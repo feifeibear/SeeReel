@@ -1,5 +1,17 @@
+# Dependencies & build
 node_modules
 dist
-data
+
+# Secrets — never commit real keys (only .env.example with empty placeholders)
 .env
+.env.*
+!.env.example
+*.pem
+*.key
+credentials.json
+secrets/
+
+# Local runtime state — cinema-store may embed TOS presigned URLs (AK id + signatures)
+data/
+
 .DS_Store
