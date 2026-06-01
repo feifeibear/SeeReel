@@ -57,7 +57,7 @@ See [Phase A — Volcengine setup](#phase-a--tell-the-user-volcengine-setup-send
 ```text
 src/server/     Express API, generators (Seedance/Seedream/TOS), store
 src/client/     React + React Flow canvas UI
-skills/         Agent skills (shortdrama, storyboard-imagegen, script-chat)
+.agents/skills/  Agent skills (shortdrama, storyboard-imagegen, script-chat, agent-session)
 scripts/        Smoke tests, demo runs, TOS upload helpers
 docs/           Workflow, canvas model, security notes
 ```
@@ -72,7 +72,7 @@ docs/           Workflow, canvas model, security notes
 | [docs/agent-workflow.md](docs/agent-workflow.md) | Roles and image-provider shapes |
 | [docs/canvas-node-model.md](docs/canvas-node-model.md) | Flow canvas node types |
 | [docs/security-git.md](docs/security-git.md) | What must never be committed |
-| [skills/reelyai-shortdrama/SKILL.md](skills/reelyai-shortdrama/SKILL.md) | End-to-end short-drama skill |
+| [.agents/skills/reelyai-shortdrama/SKILL.md](.agents/skills/reelyai-shortdrama/SKILL.md) | End-to-end short-drama skill |
 
 ---
 
@@ -85,7 +85,7 @@ docs/           Workflow, canvas model, security notes
 
 1. **Use APIs only** — no browser automation. Humans may use `http://localhost:5173` to review; same state as your API calls (`data/cinema-store.json`).
 2. **Run [Initialization](#initialization-every-time-you-take-this-repo) first**. If credentials are missing, **stop real generation** and send the human the [Phase A checklist](#phase-a--tell-the-user-volcengine-setup-send-when-gates-fail); never invent keys.
-3. Load skills (single source: `skills/`; `npm run install:skill` distributes them): `reelyai-shortdrama`, `reelyai-agent-session` (auto-synced into the repo `.cursor/skills/` and `~/.codex|.cursor|.agents/skills/`), and `reelyai-storyboard-imagegen` when you need contact sheets.
+3. Load skills (single source: `.agents/skills/`, the cross-platform standard; `npm run install:skill` mirrors them to every detected runtime — Codex/Claude/Cursor/agents): `reelyai-shortdrama`, `reelyai-agent-session`, and `reelyai-storyboard-imagegen` when you need contact sheets.
 4. **Seedance only fetches `http(s)` references**. Publish local `/media/...` via `POST .../publish-tos` or `PUBLIC_MEDIA_BASE_URL` (not localhost).
 5. Treat **manual web edits as source of truth**; refresh with `GET /api/state` before continuing.
 
@@ -99,7 +99,7 @@ Execute in order. Do not start paid generation until gates pass.
 
 | Step | You run | Pass when |
 | --- | --- | --- |
-| 1 | `npm install` (and `npm run install:skill` if needed) | Skills installed under `~/.codex/skills`, etc. |
+| 1 | `npm install` (and `npm run install:skill` if needed) | Skills mirrored to detected runtimes (`~/.codex|.claude|.cursor|.agents/skills`) |
 | 2 | If no `.env`: `cp .env.example .env` | File exists |
 | 3 | Read `.env` against **credential gates** below | Missing → **Phase A** only |
 | 4 | `npm run dev` in background | `curl -sS "$BASE_URL/api/state"` returns JSON |
@@ -182,7 +182,7 @@ Default **staged confirmation**: pause after `script/generate` and `storyboard` 
 
 **Shot-1 first frame** (only if user asks): `PATCH` `firstFrameAssetId`; asset `mediaUrl` must be `https://`; mutually exclusive with other reference media.
 
-**Endpoints** (curl detail: `skills/reelyai-agent-session/reference.md`):
+**Endpoints** (curl detail: `.agents/skills/reelyai-agent-session/reference.md`):
 
 `GET /api/state` · `POST .../script/generate` · `POST .../storyboard` · `POST /api/shots/:id/generate` · `POST .../poll` · `POST .../storyboards/publish-tos` · `POST .../stitch` · `POST .../stitch/poll`
 

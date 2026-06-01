@@ -33,17 +33,20 @@ Run before using an agent against this repo:
 npm run install:skill
 ```
 
-`skills/` is the single source for every project skill. The installer copies each one
-(`reelyai-shortdrama`, `reelyai-storyboard-imagegen`, `reelyai-script-chat`, `reelyai-agent-session`) to:
+`.agents/skills/` is the single, framework-neutral source for every project skill
+(`reelyai-shortdrama`, `reelyai-storyboard-imagegen`, `reelyai-script-chat`, `reelyai-agent-session`).
+It is the cross-platform standard location, so Codex / Gemini / OpenCode pick it up as a
+project skill directly.
 
-- `~/.codex/skills/<skill>`
-- `~/.cursor/skills/<skill>`
-- `~/.agents/skills/<skill>`
+The installer auto-detects the agent runtimes present on your machine and copies each skill:
 
-`reelyai-agent-session` is additionally synced into the repo's own `.cursor/skills/` so Cursor auto-loads it as a project skill. That in-repo copy is generated and gitignored — always edit the version under `skills/`.
+- to each runtime's global dir: `~/.codex/skills/`, `~/.claude/skills/`, `~/.cursor/skills/`, `~/.agents/skills/`
+- into in-repo project mirrors for Cursor and Claude Code (`.cursor/skills/`, `.claude/skills/`), which are generated and gitignored
 
-Use `--agent codex`, `--agent cursor`, or `--agent agents` to install only one target.
-Use `--skill reelyai-storyboard-imagegen` to install only the storyboard skill.
+Always edit the version under `.agents/skills/`; the per-runtime copies are regenerated from it.
+
+Use `--agent claude` (or `codex` / `cursor` / `agents`, comma-separated) to target specific
+runtimes, `--agent all` to force every known target, and `--skill <name>` for a single skill.
 
 ## Image generation provider shape
 

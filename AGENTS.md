@@ -4,25 +4,29 @@ ReelyAI is an Agent-native short-drama production workstation. Use the agent for
 
 ## Before Work
 
-`npm install` runs a best-effort `postinstall` that installs the shared project skills for local agent runtimes. Refresh them manually when needed:
+This repo is framework-neutral — it works with Codex, Claude Code, Cursor, and any agent that follows the open AGENTS.md / Agent Skills standards:
+
+- **Project context**: `AGENTS.md` (this file). `CLAUDE.md` is a symlink to it so Claude Code loads the same guide natively.
+- **Skills (single source of truth)**: `.agents/skills/`, the cross-platform standard directory. Codex / Gemini / OpenCode read it as a project skill directly.
+
+`npm install` runs a best-effort `postinstall` that mirrors the skills to every agent runtime detected on your machine. Refresh manually anytime:
 
 ```bash
 npm run install:skill
 ```
 
-This installs every project skill under `skills/`, including:
+`install:skill` auto-detects installed runtimes and copies each skill in `.agents/skills/` to that runtime's global dir (`~/.codex|.claude|.cursor|.agents/skills`), plus gitignored in-repo project mirrors for Cursor and Claude Code (`.cursor/skills/`, `.claude/skills/`). Skills shipped:
 
 - `reelyai-shortdrama`: end-to-end short-drama production workflow
 - `reelyai-storyboard-imagegen`: Codex imagegen / `gpt-image-2` cinematic storyboard prompt workflow
 - `reelyai-script-chat`: guided script-development chat flow
-- `reelyai-agent-session`: REST-driven session control (also synced into the repo `.cursor/skills/` for Cursor)
+- `reelyai-agent-session`: REST-driven session control
 
-For a single target:
+Target one or more runtimes, or force all of them:
 
 ```bash
-npm run install:skill -- --agent codex
-npm run install:skill -- --agent cursor
-npm run install:skill -- --agent agents
+npm run install:skill -- --agent claude        # or codex / cursor / agents (comma-separated)
+npm run install:skill -- --agent all
 ```
 
 Skip automatic postinstall writes with:

@@ -21,7 +21,7 @@
 
 1. **只调 API**，不要用浏览器自动化操作 Web（人可在 `http://localhost:5173` 审阅/改稿，与 API 共享 `data/cinema-store.json`）。
 2. **先读完本文「初始化」**，缺凭证时**停止产片**，用下文「告诉用户」模板让人去火山引擎/console 开通；不要编造 key。
-3. 安装并遵循项目 skills（源码统一在 `skills/`，由 `npm run install:skill` 分发）：`reelyai-shortdrama`、`reelyai-agent-session`（自动同步到项目 `.cursor/skills/` 及 `~/.codex|.cursor|.agents/skills/`）、需要故事板时用 `reelyai-storyboard-imagegen`。
+3. 安装并遵循项目 skills（单一源 `.agents/skills/` 为跨平台标准；`npm run install:skill` 自动分发到本机检测到的各 runtime——Codex/Claude/Cursor/agents）：`reelyai-shortdrama`、`reelyai-agent-session`、需要故事板时用 `reelyai-storyboard-imagegen`。
 4. **远端 Seedance 只吃 `http(s)` 参考图**。本地 `/media/...` 必须先 `POST .../publish-tos` 或配置 `PUBLIC_MEDIA_BASE_URL`（不能是 localhost）。
 5. Web 上的人工修改视为**当前真相**；继续前 `GET /api/state` 刷新。
 
@@ -37,7 +37,7 @@ BASE_URL="${REELYAI_AGENT_BASE_URL:-${CINEMA_AGENT_BASE_URL:-http://localhost:51
 
 | 步 | 你执行 | 通过条件 |
 | --- | --- | --- |
-| 1 | `npm install`（需要时 `npm run install:skill`） | 无报错；skills 写入 `~/.codex/skills` 等 |
+| 1 | `npm install`（需要时 `npm run install:skill`） | 无报错；skills 镜像到检测到的 runtime（`~/.codex|.claude|.cursor|.agents/skills`）|
 | 2 | 若无 `.env`：`cp .env.example .env` | 文件存在 |
 | 3 | 读 `.env`，对照下表「凭证门闩」 | 见下文：缺则进入 **Phase A**，不调用 generate |
 | 4 | 后台 `npm run dev` | `curl -sS "$BASE_URL/api/state"` 返回 JSON |
@@ -134,7 +134,7 @@ curl -sS "$BASE_URL/api/state" | head -c 200
 
 **首帧模式（仅 shot 1 且用户明确要求）**：`PATCH` 设 `firstFrameAssetId`；资产 `mediaUrl` 必须是 `https://`；与 `reference_image` 互斥，服务端会剥离其它参考媒体。
 
-**关键端点**（完整 curl 见 `skills/reelyai-agent-session/reference.md`）：
+**关键端点**（完整 curl 见 `.agents/skills/reelyai-agent-session/reference.md`）：
 
 - `GET /api/state`
 - `POST /api/sessions/:sessionId/script/generate`
@@ -167,7 +167,7 @@ flowchart LR
 
 - [AGENTS.md](AGENTS.md) — 媒体、TOS、串行、拼接门闩  
 - [docs/agent-workflow.md](docs/agent-workflow.md) — 角色分工与 image provider 形状  
-- [skills/reelyai-shortdrama/SKILL.md](skills/reelyai-shortdrama/SKILL.md) — 端到端短剧 skill  
+- [.agents/skills/reelyai-shortdrama/SKILL.md](.agents/skills/reelyai-shortdrama/SKILL.md) — 端到端短剧 skill  
 
 ## 人做什么（极简）
 

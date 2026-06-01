@@ -1,16 +1,22 @@
 #!/usr/bin/env node
-import { cp, mkdir, readdir, readFile, rm } from "node:fs/promises";
+import { access, cp, mkdir, readdir, readFile, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(__dirname, "..");
-const skillsRoot = path.join(repoRoot, "skills");
+const home = os.homedir();
+
+// Single, framework-neutral source of truth: the cross-platform standard `.agents/skills/`
+// directory. Codex / Gemini / OpenCode read it as a project skill directly; the other
+// frameworks get a copy via the targets below so no runtime is special-cased in git.
+const skillsRoot = path.join(repoRoot, ".agents", "skills");
+
 const args = process.argv.slice(2);
 const dryRun = args.includes("--dry-run");
 const postinstall = args.includes("--postinstall");
-const agentArg = valueAfter("--agent") || "all";
+const agentArg = valueAfter("--agent"); // undefined / "auto" => detect installed runtimes
 const skillArg = valueAfter("--skill") || "all";
 
 if (postinstall && (process.env.CI || process.env.REELYAI_SKIP_SKILL_INSTALL === "1")) {
@@ -18,53 +24,84 @@ if (postinstall && (process.env.CI || process.env.REELYAI_SKIP_SKILL_INSTALL ===
   process.exit(0);
 }
 
-const skillNames = await resolveSkillNames(skillArg);
-
-const targetRoots = {
-  codex: path.join(os.homedir(), ".codex", "skills"),
-  cursor: path.join(os.homedir(), ".cursor", "skills"),
-  agents: path.join(os.homedir(), ".agents", "skills")
+// Per-framework targets.
+// - `detect`: home config dir whose presence means the runtime is installed on this machine.
+// - `global`: home-level skills dir, shared across all that user's projects.
+// - `projectMirror`: in-repo, gitignored copy for runtimes that do NOT natively read
+//   `.agents/skills/`. Codex/agents read the committed source directly, so they skip this.
+const frameworks = {
+  codex: {
+    detect: path.join(home, ".codex"),
+    global: path.join(home, ".codex", "skills")
+  },
+  claude: {
+    detect: path.join(home, ".claude"),
+    global: path.join(home, ".claude", "skills"),
+    projectMirror: path.join(repoRoot, ".claude", "skills")
+  },
+  cursor: {
+    detect: path.join(home, ".cursor"),
+    global: path.join(home, ".cursor", "skills"),
+    projectMirror: path.join(repoRoot, ".cursor", "skills")
+  },
+  agents: {
+    detect: path.join(home, ".agents"),
+    global: path.join(home, ".agents", "skills")
+  }
 };
 
-// Skills that Cursor must auto-load from inside the repo (project-scoped). They are
-// regenerated here from skills/ so that skills/ stays the single source of truth and the
-// repo's .cursor/skills/ copy never has to be hand-maintained.
-const cursorProjectSkills = new Set(["reelyai-agent-session"]);
-const repoCursorSkillsRoot = path.join(repoRoot, ".cursor", "skills");
-
-const selected = agentArg === "all" ? Object.keys(targetRoots) : splitList(agentArg);
+const skillNames = await resolveSkillNames(skillArg);
+const selected = await resolveFrameworks(agentArg);
 
 for (const key of selected) {
-  const targetRoot = targetRoots[key];
-  if (!targetRoot) {
-    throw new Error(`Unknown agent target "${key}". Use --agent codex,cursor,agents or --agent all.`);
-  }
+  const fw = frameworks[key];
   for (const skillName of skillNames) {
     const sourceDir = path.join(skillsRoot, skillName);
-    const target = path.join(targetRoot, skillName);
-    if (dryRun) {
-      console.log(`[dry-run] ${sourceDir} -> ${target}`);
-      continue;
+    await installCopy(sourceDir, path.join(fw.global, skillName), `${key} global`);
+    if (fw.projectMirror) {
+      await installCopy(sourceDir, path.join(fw.projectMirror, skillName), `${key} project mirror`);
     }
-    await mkdir(path.dirname(target), { recursive: true });
-    await rm(target, { recursive: true, force: true });
-    await cp(sourceDir, target, { recursive: true });
-    console.log(`Installed ${skillName} -> ${target}`);
   }
 }
 
-for (const skillName of skillNames) {
-  if (!cursorProjectSkills.has(skillName)) continue;
-  const sourceDir = path.join(skillsRoot, skillName);
-  const target = path.join(repoCursorSkillsRoot, skillName);
+async function installCopy(sourceDir, target, label) {
   if (dryRun) {
-    console.log(`[dry-run] ${sourceDir} -> ${target}`);
-    continue;
+    console.log(`[dry-run] ${sourceDir} -> ${target} (${label})`);
+    return;
   }
   await mkdir(path.dirname(target), { recursive: true });
   await rm(target, { recursive: true, force: true });
   await cp(sourceDir, target, { recursive: true });
-  console.log(`Synced ${skillName} -> ${target} (Cursor project skill)`);
+  console.log(`Installed ${path.basename(sourceDir)} -> ${target} (${label})`);
+}
+
+async function resolveFrameworks(value) {
+  const all = Object.keys(frameworks);
+  if (value === "all") return all;
+  if (value && value !== "auto") {
+    const list = splitList(value);
+    for (const key of list) {
+      if (!frameworks[key]) {
+        throw new Error(`Unknown agent target "${key}". Use --agent ${all.join(",")} or --agent all.`);
+      }
+    }
+    return list;
+  }
+  // Auto-detect: only touch runtimes that exist on this machine; fall back to all.
+  const detected = [];
+  for (const key of all) {
+    if (await exists(frameworks[key].detect)) detected.push(key);
+  }
+  if (detected.length) {
+    console.log(`Detected agent runtimes: ${detected.join(", ")}`);
+    return detected;
+  }
+  console.log("No agent runtimes detected; installing to all known targets.");
+  return all;
+}
+
+function exists(target) {
+  return access(target).then(() => true).catch(() => false);
 }
 
 function valueAfter(flag) {
@@ -93,9 +130,8 @@ async function listProjectSkills() {
   const names = [];
   for (const entry of entries) {
     if (!entry.isDirectory()) continue;
-    const skillName = entry.name;
-    await readFile(path.join(skillsRoot, skillName, "SKILL.md"), "utf8")
-      .then(() => names.push(skillName))
+    await readFile(path.join(skillsRoot, entry.name, "SKILL.md"), "utf8")
+      .then(() => names.push(entry.name))
       .catch(() => undefined);
   }
   return names.sort();
