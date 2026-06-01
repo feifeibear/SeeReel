@@ -85,7 +85,7 @@ docs/           Workflow, canvas model, security notes
 
 1. **Use APIs only** — no browser automation. Humans may use `http://localhost:5173` to review; same state as your API calls (`data/cinema-store.json`).
 2. **Run [Initialization](#initialization-every-time-you-take-this-repo) first**. If credentials are missing, **stop real generation** and send the human the [Phase A checklist](#phase-a--tell-the-user-volcengine-setup-send-when-gates-fail); never invent keys.
-3. Load skills: `reelyai-shortdrama`, `reelyai-agent-session` (under `.cursor/skills` or `~/.codex/skills`), and `reelyai-storyboard-imagegen` when you need contact sheets.
+3. Load skills (single source: `skills/`; `npm run install:skill` distributes them): `reelyai-shortdrama`, `reelyai-agent-session` (auto-synced into the repo `.cursor/skills/` and `~/.codex|.cursor|.agents/skills/`), and `reelyai-storyboard-imagegen` when you need contact sheets.
 4. **Seedance only fetches `http(s)` references**. Publish local `/media/...` via `POST .../publish-tos` or `PUBLIC_MEDIA_BASE_URL` (not localhost).
 5. Treat **manual web edits as source of truth**; refresh with `GET /api/state` before continuing.
 
@@ -182,7 +182,7 @@ Default **staged confirmation**: pause after `script/generate` and `storyboard` 
 
 **Shot-1 first frame** (only if user asks): `PATCH` `firstFrameAssetId`; asset `mediaUrl` must be `https://`; mutually exclusive with other reference media.
 
-**Endpoints** (curl detail: `.cursor/skills/reelyai-agent-session/reference.md`):
+**Endpoints** (curl detail: `skills/reelyai-agent-session/reference.md`):
 
 `GET /api/state` · `POST .../script/generate` · `POST .../storyboard` · `POST /api/shots/:id/generate` · `POST .../poll` · `POST .../storyboards/publish-tos` · `POST .../stitch` · `POST .../stitch/poll`
 

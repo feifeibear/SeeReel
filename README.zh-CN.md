@@ -21,7 +21,7 @@
 
 1. **只调 API**，不要用浏览器自动化操作 Web（人可在 `http://localhost:5173` 审阅/改稿，与 API 共享 `data/cinema-store.json`）。
 2. **先读完本文「初始化」**，缺凭证时**停止产片**，用下文「告诉用户」模板让人去火山引擎/console 开通；不要编造 key。
-3. 安装并遵循项目 skills：`reelyai-shortdrama`、`.cursor/skills/reelyai-agent-session`（或 `~/.codex/skills` 里的同名 skill）、需要故事板时用 `reelyai-storyboard-imagegen`。
+3. 安装并遵循项目 skills（源码统一在 `skills/`，由 `npm run install:skill` 分发）：`reelyai-shortdrama`、`reelyai-agent-session`（自动同步到项目 `.cursor/skills/` 及 `~/.codex|.cursor|.agents/skills/`）、需要故事板时用 `reelyai-storyboard-imagegen`。
 4. **远端 Seedance 只吃 `http(s)` 参考图**。本地 `/media/...` 必须先 `POST .../publish-tos` 或配置 `PUBLIC_MEDIA_BASE_URL`（不能是 localhost）。
 5. Web 上的人工修改视为**当前真相**；继续前 `GET /api/state` 刷新。
 
@@ -134,7 +134,7 @@ curl -sS "$BASE_URL/api/state" | head -c 200
 
 **首帧模式（仅 shot 1 且用户明确要求）**：`PATCH` 设 `firstFrameAssetId`；资产 `mediaUrl` 必须是 `https://`；与 `reference_image` 互斥，服务端会剥离其它参考媒体。
 
-**关键端点**（完整 curl 见 `.cursor/skills/reelyai-agent-session/reference.md`）：
+**关键端点**（完整 curl 见 `skills/reelyai-agent-session/reference.md`）：
 
 - `GET /api/state`
 - `POST /api/sessions/:sessionId/script/generate`

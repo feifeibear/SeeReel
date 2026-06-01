@@ -33,13 +33,14 @@ Run before using an agent against this repo:
 npm run install:skill
 ```
 
-This copies `skills/reelyai-shortdrama` to:
+`skills/` is the single source for every project skill. The installer copies each one
+(`reelyai-shortdrama`, `reelyai-storyboard-imagegen`, `reelyai-script-chat`, `reelyai-agent-session`) to:
 
-- `~/.codex/skills/reelyai-shortdrama`
-- `~/.cursor/skills/reelyai-shortdrama`
-- `~/.agents/skills/reelyai-shortdrama`
+- `~/.codex/skills/<skill>`
+- `~/.cursor/skills/<skill>`
+- `~/.agents/skills/<skill>`
 
-It also installs any other project skills under `skills/`, including `reelyai-storyboard-imagegen` for cinematic Codex imagegen / `gpt-image-2` storyboard contact sheets.
+`reelyai-agent-session` is additionally synced into the repo's own `.cursor/skills/` so Cursor auto-loads it as a project skill. That in-repo copy is generated and gitignored — always edit the version under `skills/`.
 
 Use `--agent codex`, `--agent cursor`, or `--agent agents` to install only one target.
 Use `--skill reelyai-storyboard-imagegen` to install only the storyboard skill.

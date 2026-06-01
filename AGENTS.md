@@ -14,6 +14,8 @@ This installs every project skill under `skills/`, including:
 
 - `reelyai-shortdrama`: end-to-end short-drama production workflow
 - `reelyai-storyboard-imagegen`: Codex imagegen / `gpt-image-2` cinematic storyboard prompt workflow
+- `reelyai-script-chat`: guided script-development chat flow
+- `reelyai-agent-session`: REST-driven session control (also synced into the repo `.cursor/skills/` for Cursor)
 
 For a single target:
 

@@ -26,6 +26,12 @@ const targetRoots = {
   agents: path.join(os.homedir(), ".agents", "skills")
 };
 
+// Skills that Cursor must auto-load from inside the repo (project-scoped). They are
+// regenerated here from skills/ so that skills/ stays the single source of truth and the
+// repo's .cursor/skills/ copy never has to be hand-maintained.
+const cursorProjectSkills = new Set(["reelyai-agent-session"]);
+const repoCursorSkillsRoot = path.join(repoRoot, ".cursor", "skills");
+
 const selected = agentArg === "all" ? Object.keys(targetRoots) : splitList(agentArg);
 
 for (const key of selected) {
@@ -45,6 +51,20 @@ for (const key of selected) {
     await cp(sourceDir, target, { recursive: true });
     console.log(`Installed ${skillName} -> ${target}`);
   }
+}
+
+for (const skillName of skillNames) {
+  if (!cursorProjectSkills.has(skillName)) continue;
+  const sourceDir = path.join(skillsRoot, skillName);
+  const target = path.join(repoCursorSkillsRoot, skillName);
+  if (dryRun) {
+    console.log(`[dry-run] ${sourceDir} -> ${target}`);
+    continue;
+  }
+  await mkdir(path.dirname(target), { recursive: true });
+  await rm(target, { recursive: true, force: true });
+  await cp(sourceDir, target, { recursive: true });
+  console.log(`Synced ${skillName} -> ${target} (Cursor project skill)`);
 }
 
 function valueAfter(flag) {
