@@ -14,4 +14,10 @@ secrets/
 # Local runtime state — cinema-store may embed TOS presigned URLs (AK id + signatures)
 data/
 
+# Local agent runtime locks/state
+.claude/
+
+# Local agent runtime locks
+.claude/
+
 .DS_Store

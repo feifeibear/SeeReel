@@ -20,17 +20,23 @@ Treat ReelyAI as an Agent-native short-drama production workstation, not just a 
    - Production preview: `NODE_ENV=production PORT=5174 npm run start`
    - On this host, use Node 22 in `PATH` if build/dev has Rollup native module issues.
 2. Create or select a session. A short drama is one session.
+   - **When the user starts from a reference video, do NOT bare-create with `POST /api/sessions` and hand-append shots.** Use the built-in reference-video analysis workflow: `POST /api/assets/upload-video` → `POST /api/assets/:assetId/analyze-video` to populate `asset.parsedShots`, then in the Flow canvas apply parsed entries onto session shots from the reference-video Inspector. The same asset can also be bound as `referenceVideoAssetId` when the user wants Seedance to follow the clip's motion/framing as a licensed or self-owned reference.
+   - Bare `POST /api/sessions` is only the right entry when the user is starting from a written premise/script with no reference video.
 3. Work with the user in chat to shape the premise, characters, tone, shot count, and duration.
+   - **Default cadence: prefer fewer, longer shots.** A 60s short drama defaults to **4 shots × 15s** (Seedance 2.0 supports up to 15s per generation). Long shots make character + scene consistency easier and reduce cut-induced drift. Only break a shot into shorter segments when the action genuinely demands a hard cut (e.g. POV change, time jump, location change).
+   - Inside each long shot, plan a beat timeline (`0-3s … / 3-7s … / 7-12s … / 12-15s …`). Pass that timeline through to the Seedance prompt so the model paces correctly. The companion `seedance-prompt-craft` skill has the full 6-element template.
 4. Save the story plan and shots through app APIs or existing scripts so the web app reflects the work.
 5. Generate or import reference images.
    - Use Codex imagegen when available for high-quality storyboards or character/scene references.
    - For cinematic storyboard contact sheets, follow the companion `reelyai-storyboard-imagegen` skill.
    - Import images into shot sketches with `POST /api/shots/:shotId/sketches/import`.
+   - **Storyboard-as-reference (preferred for long shots):** generate a per-shot 2×2 storyboard image whose four panels encode the in-shot beats (`0-3s / 3-7s / 7-12s / 12-15s`), and attach it as a regular `reference_image` (NOT as `firstFrameAssetId`). The new `POST /api/shots/:shotId/storyboard-ref` route handles this end-to-end with VLM iteration. First-frame mode is mutually exclusive with reference_image attachments — only use first-frame when you genuinely need a locked opening composition (e.g. a single-character close-up).
    - Keep sketches shot-scoped unless the user explicitly wants a reusable global asset.
 6. Publish local references before video generation.
    - Remote Seedance cannot consume local `/media/...` URLs.
    - Use `POST /api/sessions/:sessionId/storyboards/publish-tos` or the web button "故事板 TOS".
    - If using private TOS buckets, leave `TOS_PUBLIC_BASE_URL` empty so ReelyAI stores pre-signed URLs.
+   - Seedream-4.5 generations come back with public TOS https URLs already; storyboard-ref images created via the new route do not need a separate publish-tos step.
 7. Generate shots serially unless the user explicitly asks for parallel generation.
    - For continuity, let shot N+1 wait until shot N is ready.
    - Preserve "参考上一个分镜" semantics: use the full previous shot by default unless the user overrides duration; cap to the previous shot duration.
@@ -52,6 +58,35 @@ Treat ReelyAI as an Agent-native short-drama production workstation, not just a 
 - Codex imagegen storyboards should usually be compressed before ToS publish when Seedance fetches time out.
 - Keep `first_frame` mode separate from generic `reference_image` mode. Do not mix first-frame/last-frame payloads with generic reference media in the same request.
 
+## Reference-video remake (Seedance `reference_video`)
+
+ReelyAI lets a shot bind one whole video as Seedance's `reference_video` slot. The model will follow that clip's motion, framing, and pacing while the prompt drives subject and style. Use this for the user's own footage, licensed B-roll, agent-generated test patterns, or a previously-rendered ReelyAI shot you want to reframe — never for third-party copyrighted footage being repurposed via character substitution.
+
+Mode mutual exclusivity (server enforces this in `submitShotGeneration`): reference-video > sub-shot grid > first/last-frame. Setting `referenceVideoAssetId` automatically wins over previous-shot continuity for that shot.
+
+Four steps end-to-end:
+
+1. **Upload the video as an Asset.** Raw bytes, content-type `video/*`:
+   ```bash
+   curl -X POST "$BASE/api/assets/upload-video?ownerSessionId=$SID&filename=clip.mp4" \
+     -H 'Content-Type: video/mp4' --data-binary @clip.mp4
+   ```
+   - The endpoint writes locally, then auto-publishes to TOS if `hasTosConfig()` returns true. **The server process must have `TOS_ACCESS_KEY_ID / TOS_SECRET_ACCESS_KEY / TOS_REGION / TOS_BUCKET` in its environment** — `dotenv/config` loads them from `.env` only if the file is present at server cwd. If the resulting `asset.mediaUrl` starts with `/media/...`, TOS is misconfigured and Seedance won't be able to fetch the file; restart the server with the env loaded.
+   - Verify `asset.mediaKind === "video"` and `asset.mediaUrl` is `https://...`.
+
+2. **Bind the asset to a shot:**
+   ```bash
+   curl -X PATCH "$BASE/api/shots/$SHOT" -H 'Content-Type: application/json' \
+     -d "{\"referenceVideoAssetId\":\"$ASSET\"}"
+   ```
+   The Flow Inspector also exposes a per-shot toggle (`src/client/flow/Inspector.tsx`, panel "用作视频参考(Seedance reference_video)").
+
+3. **Generate as usual.** `POST /api/shots/:shotId/generate` — the generate path resolves `useReferenceVideoMode` and passes `mediaUrl` through to Seedance with `role: "reference_video"`. The render snapshot stores `referenceVideoAssetId` so the audit trail is intact.
+
+4. **Stitch when ready.** Standard `POST /api/sessions/:sessionId/stitch`.
+
+Verification quick-check after a render lands: pull the render record from `/api/state` and confirm `renders[-1].referenceVideoAssetId` matches the bound asset id. If absent, the shot fell back to a different mode (most common cause: a `firstFrameAssetId` or `subShotStoryboardAssetId` is also set on the same shot, and one of those took precedence).
+
 ## Useful API endpoints
 
 - `GET /api/state`
@@ -61,8 +96,10 @@ Treat ReelyAI as an Agent-native short-drama production workstation, not just a 
 - `PATCH /api/sessions/:sessionId/script`
 - `POST /api/sessions/:sessionId/storyboard`
 - `POST /api/sessions/:sessionId/storyboards/publish-tos`
-- `PATCH /api/shots/:shotId`
+- `POST /api/assets/upload-video` ← raw video bytes; auto-publishes to TOS for `referenceVideoAssetId` use
+- `PATCH /api/shots/:shotId` ← whitelist includes `referenceVideoAssetId`
 - `POST /api/shots/:shotId/sketches/import`
+- `POST /api/shots/:shotId/storyboard-ref` ← per-shot 2×2 plot-beat reference, VLM-iterated, attached as `reference_image`
 - `POST /api/shots/:shotId/generate`
 - `POST /api/shots/:shotId/poll`
 - `POST /api/sessions/:sessionId/stitch`

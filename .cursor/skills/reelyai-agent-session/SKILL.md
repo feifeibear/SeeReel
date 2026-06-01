@@ -12,7 +12,7 @@ reelyai-agent is a dual-entry short-film production workspace:
 - Humans use the web app to inspect, edit, and debug sessions, shots, assets, prompts, renders, and final videos.
 - Codex uses this skill to drive the same sessions through the REST API, so all AI-created intermediate results remain visible and editable in the web app.
 
-Do not use libtv for this workflow. Use only the reelyai-agent web/API surface and the providers wired into the project, including Seedance, Seedream, and OpenAI.
+Use only the reelyai-agent web/API surface and the providers wired into the project, including Seedance, Seedream, and OpenAI. Do not route this workflow through external video-canvas products or third-party automation surfaces.
 
 ## Defaults
 

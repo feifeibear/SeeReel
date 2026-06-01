@@ -8,6 +8,22 @@ import { pipeline } from "node:stream/promises";
 import type { ReadableStream as WebReadableStream } from "node:stream/web";
 import ffmpeg from "@ffmpeg-installer/ffmpeg";
 import type { Asset, AssetImageModel, SessionWithShots, Shot, StoryBeat, StoryPlan } from "../shared/types";
+import { composeSeedanceVideoText, composeSeedreamAssetPrompt, type Lang } from "./promptCompose";
+import { fetchWithRetry } from "./fetchWithRetry";
+
+export interface BuildSeedancePayloadOpts {
+  /** Override the assembled text content. Used when the user audited & edited the dryRun preview. */
+  prebuiltText?: string;
+  /** Output language for the auto-composed text. Default `"zh"`. Ignored when `prebuiltText` is set. */
+  lang?: Lang;
+  /**
+   * Per-shot override for Seedance's `generate_audio` flag. `true` forces audio on, `false`
+   * forces audio off, `undefined` falls through to env `SEEDANCE_GENERATE_AUDIO` (default true
+   * unless that env equals "false"). Used when the caller wants a clean silent video — Seedance's
+   * auto-generated dialogue is often gibberish and cleaner to suppress than to direct via prompt.
+   */
+  generateAudio?: boolean;
+}
 
 export const MEDIA_DIR = path.resolve(process.cwd(), "data", "media");
 const BYTEPLUS_SEEDANCE_BASE = "https://ark.ap-southeast.bytepluses.com/api/v3";
@@ -363,14 +379,47 @@ function formatAssetMention(name: string) {
   return name.replace(/\s*\/\s*/g, "/").replace(/\s+/g, "");
 }
 
+export interface SeedreamGenerateOpts {
+  /** Override the assembled Seedream prompt verbatim (post user-edit from dryRun preview). */
+  promptOverride?: string;
+  /** Output language for the auto-composed prompt. Default `"zh"`. Ignored when promptOverride is set. */
+  lang?: Lang;
+}
+
+export interface AssetImageResult {
+  url: string;
+  /** The Seedream prompt actually submitted (audit trail). Empty for placeholder / OpenAI paths. */
+  composedPrompt: string;
+  /** The model variant that actually produced the image. Can differ from the request after fallback. */
+  model: AssetImageModel;
+}
+
 export async function generateAssetImage(
   asset: Asset,
   model: AssetImageModel = "seedream-4-5",
-  referenceImageUrls: string[] = []
-) {
-  if (model === "seedream-4-5") return generateAssetImageViaSeedream(asset, referenceImageUrls, "seedream-4-5");
-  if (model === "seedream-4") return generateAssetImageViaSeedream(asset, referenceImageUrls, "seedream-4");
-  return generateAssetImageViaOpenAI(asset, referenceImageUrls);
+  referenceImageUrls: string[] = [],
+  opts: SeedreamGenerateOpts = {}
+): Promise<AssetImageResult> {
+  if (model === "seedream-4-5") {
+    try {
+      return await generateAssetImageViaSeedream(asset, referenceImageUrls, "seedream-4-5", opts);
+    } catch (error) {
+      // Some Ark / BytePlus accounts or regions have Seedream 4.0 enabled but not the newer 4.5
+      // model. The canvas picker defaults to 4.5, so without this fallback "出图" hard-fails with
+      // InvalidEndpointOrModel.NotFound even though a working Seedream model is configured.
+      if (!isMissingSeedreamModelError(error)) throw error;
+      console.warn(`[seedream] ${asset.id} requested seedream-4-5 but model is unavailable; falling back to seedream-4`);
+      return await generateAssetImageViaSeedream(asset, referenceImageUrls, "seedream-4", opts);
+    }
+  }
+  if (model === "seedream-4") return generateAssetImageViaSeedream(asset, referenceImageUrls, "seedream-4", opts);
+  const url = await generateAssetImageViaOpenAI(asset, referenceImageUrls);
+  return { url, composedPrompt: "", model: "gpt-image-2" };
+}
+
+function isMissingSeedreamModelError(error: unknown) {
+  const message = error instanceof Error ? error.message : String(error);
+  return /InvalidEndpointOrModel\.NotFound|model or endpoint .* does not exist|does not have access/i.test(message);
 }
 
 export async function expandAssetPrompt(asset: Partial<Asset>) {
@@ -380,8 +429,15 @@ export async function expandAssetPrompt(asset: Partial<Asset>) {
   if (!apiKey) return { prompt: fallback, model: "local-template" };
 
   const apiBase = (process.env.SEED_PROMPT_API_BASE || process.env.SEEDANCE_API_BASE || BYTEPLUS_SEEDANCE_BASE).replace(/\/$/, "");
-  const response = await fetch(`${apiBase}/responses`, {
+  // Wrapped in fetchWithRetry — when BytePlus throws a transient "fetch failed" / 5xx, we
+  // silently retry with backoff instead of bubbling the network blip up to the user. The user's
+  // prompt-expansion request is read-only on BytePlus's side (no content created) so retry-on-
+  // timeout is safe.
+  const response = await fetchWithRetry(`${apiBase}/responses`, {
     method: "POST",
+    timeoutMs: 60_000,
+    idempotent: true,
+    tag: "doubao:expand-prompt",
     headers: {
       ...jsonHeaders(apiKey),
       "ark-beta-mcp": "true"
@@ -416,7 +472,19 @@ export async function expandAssetPrompt(asset: Partial<Asset>) {
   const text = await response.text();
   if (!response.ok) throw new Error(`Seed prompt API failed: ${response.status} ${text.slice(0, 1000)}`);
   const body = text ? JSON.parse(text) : {};
-  return { prompt: extractResponseText(body) || fallback, model };
+  const expanded = (extractResponseText(body) || "").trim();
+  return { prompt: isNoOpPromptExpansion(expanded, asset) ? fallback : expanded, model };
+}
+
+function isNoOpPromptExpansion(expanded: string, asset: Partial<Asset>) {
+  if (!expanded) return true;
+  const rawPrompt = [asset.name, asset.description || asset.prompt].filter(Boolean).join("，").trim();
+  if (!rawPrompt) return false;
+  return normalizePromptForNoOpCheck(expanded) === normalizePromptForNoOpCheck(rawPrompt);
+}
+
+function normalizePromptForNoOpCheck(value: string) {
+  return value.replace(/[\s，。,.；;：:、|/\\*_`"'“”‘’（）()【】\[\]{}<>《》-]+/g, "").toLowerCase();
 }
 
 async function generateAssetImageViaOpenAI(asset: Asset, referenceImageUrls: string[] = []) {
@@ -424,18 +492,19 @@ async function generateAssetImageViaOpenAI(asset: Asset, referenceImageUrls: str
   if (!apiKey) {
     return `https://placehold.co/1024x1024/1f2937/f8fafc?text=${encodeURIComponent(asset.name)}`;
   }
-  // gpt-image-2 does not accept reference URLs through this endpoint; we only attach a textual hint.
-  const referenceHint = referenceImageUrls.length
-    ? "\nReference: keep the source image identity, pose, expression, silhouette, color pattern, texture, and composition. If the source is low resolution or blurry, enhance clarity without changing the subject."
-    : "";
-
-  const response = await fetch("https://api.openai.com/v1/images/generations", {
+  const usableRefs = await prepareOpenAIReferenceImages(referenceImageUrls);
+  const prompt = `${asset.prompt || asset.description || asset.name}
+Asset type: ${asset.type}. Clean production reference image, no text overlay.
+${usableRefs.length ? "Use the attached input images as strict visual references for the main subjects. Preserve their faces, styling, wardrobe, silhouette, age, and identity. Do not invent replacement protagonists." : ""}`;
+  const endpoint = usableRefs.length ? "edits" : "generations";
+  const response = await fetch(`https://api.openai.com/v1/images/${endpoint}`, {
     method: "POST",
     headers: jsonHeaders(apiKey),
     body: JSON.stringify({
       model: process.env.OPENAI_IMAGE_MODEL || "gpt-image-2",
-      prompt: `${asset.prompt || asset.description || asset.name}\nAsset type: ${asset.type}. Clean production reference image, no text overlay.${referenceHint}`,
-      size: "1024x1024"
+      prompt,
+      ...(usableRefs.length ? { images: usableRefs.map((url) => ({ image_url: url })) } : {}),
+      size: process.env.OPENAI_IMAGE_SIZE || "1536x1024"
     })
   });
 
@@ -455,61 +524,135 @@ async function generateAssetImageViaOpenAI(asset: Asset, referenceImageUrls: str
   throw new Error("OpenAI image API returned no image");
 }
 
+async function prepareOpenAIReferenceImages(urls: string[]) {
+  const results: string[] = [];
+  for (const url of urls) {
+    if (!url) continue;
+    if (url.startsWith("data:image/")) {
+      results.push(url);
+      continue;
+    }
+    if (url.startsWith("/media/")) {
+      const dataUrl = await readLocalMediaAsDataUrl(url);
+      if (dataUrl) results.push(dataUrl);
+      continue;
+    }
+    if (/^https?:\/\//.test(url)) {
+      results.push(await downloadImageAsDataUrl(url));
+    }
+  }
+  return results;
+}
+
+async function downloadImageAsDataUrl(url: string) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 45_000);
+  try {
+    const response = await fetch(url, { signal: controller.signal });
+    if (!response.ok) throw new Error(`${response.status} ${response.statusText}`);
+    const contentType = response.headers.get("content-type") || "image/jpeg";
+    const bytes = Buffer.from(await response.arrayBuffer());
+    return `data:${contentType};base64,${bytes.toString("base64")}`;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 type SeedreamVariant = "seedream-4" | "seedream-4-5";
 
 const SEEDREAM_DEFAULT_MODEL: Record<SeedreamVariant, string> = {
-  "seedream-4": "seedream-4-0-250828",
-  "seedream-4-5": "seedream-4-5-251128"
+  "seedream-4": "doubao-seedream-4-0-250828",
+  "seedream-4-5": "doubao-seedream-4-5-251128"
 };
 
 // The 4.5 model accepts the same OpenAI-compatible image-generation request shape as 4.0
 // (model + prompt + size + optional image references). We keep a per-variant model id and a shared
 // SEEDREAM_SIZE so callers can override either independently.
-function resolveSeedreamModelId(variant: SeedreamVariant) {
-  if (variant === "seedream-4-5") {
-    return process.env.SEEDREAM_45_MODEL || process.env.SEEDREAM_4_5_MODEL || SEEDREAM_DEFAULT_MODEL["seedream-4-5"];
-  }
-  return process.env.SEEDREAM_MODEL || SEEDREAM_DEFAULT_MODEL["seedream-4"];
+// Keep operator-provided model ids authoritative. BytePlus ModelArk commonly uses the short ids
+// (`seedream-4-5-251128` / `seedream-4-0-250828`), while Volcengine Ark may expose the
+// `doubao-...` ids. Do NOT normalize unconditionally; instead try alternates only after the first
+// id returns InvalidEndpointOrModel.NotFound.
+function seedreamModelAlternates(modelId: string) {
+  const ids = [modelId];
+  if (modelId.startsWith("seedream-")) ids.push(`doubao-${modelId}`);
+  if (modelId.startsWith("doubao-seedream-")) ids.push(modelId.replace(/^doubao-/, ""));
+  return [...new Set(ids)];
+}
+
+function resolveSeedreamModelIds(variant: SeedreamVariant) {
+  const model = variant === "seedream-4-5"
+    ? process.env.SEEDREAM_45_MODEL || process.env.SEEDREAM_4_5_MODEL || SEEDREAM_DEFAULT_MODEL["seedream-4-5"]
+    : process.env.SEEDREAM_MODEL || SEEDREAM_DEFAULT_MODEL["seedream-4"];
+  return seedreamModelAlternates(model);
 }
 
 async function generateAssetImageViaSeedream(
   asset: Asset,
   referenceImageUrls: string[] = [],
-  variant: SeedreamVariant = "seedream-4-5"
+  variant: SeedreamVariant = "seedream-4-5",
+  opts: SeedreamGenerateOpts = {}
 ) {
   const apiKey = process.env.SEEDREAM_API_KEY || process.env.BP_ARK_API_KEY || process.env.ARK_API_KEY;
   if (!apiKey) {
-    return `https://placehold.co/2048x2048/1f2937/f8fafc?text=${encodeURIComponent(asset.name)}`;
+    return {
+      url: `https://placehold.co/2048x2048/1f2937/f8fafc?text=${encodeURIComponent(asset.name)}`,
+      composedPrompt: "",
+      model: variant
+    };
   }
 
   const usableRefs = await prepareSeedreamReferenceImages(referenceImageUrls, asset.id);
-  const referenceHint = usableRefs.length
-    ? "\nReference image attached: preserve the original subject as much as possible: same animal/person/object identity, silhouette, pose, expression, gaze direction, head angle, color pattern, texture, and composition. If the reference is low resolution or blurry, enhance clarity, recover detail, upscale cleanly, and remove compression artifacts without changing the subject."
-    : "";
+
+  // Compose prompt: caller override > centralized composer (zh by default).
+  const lang: Lang = opts.lang === "en" ? "en" : "zh";
+  const composedPrompt = opts.promptOverride && opts.promptOverride.trim().length > 0
+    ? opts.promptOverride
+    : composeSeedreamAssetPrompt(asset, usableRefs.length > 0, lang).composedPrompt;
 
   const apiBase = (process.env.SEEDREAM_API_BASE || process.env.SEEDANCE_API_BASE || BYTEPLUS_SEEDANCE_BASE).replace(/\/$/, "");
-  const response = await fetch(`${apiBase}/images/generations`, {
-    method: "POST",
-    headers: jsonHeaders(apiKey),
-    body: JSON.stringify({
-      model: resolveSeedreamModelId(variant),
-      prompt: `${asset.prompt || asset.description || asset.name}\nAsset type: ${asset.type}. Clean production reference image, no text overlay.${referenceHint}`,
-      ...(usableRefs.length ? { image: usableRefs.length === 1 ? usableRefs[0] : usableRefs } : {}),
-      sequential_image_generation: "disabled",
-      response_format: "url",
-      size: process.env.SEEDREAM_SIZE || "2K",
-      stream: false,
-      watermark: false
-    })
-  });
+  // Default to Seedream 4K for higher-fidelity role/scene anchors. Env override still wins so ops
+  // can temporarily lower cost/latency without touching code.
+  const size = process.env.SEEDREAM_SIZE || "4K";
+  // Seedream image generation: a POST that creates a result, not a side-effecting "create task"
+  // — Seedream's API is request/response (the response body IS the image URL), so retry-on-
+  // timeout is safe (no orphaned task to clean up). Wrap in fetchWithRetry so transient
+  // "fetch failed" / 5xx don't kill the user's gen.
+  const modelIds = resolveSeedreamModelIds(variant);
+  let lastMissingModelError: unknown;
+  for (const modelId of modelIds) {
+    const response = await fetchWithRetry(`${apiBase}/images/generations`, {
+      method: "POST",
+      timeoutMs: 240_000,
+      idempotent: true,
+      tag: `seedream:asset:${asset.id}`,
+      headers: jsonHeaders(apiKey),
+      body: JSON.stringify({
+        model: modelId,
+        prompt: composedPrompt,
+        ...(usableRefs.length ? { image: usableRefs.length === 1 ? usableRefs[0] : usableRefs } : {}),
+        response_format: "url",
+        size,
+        stream: false,
+        watermark: false
+      })
+    });
 
-  const text = await response.text();
-  const body = text ? JSON.parse(text) : {};
-  if (!response.ok) throw new Error(`Seedream image API failed: ${response.status} ${text.slice(0, 1000)}`);
+    const text = await response.text();
+    const body = text ? JSON.parse(text) : {};
+    if (!response.ok) {
+      const error = new Error(`Seedream image API failed: ${response.status} ${text.slice(0, 1000)}`);
+      if (isMissingSeedreamModelError(error) && modelId !== modelIds[modelIds.length - 1]) {
+        lastMissingModelError = error;
+        continue;
+      }
+      throw error;
+    }
 
-  const imageUrl = findUrl(body, ["url", "image_url"]);
-  if (imageUrl) return imageUrl;
-  throw new Error(`Seedream image API returned no image url: ${JSON.stringify(body).slice(0, 1000)}`);
+    const imageUrl = findUrl(body, ["url", "image_url"]);
+    if (imageUrl) return { url: imageUrl, composedPrompt, model: variant };
+    throw new Error(`Seedream image API returned no image url: ${JSON.stringify(body).slice(0, 1000)}`);
+  }
+  throw lastMissingModelError instanceof Error ? lastMissingModelError : new Error(`Seedream model unavailable: ${modelIds.join(" / ")}`);
 }
 
 async function prepareSeedreamReferenceImages(urls: string[], assetId: string) {
@@ -560,11 +703,11 @@ export function canUseBytePlusSeedance() {
   return Boolean(!process.env.SEEDANCE_API_URL && (process.env.BP_ARK_API_KEY || process.env.SEEDANCE_API_KEY || process.env.ARK_API_KEY));
 }
 
-export async function createSeedanceVideoTask(shot: Shot, assets: Asset[]) {
+export async function createSeedanceVideoTask(shot: Shot, assets: Asset[], opts: BuildSeedancePayloadOpts = {}) {
   const apiKey = process.env.BP_ARK_API_KEY || process.env.SEEDANCE_API_KEY || process.env.ARK_API_KEY;
   if (!apiKey) throw new Error("Missing BP_ARK_API_KEY for Seedance generation");
   const apiBase = (process.env.SEEDANCE_API_BASE || BYTEPLUS_SEEDANCE_BASE).replace(/\/$/, "");
-  const payload = await buildBytePlusSeedancePayload(shot, assets);
+  const payload = await buildBytePlusSeedancePayload(shot, assets, opts);
   const createBody = await requestSeedanceJson(`${apiBase}/contents/generations/tasks`, apiKey, {
     method: "POST",
     body: JSON.stringify(payload)
@@ -572,6 +715,7 @@ export async function createSeedanceVideoTask(shot: Shot, assets: Asset[]) {
   return {
     taskId: extractTaskId(createBody),
     model: payload.model,
+    composedText: payload.composedText,
     createResponse: createBody
   };
 }
@@ -604,15 +748,14 @@ export async function cancelSeedanceVideoTask(taskId: string) {
   };
 }
 
-export async function generateShotVideo(shot: Shot, assets: Asset[]) {
+export async function generateShotVideo(shot: Shot, assets: Asset[], opts: BuildSeedancePayloadOpts = {}) {
   if (process.env.SEEDANCE_API_URL && process.env.SEEDANCE_API_KEY) {
-    return generateShotVideoViaCustomEndpoint(shot, assets);
+    return generateShotVideoViaCustomEndpoint(shot, assets, opts);
   }
 
   const apiKey = process.env.BP_ARK_API_KEY || process.env.SEEDANCE_API_KEY || process.env.ARK_API_KEY;
   if (!apiKey) return `https://placehold.co/1280x720/111827/f8fafc?text=${encodeURIComponent(`Video ${shot.index}`)}`;
-
-  return generateShotVideoViaBytePlusArk(shot, assets, apiKey);
+  return generateShotVideoViaBytePlusArk(shot, assets, apiKey, opts);
 }
 
 export async function extractTailVideoClip(videoUrl: string, shotId: string, sourceShotId: string, seconds?: number) {
@@ -680,7 +823,7 @@ export async function extractTailAudioClip(videoUrl: string, shotId: string, sou
   return `/media/${outputName}`;
 }
 
-async function generateShotVideoViaCustomEndpoint(shot: Shot, assets: Asset[]) {
+async function generateShotVideoViaCustomEndpoint(shot: Shot, assets: Asset[], opts: BuildSeedancePayloadOpts = {}) {
   const apiKey = process.env.SEEDANCE_API_KEY;
   if (!apiKey || !process.env.SEEDANCE_API_URL) throw new Error("Missing SEEDANCE_API_KEY or SEEDANCE_API_URL");
   // Mirror BytePlus behavior: first-frame mode is mutually exclusive with reference media.
@@ -691,24 +834,32 @@ async function generateShotVideoViaCustomEndpoint(shot: Shot, assets: Asset[]) {
   const referenceClipUrl = useFirstFrameMode ? undefined : getSeedanceWebUrl(shot.referenceClipUrl);
   const referenceAudioUrl = useFirstFrameMode ? undefined : getSeedanceWebUrl(shot.referenceAudioUrl);
   const referenceAssets = useFirstFrameMode && firstFrameAsset ? [firstFrameAsset] : assets;
-  const prompt = [
-    buildVideoPrompt(shot, referenceAssets, {
-      continuityVideoFirst: Boolean(referenceClipUrl),
-      firstFrameAsset: useFirstFrameMode ? firstFrameAsset : undefined
-    }),
-    referenceClipUrl || referenceAudioUrl ? buildContinuityInstruction() : "",
-    useFirstFrameMode ? buildFirstFrameInstruction(firstFrameAsset) : ""
-  ]
-    .filter(Boolean)
-    .join("\n");
+  const prompt = opts.prebuiltText && opts.prebuiltText.trim().length > 0
+    ? opts.prebuiltText.trim()
+    : [
+        buildVideoPrompt(shot, referenceAssets, {
+          continuityVideoFirst: Boolean(referenceClipUrl),
+          firstFrameAsset: useFirstFrameMode ? firstFrameAsset : undefined
+        }),
+        referenceClipUrl || referenceAudioUrl ? buildContinuityInstruction() : "",
+        useFirstFrameMode ? buildFirstFrameInstruction(firstFrameAsset) : ""
+      ]
+        .filter(Boolean)
+        .join("\n");
 
-  const response = await fetch(process.env.SEEDANCE_API_URL, {
+  // Custom Seedance HTTP endpoint — wrapped in fetchWithRetry with idempotent=false so we only
+  // retry pre-flight network errors (not server-confirmed timeouts that may have created a task).
+  const response = await fetchWithRetry(process.env.SEEDANCE_API_URL, {
     method: "POST",
+    timeoutMs: 240_000,
+    idempotent: false,
+    tag: `seedance:custom-server:${shot.id}`,
     headers: jsonHeaders(apiKey),
     body: JSON.stringify({
       model: resolveSeedanceModel(shot),
       prompt,
       duration: getShotDurationSec(shot),
+      ...(typeof opts.generateAudio === "boolean" ? { generate_audio: opts.generateAudio } : {}),
       references: [
         ...(useFirstFrameMode && firstFrameAsset && firstFrameUrl
           ? [
@@ -758,7 +909,7 @@ async function generateShotVideoViaCustomEndpoint(shot: Shot, assets: Asset[]) {
   });
 
   if (!response.ok) {
-    throw new Error(`Seedance API failed: ${response.status} ${await response.text()}`);
+    throw new Error(decorateSeedanceError(response.status, await response.text()));
   }
 
   const data = (await response.json()) as { video_url?: string; url?: string; data?: { url?: string } };
@@ -767,9 +918,26 @@ async function generateShotVideoViaCustomEndpoint(shot: Shot, assets: Asset[]) {
   return videoUrl;
 }
 
-async function generateShotVideoViaBytePlusArk(shot: Shot, assets: Asset[], apiKey: string) {
+/**
+ * Tag known recoverable Seedance error shapes with a sentinel prefix the client can detect.
+ * Currently handles the r2v reference-video duration ceiling (15.2s) — the client surfaces this
+ * with a one-click "派生 15s 剪裁版并切换" button instead of dumping the raw API error to the UI.
+ *
+ * The decoration is purely additive: the original message is preserved verbatim after the
+ * sentinel so debugging / logs stay informative. Other 400s pass through unchanged.
+ */
+export const REFERENCE_VIDEO_TOO_LONG_PREFIX = "[REFERENCE_VIDEO_TOO_LONG]";
+function decorateSeedanceError(status: number, text: string): string {
+  const base = `Seedance API failed: ${status} ${text.slice(0, 1000)}`;
+  if (status === 400 && /video duration[^]*?must be less than or equal to 15\.\d/i.test(text)) {
+    return `${REFERENCE_VIDEO_TOO_LONG_PREFIX} ${base}`;
+  }
+  return base;
+}
+
+async function generateShotVideoViaBytePlusArk(shot: Shot, assets: Asset[], apiKey: string, opts: BuildSeedancePayloadOpts = {}) {
   const apiBase = (process.env.SEEDANCE_API_BASE || BYTEPLUS_SEEDANCE_BASE).replace(/\/$/, "");
-  const payload = await buildBytePlusSeedancePayload(shot, assets);
+  const payload = await buildBytePlusSeedancePayload(shot, assets, opts);
   const createBody = await requestSeedanceJson(`${apiBase}/contents/generations/tasks`, apiKey, {
     method: "POST",
     body: JSON.stringify(payload)
@@ -795,45 +963,165 @@ async function generateShotVideoViaBytePlusArk(shot: Shot, assets: Asset[], apiK
   throw new Error(`Seedance task ${taskId} timed out before video_url was ready`);
 }
 
-async function buildBytePlusSeedancePayload(shot: Shot, assets: Asset[]) {
+async function buildBytePlusSeedancePayload(shot: Shot, assets: Asset[], opts: BuildSeedancePayloadOpts = {}) {
   const model = resolveSeedanceModel(shot);
-  // First-frame mode is mutually exclusive with reference_image/video/audio per BytePlus ModelArk
-  // Seedance docs. If the shot picks a first-frame asset, we drop all other reference media and
-  // emit only `text` + `first_frame`.
+  const lang: Lang = opts.lang === "en" ? "en" : "zh";
+  // The shot can drive Seedance in three mutually exclusive anchor modes (anchored from strongest
+  // to weakest):
+  //   1. SubShot mode (subShotPanelCount > 0)  — a single grid image acts as a TIMELINE of N
+  //      sub-panels and Seedance is told to read panel positions as cuts. Disables first/last
+  //      frame mode; the grid image is sent as a normal reference_image plus a magic sequencing
+  //      instruction in the text. (EvoLink GPT-Image-2 / Seedance 2.0 community technique.)
+  //   2. First-and-last frame I2V (firstFrameAssetId + lastFrameAssetId) — anchors the start and
+  //      end frames; the model interpolates motion. Disables continuity reference media.
+  //   3. First-frame I2V (firstFrameAssetId only) — anchors the start frame.
+  // When none of the three are set the shot falls back to plain prompt + reference media.
+  const useSubShotMode = Boolean(
+    shot.subShotPanelCount && shot.subShotPanelCount > 1 && (
+      shot.subShotStoryboardAssetId ||
+      (shot.subShotStoryboardAssetIds && shot.subShotStoryboardAssetIds.length > 0)
+    )
+  );
+  const subShotPanelCount = useSubShotMode ? Math.max(2, Math.min(16, Math.floor(shot.subShotPanelCount as number))) : 0;
+  // Resolve the FULL list of storyboard assets feeding this shot. The plural field
+  // `subShotStoryboardAssetIds` is the source of truth for N-to-1 wiring (set by canvas
+  // drag-to-connect); the legacy singular `subShotStoryboardAssetId` is kept as a fallback for
+  // older data. Order matters: the primary (own-shot) grid leads — its panel sequence drives the
+  // "Follow the storyboard sequence of N reference frames in image1" magic instruction.
+  const subShotAssetIds = (() => {
+    const list = (shot.subShotStoryboardAssetIds && shot.subShotStoryboardAssetIds.length > 0)
+      ? shot.subShotStoryboardAssetIds
+      : (shot.subShotStoryboardAssetId ? [shot.subShotStoryboardAssetId] : []);
+    return Array.from(new Set(list));
+  })();
+  const subShotAssets = useSubShotMode
+    ? subShotAssetIds
+        .map((id) => assets.find((asset) => asset.id === id))
+        .filter((a): a is Asset => Boolean(a))
+    : [];
+  const subShotAsset = subShotAssets[0]; // primary grid (drives the sequencing instruction)
+  const subShotUrl = subShotAsset ? getAssetMediaUrl(subShotAsset, "image") : undefined;
+  const useSubShotResolved = Boolean(subShotUrl && /^https?:\/\//.test(subShotUrl) && !subShotUrl.includes("placehold.co"));
+  // Extra (non-primary) storyboard URLs the user wired in via canvas. Passed to Seedance as
+  // additional reference images alongside the primary grid; helpful for cross-shot continuity
+  // (e.g. "follow the timeline of grid A but borrow the lighting from grid B").
+  const subShotExtraReferences = useSubShotResolved
+    ? subShotAssets
+        .slice(1)
+        .map((asset) => ({ asset, url: getAssetMediaUrl(asset, "image") }))
+        .filter((item): item is { asset: Asset; url: string } => Boolean(item.url && /^https?:\/\//.test(item.url) && !item.url.includes("placehold.co")))
+    : [];
+
+  // Seedance 2.0 rejects payloads that mix `first_frame` / `last_frame` content with any
+  // `reference_image` or `reference_video` content (`InvalidParameter: first/last frame content
+  // cannot be mixed with reference media content`). So a shot can run sub-shot mode (grid as
+  // reference_image) OR first/last-frame I2V — not both simultaneously.
+  //
+  // Priority is INVERTED from the previous default: when a user wires firstFrameAssetId onto
+  // a shot that already has a sub-shot grid, first-frame wins. This is the cross-shot
+  // continuity ergonomic — wiring `last-tail of shot N → first-frame of shot N+1` should "just
+  // work" without forcing the caller to also clear sub-shot fields.
   const firstFrameAsset = resolveFirstFrameAsset(shot, assets);
   const firstFrameUrl = firstFrameAsset ? getAssetMediaUrl(firstFrameAsset, "image") : undefined;
   const useFirstFrameMode = Boolean(firstFrameUrl && /^https?:\/\//.test(firstFrameUrl) && !firstFrameUrl.includes("placehold.co"));
 
-  const continuityVideoUrl = useFirstFrameMode ? undefined : getSeedanceWebUrl(shot.referenceClipUrl);
-  const continuityAudioUrl = useFirstFrameMode ? undefined : getSeedanceWebUrl(shot.referenceAudioUrl);
-  const referenceImages = useFirstFrameMode
-    ? []
-    : assets
-        .map((asset) => ({ asset, url: getAssetMediaUrl(asset, "image") }))
-        .filter((item): item is { asset: Asset; url: string } => Boolean(item.url && /^https?:\/\//.test(item.url) && !item.url.includes("placehold.co")));
-  const referenceVideos = useFirstFrameMode
+  const lastFrameAsset = useFirstFrameMode ? resolveLastFrameAsset(shot, assets) : undefined;
+  const lastFrameUrl = lastFrameAsset ? getAssetMediaUrl(lastFrameAsset, "image") : undefined;
+  const useLastFrameMode = Boolean(lastFrameUrl && /^https?:\/\//.test(lastFrameUrl) && !lastFrameUrl.includes("placehold.co"));
+
+  // Demote sub-shot when first-frame is active. Field stays on the shot record (so re-clearing
+  // first-frame restores the grid), but the payload sees first-frame mode only.
+  const subShotActive = useSubShotResolved && !useFirstFrameMode;
+
+  // Reference video is allowed in two cases:
+  //   1) asset-backed reference_video: the wired refvideo asset is present in `assets` (normally
+  //      because the prompt @-mentioned it / the caller explicitly included it);
+  //   2) URL-backed continuity: previous-shot or shot-to-shot wiring resolved a remote clip URL
+  //      without an asset id. In both cases first-frame and sub-shot modes still win the mutex.
+  const resolvedContinuityVideoUrl = getSeedanceWebUrl(shot.referenceClipUrl);
+  const resolvedContinuityAudioUrl = getSeedanceWebUrl(shot.referenceAudioUrl);
+  const hasAssetBackedReferenceVideo = Boolean(
+    shot.referenceVideoAssetId && assets.some((a) => a.id === shot.referenceVideoAssetId)
+  );
+  const hasUrlBackedContinuityVideo = Boolean(!shot.referenceVideoAssetId && resolvedContinuityVideoUrl);
+  const useContinuityReference = hasAssetBackedReferenceVideo || hasUrlBackedContinuityVideo;
+  const continuityVideoUrl = (useFirstFrameMode || subShotActive || !useContinuityReference)
+    ? undefined
+    : resolvedContinuityVideoUrl;
+  const continuityAudioUrl = (useFirstFrameMode || subShotActive || !useContinuityReference)
+    ? undefined
+    : resolvedContinuityAudioUrl;
+  // In sub-shot mode pass the primary grid first (Seedance's image1 — owns the sequencing) plus
+  // any extra storyboards the user wired in. In first-frame mode we drop all other reference
+  // imagery (Seedance API rejects mixing first_frame with reference_image). Otherwise keep
+  // @-mentioned assets as references.
+  const referenceImages = subShotActive
+    ? (subShotAsset && subShotUrl
+        ? [{ asset: subShotAsset, url: subShotUrl as string }, ...subShotExtraReferences]
+        : [])
+    : useFirstFrameMode
+      ? []
+      : assets
+          .map((asset) => ({ asset, url: getAssetMediaUrl(asset, "image") }))
+          .filter((item): item is { asset: Asset; url: string } => Boolean(item.url && /^https?:\/\//.test(item.url) && !item.url.includes("placehold.co")));
+  const rawReferenceVideos = subShotActive || useFirstFrameMode
     ? []
     : assets
         .map((asset) => ({ asset, url: getAssetMediaUrl(asset, "video") }))
         .filter((item): item is { asset: Asset; url: string } => Boolean(item.url && /^https?:\/\//.test(item.url) && !item.url.includes("placehold.co")));
+  // Dedupe reference videos by URL (the user may have uploaded the same file twice and produced
+  // two assets sharing one TOS URL) AND drop any that collide with continuityVideoUrl (the wired
+  // refvideo doesn't need to be sent as both `continuity` and `@-mention` ref). Then cap at the
+  // Seedance hard limit (3 video contents per request) so the upstream doesn't 400 us.
+  const SEEDANCE_VIDEO_LIMIT = 3;
+  const continuityUrlNorm = continuityVideoUrl;
+  const seenVideoUrls = new Set<string>();
+  if (continuityUrlNorm) seenVideoUrls.add(continuityUrlNorm);
+  const dedupedReferenceVideos: typeof rawReferenceVideos = [];
+  for (const item of rawReferenceVideos) {
+    if (seenVideoUrls.has(item.url)) continue;
+    seenVideoUrls.add(item.url);
+    dedupedReferenceVideos.push(item);
+  }
+  // Reserve 1 slot for continuityVideoUrl when it's set, then take up to (LIMIT - reserved).
+  const continuitySlots = continuityUrlNorm ? 1 : 0;
+  const referenceVideos = dedupedReferenceVideos.slice(0, Math.max(0, SEEDANCE_VIDEO_LIMIT - continuitySlots));
 
-  const promptAssetsForText = useFirstFrameMode && firstFrameAsset ? [firstFrameAsset] : [...referenceImages, ...referenceVideos].map((item) => item.asset);
+  const promptAssetsForText = useFirstFrameMode && firstFrameAsset
+    ? [firstFrameAsset]
+    : subShotActive && subShotAsset
+      ? [subShotAsset, ...subShotExtraReferences.map((r) => r.asset)]
+      : [...referenceImages, ...referenceVideos].map((item) => item.asset);
+
+  // Compose the text content. Two paths:
+  //   - opts.prebuiltText: caller has the user-edited final prompt (post audit), use it verbatim.
+  //   - else: run promptCompose.composeSeedanceVideoText with the resolved context + lang.
+  // The composer is the single source of truth for the assembled text — same code path drives
+  // dryRun preview returned by /api/shots/:id/generate?dryRun=true.
+  const textContent = opts.prebuiltText && opts.prebuiltText.trim().length > 0
+    ? opts.prebuiltText
+    : composeSeedanceVideoText(
+        {
+          shot,
+          referencedAssets: promptAssetsForText,
+          firstFrameAsset: useFirstFrameMode ? firstFrameAsset : undefined,
+          lastFrameAsset: useLastFrameMode ? lastFrameAsset : undefined,
+          subShotAsset: subShotActive ? subShotAsset : undefined,
+          subShotPanelCount: subShotActive ? subShotPanelCount : undefined,
+          hasContinuityVideo: Boolean(continuityVideoUrl),
+          hasContinuityAudio: Boolean(continuityAudioUrl),
+          resolution: process.env.SEEDANCE_RATIO || "16:9"
+        },
+        lang
+      ).composedPrompt;
 
   return {
     model,
+    composedText: textContent,
     content: [
       {
         type: "text",
-        text: [
-          buildVideoPrompt(shot, promptAssetsForText, {
-            continuityVideoFirst: Boolean(continuityVideoUrl),
-            firstFrameAsset: useFirstFrameMode ? firstFrameAsset : undefined
-          }),
-          continuityVideoUrl || continuityAudioUrl ? buildContinuityInstruction() : "",
-          useFirstFrameMode ? buildFirstFrameInstruction(firstFrameAsset) : ""
-        ]
-          .filter(Boolean)
-          .join("\n")
+        text: textContent
       },
       ...(useFirstFrameMode
         ? [
@@ -841,6 +1129,15 @@ async function buildBytePlusSeedancePayload(shot: Shot, assets: Asset[]) {
               type: "image_url",
               image_url: { url: firstFrameUrl as string },
               role: "first_frame"
+            }
+          ]
+        : []),
+      ...(useLastFrameMode
+        ? [
+            {
+              type: "image_url",
+              image_url: { url: lastFrameUrl as string },
+              role: "last_frame"
             }
           ]
         : []),
@@ -873,7 +1170,7 @@ async function buildBytePlusSeedancePayload(shot: Shot, assets: Asset[]) {
         role: "reference_video"
       }))
     ],
-    generate_audio: process.env.SEEDANCE_GENERATE_AUDIO !== "false",
+    generate_audio: opts.generateAudio !== undefined ? opts.generateAudio : (process.env.SEEDANCE_GENERATE_AUDIO !== "false"),
     ratio: process.env.SEEDANCE_RATIO || "16:9",
     duration: getShotDurationSec(shot),
     watermark: process.env.SEEDANCE_WATERMARK === "true",
@@ -886,12 +1183,40 @@ function resolveFirstFrameAsset(shot: Shot, assets: Asset[]): Asset | undefined 
   return assets.find((asset) => asset.id === shot.firstFrameAssetId);
 }
 
+function resolveLastFrameAsset(shot: Shot, assets: Asset[]): Asset | undefined {
+  if (!shot.lastFrameAssetId) return undefined;
+  return assets.find((asset) => asset.id === shot.lastFrameAssetId);
+}
+
 function buildFirstFrameInstruction(asset?: Asset) {
   const label = asset?.name ? `@${asset.name.replace(/\s*\/\s*/g, "/").replace(/\s+/g, "")}` : "the attached first-frame image";
   return [
     `First-frame mode: the attached image is the literal first frame of the video.`,
     `Animate FROM that exact frame (composition, character, lighting, framing match ${label}).`,
     `Do not treat it as a generic style reference; do not cut away from it at t=0.`
+  ].join(" ");
+}
+
+function buildFirstLastFrameInstruction(firstAsset?: Asset, lastAsset?: Asset) {
+  const firstLabel = firstAsset?.name ? `@${firstAsset.name.replace(/\s+/g, "")}` : "the first attached image";
+  const lastLabel = lastAsset?.name ? `@${lastAsset.name.replace(/\s+/g, "")}` : "the second attached image";
+  return [
+    `First-and-last frame mode: the two attached images are the literal start and end frames of the video.`,
+    `Frame 1 (${firstLabel}) is the very first frame; Frame 2 (${lastLabel}) is the very last frame.`,
+    `Interpolate motion smoothly between the two: composition, character identity, lighting and framing must match the start and resolve onto the end.`,
+    `Do not cut, do not reset, do not introduce content that contradicts either anchor frame.`
+  ].join(" ");
+}
+
+function buildSubShotSequenceInstruction(panelCount: number) {
+  // The exact sequencing phrase used in the EvoLink GPT-Image-2 / Seedance 2.0 community
+  // workflow (Cases 2 + 10). Seedance reads panel positions left→right, top→bottom as a TIMELINE
+  // and produces ONE video that internally cuts between those N moments.
+  return [
+    `Storyboard-sequence mode: the attached image1 is a single composite of ${panelCount} reference panels arranged as a storyboard grid (read left-to-right, top-to-bottom).`,
+    `Follow the storyboard sequence of the ${panelCount} reference frames in image1, edited as a fast-cut cinematic sequence.`,
+    `Each panel is one beat of the timeline; output a single continuous video that cuts through all ${panelCount} beats in order.`,
+    `Distribute panel beats roughly evenly across the duration. Keep transitions smooth, preserve character identity, lighting and palette across cuts. Do NOT compose the output as a grid; do NOT show panel borders or labels in the output video.`
   ].join(" ");
 }
 
@@ -1062,17 +1387,27 @@ export function resolveSeedanceModel(shot: Pick<Shot, "seedanceVariant">) {
   return process.env.SEEDANCE_MODEL || BYTEPLUS_SEEDANCE_MODEL;
 }
 
-async function requestSeedanceJson(url: string, apiKey: string, init?: RequestInit) {
-  const response = await fetch(url, {
+async function requestSeedanceJson(
+  url: string,
+  apiKey: string,
+  init?: RequestInit & { idempotent?: boolean; tag?: string }
+) {
+  // Default idempotency from HTTP method: GET is safe to retry on timeout/5xx, POST isn't unless
+  // the caller explicitly opts in (cancel-task is idempotent by Seedance contract).
+  const method = (init?.method || "GET").toUpperCase();
+  const idempotent = init?.idempotent ?? method === "GET";
+  const response = await fetchWithRetry(url, {
     ...init,
     headers: {
       ...jsonHeaders(apiKey),
       ...(init?.headers ?? {})
-    }
+    },
+    idempotent,
+    tag: init?.tag || `seedance:${method.toLowerCase()}`
   });
   const text = await response.text();
   const body = text ? JSON.parse(text) : {};
-  if (!response.ok) throw new Error(`Seedance API failed: ${response.status} ${text.slice(0, 1000)}`);
+  if (!response.ok) throw new Error(decorateSeedanceError(response.status, text.slice(0, 1000)));
   return body;
 }
 
@@ -1097,37 +1432,119 @@ function extractGenerationError(body: unknown): unknown {
 }
 
 function buildAssetPromptExpansionInstruction(asset: Partial<Asset>) {
-  const rawPrompt = [asset.name, asset.description || asset.prompt].filter(Boolean).join("，").trim() || "未命名电影资产";
+  const rawPrompt = [asset.name, asset.prompt || asset.description].filter(Boolean).join("，").trim() || "未命名电影资产";
   if (asset.type === "character") {
     return [
-      "请把用户原始角色描述扩写成文生图最终 prompt。",
-      "硬性要求：横画幅16:9角色三视图设定资产；一张图内展示同一角色的正面、侧面、背面全身三视图；正面、侧面、背面必须是同一个角色，人物比例、五官、发型、服装、配饰、随身道具完全统一；全身从头到脚完整入画。",
-      "风格要求：35mm胶片摄影质感，电影级角色设定图，柔和低对比度，细腻胶片颗粒，高级真实材质，服饰考据准确，光线干净均匀。",
-      "负面要求：纯角色设定资产背景，干净高级，无文字，无字幕，无对白气泡，无现代元素，无裁切，无多余人物。",
+      "请把用户原始角色描述扩写成 Seedream 4.5 文生图最终 prompt。语言：中文。最长不超过 800 字。结构必须按下面骨架填充。",
+      "**用途声明（写到 prompt 前部）**：这张图是下游 Seedance 视频生成的**角色参考底板**，会被反复读取以保持角色身份。因此扩写必须强制五项中性原则：**中性表情**（嘴自然闭合，眼平视镜头，无笑无怒无嘟嘴无瞪眼）、**中性手势**（双手自然下垂或微贴大腿，不抱胸不插兜不指向不持物，除非用户原文显式列出随身道具）、**中性身姿**（站直自然，无奔跑无下蹲无跳跃）、**均匀中性光**（避免硬阴影、单方向强光、彩色 gel）、**中性调色**（不要 push 情绪 grade）。即便用户原文出现情绪词（如「好欺负」「自信」「凶狠」），也只能转化为五官与气质（眉眼造型、下颌线、姿态比例），**不能转化为表演动作或夸张表情**。",
+      "硬性输出：**一张** 16:9 横构图，**真实真人照片级 photoreal live-action** 角色参考图，画面内只能出现一个真实成年人角色；**横向并排**展示同一角色三个全身视图——左：正面 / 中：三分之四侧面 / 右：背面。每视图全身从头到脚完整入画，**不要裁切头顶或鞋底**，三视图脚踝水平线对齐。",
+      "一致性约束：三个视图必须是同一个角色——人物比例、五官、肤色、发型与发色、瞳色、表情、服装款式与配色、配饰、随身道具、鞋款必须**像素级一致**。",
+      "姿态：自然克制 A-pose；正面视图直面镜头与观众平视，三分之四侧面视图微转身体露出侧脸轮廓与服装侧缝，背面视图展示后背结构、发型轮廓、服装背面构造。",
+      "摄影规格：**ARRI Alexa Mini LF + Zeiss Supreme Prime 50mm T1.5 + Kodak Vision3 250D 数字模拟胶片质感**；f/5.6 中等景深，三个视图的面部、眼睛、头发边缘、服装轮廓全部清晰锐利；禁止虚焦、散焦、motion blur、低清噪点。",
+      "光线：影棚四点布光——**主光（key）**右上 45° 大尺寸柔光箱（Skypanel 类）；**辅光（fill）**正面环形 LED 1/2 强度填阴；**轮廓光（rim）**后侧轻微钨丝勾边分离；**发光（hair light）**顶部柔光勾发丝。色温 5500K 日光平衡，CRI 95+，无硬阴影。",
+      "材质：真实真人皮肤纹理（自然毛孔、法令纹、眼周细纹、胡茬或剃须痕迹、微小油光，subsurface scattering 自然，**无塑料感**）；布料纤维清晰可辨；金属、皮革、丝绸按物性如实表现。",
+      "背景：纯净影棚——**light grey to mid grey seamless paper backdrop**（浅灰到中灰 seamless 影棚纸），脚下 ~0.5m 极淡接触阴影；不要杂物、家具、地砖、纹理、装饰。",
+      "调色：胶片级——低饱和、低对比、温和肤色，highlight 软卷曲，shadow 保留细节，**Kodak Vision3 颗粒**；不要数码 HDR、不要广告片 ACES 看法。",
+      "结尾负面（必须放在 prompt 最后）：**STRICT NEGATIVE**——不要任何屏幕文字 / 字幕 / 对白气泡 / 品牌 LOGO / UI / 水印 / 签名 / 二维码；不要第二个人；不要 anime / cartoon / illustration / painting / game CG / 3D 渲染感 / 蜡像感；不要塑料皮肤；不要脸部模糊 / 低分辨率 / 虚焦 / motion blur / 眼睛糊；不要变形或多余手指；不要饱和度过高；不要 HDR halo；不要现代乱入元素。",
+      `用户原始描述：${rawPrompt}`
+    ].join("\n");
+  }
+  if (asset.type === "scene") {
+    return [
+      "请把用户原始场景描述扩写成 Seedream 4.5 文生图最终 prompt。语言：中文。最长不超过 800 字。结构必须按下面骨架填充。",
+      "**用途声明（写到 prompt 前部）**：这张图是下游 Seedance 视频生成的**场景参考底板**，Seedance 会在不同分镜把演员置入这个场景。因此扩写必须强制：**画面绝对干净无人物**（包括玻璃倒影、远处剪影、镜面反射、屏幕里、橱窗内均不可有人）；**前景下半部 1/3 留白**（仅地面/桌面/走廊地板，不堆放主体），便于演员置入；**光线偏中性**（避免逆光剪影、彩色霓虹主导、极端 god ray），让 Seedance 在该底板上自由演员置入与打光；**中性调色**（不要 push 极端情绪 grade）。即便用户原文写「氛围紧张」「梦幻光晕」，也只能转化为氛围细节（雾、灰尘、轻微光斑），不能转化为吞掉前景的强对比光或剪影构图。",
+      "硬性输出：16:9 横构图电影级**全景空镜 establishing plate**，**画面内不出现任何人物**（除非用户原文显式要求），重点是环境、光线、氛围。",
+      "摄影规格：**ARRI Alexa 35 + Cooke S7/i 32mm T2.0**（场景需要时改 Master Anamorphic 40mm T1.9 加水平蓝色 lens flare）；f/5.6-8 大景深保证全景纵深；轻微 anamorphic 横向 oval bokeh；2.39:1 cinemascope feel 在 16:9 内构图。",
+      "光线：**motivated practical lighting**——只用场景内合理光源驱动画面（窗光 / 街灯 / 霓虹 / 烛火 / god ray），主光方向明确；空气中有薄雾或微尘形成 atmospheric haze 让光束可见；时间设定与原文一致（golden hour / blue hour / night / overcast / 黎明）。",
+      "构图：**foreground / mid-ground / background 三层景深**清晰可读；三分法或对称中心；leading lines 与 vanishing point 明确。",
+      "材质：建筑表面老化（积尘、磨损、湿漉反光、油渍、霉斑），地面 / 墙面 / 织物 / 金属各有质感差别；不要所有表面都干净如新。",
+      "调色：cinema 调色——**teal-orange**（白天 / 室内 / 都市夜景）或情绪对应 grade（noir = ENR 银盐保留 / 战争片 = bleach bypass / 80s = 暖色 push）；低饱和，highlight 软卷曲，shadow 保留细节，35mm 胶片颗粒。",
+      "结尾负面（必须放在 prompt 最后）：**STRICT NEGATIVE**——不要任何屏幕文字 / 字幕 / 可读招牌字 / UI / 水印；**不要任何人物**（除非原文显式要求）；不要变形物体；不要饱和度爆表；不要 HDR halo / 锐化过度；不要 anime / cartoon。",
+      `用户原始描述：${rawPrompt}`
+    ].join("\n");
+  }
+  if (asset.type === "prop") {
+    return [
+      "请把用户原始道具描述扩写成 Seedream 4.5 文生图最终 prompt。语言：中文。最长不超过 600 字。",
+      "硬性输出：1:1 方画幅产品级 hero shot，**单一主体居中**，全部入画。",
+      "摄影规格：**Phase One IQ4 + Schneider 90mm T/S Macro**（或 90mm-equivalent macro），f/8 全幅锐利，主体占画面 60-70%，干净三分构图。",
+      "光线：三点布光——柔和顶部主光（diffused top key）+ 后侧 rim light 勾轮廓与背景分离 + 正面填充。色温 5000K，无杂乱反射。",
+      "材质：金属（specular + 各向异性反射）、皮革（毛孔 + 磨损 + 染色不均）、玻璃（透射 + 折射 + 高光）、布料（weave + drape）、木材（年轮 + 抛光）按物性如实。",
+      "背景：中性渐变背景纸（light-grey to dark-grey seamless），脚下极淡接触阴影；不要桌面纹理、装饰、第二物体。",
+      "结尾负面（必须放在 prompt 最后）：**STRICT NEGATIVE**——不要文字 / 品牌 LOGO（除非原文包含）/ 价格标签 / 水印；不要第二个物体；不要塑料合成感；不要 HDR halo；不要广角畸变。",
+      `用户原始描述：${rawPrompt}`
+    ].join("\n");
+  }
+  if (asset.type === "style") {
+    return [
+      "请把用户原始风格描述扩写成 Seedream 4.5 文生图最终 prompt。语言：中文。最长不超过 600 字。",
+      "硬性输出：16:9 横构图风格 mood board——用一张有代表性的电影画面承载该风格的所有视觉特征。",
+      "摄影规格：**ARRI Alexa Mini LF + Master Anamorphic 50mm T1.9**，f/2.8 浅景深，35mm 胶片质感，2.39:1 cinemascope。",
+      "光线：遵循该风格核心特征（noir = 高对比硬光 + Venetian blind / impressionist = 柔光散射 / cyberpunk = 霓虹 practicals + 雨夜湿地反光 / Wes Anderson = 平面正面光 + 严格 hue keys）。",
+      "调色：作为该风格的灵魂——色温倾向、饱和度、对比度、highlight rolloff、shadow detail、film grain 都需精准还原（noir = ENR / 50s = 高饱和泡沫粉 / 现代独立 = teal-orange / 战争 = bleach bypass）。",
+      "构图：能代表该风格的镜头语言（noir = 低角度斜线 / new wave = 中景跳切感 / Wes Anderson = 严格中心对称 / Tarkovsky = 缓慢推进对称）。",
+      "结尾负面（必须放在 prompt 最后）：**STRICT NEGATIVE**——不要文字 / 字幕 / UI；不要风格混搭；不要漫画 / 3D 渲染（除非风格本身要求）；不要 HDR halo。",
       `用户原始描述：${rawPrompt}`
     ].join("\n");
   }
   return [
-    "请把用户原始资产描述扩写成文生图最终 prompt。",
-    "要求画面信息具体、材质清晰、可作为电影短片资产参考图；保持干净高级，无文字、无字幕、无水印。",
+    "请把用户原始资产描述扩写成 Seedream 4.5 文生图最终 prompt。",
+    "要求：ARRI Alexa Mini LF + 50mm prime + 35mm 胶片质感；主体清晰，材质细节明确；干净高级。",
+    "结尾负面：**STRICT NEGATIVE**——不要文字 / 字幕 / 水印 / UI / HDR halo / 现代乱入元素。",
     `资产类型：${asset.type || "other"}`,
     `用户原始描述：${rawPrompt}`
   ].join("\n");
 }
 
 function buildLocalExpandedAssetPrompt(asset: Partial<Asset>) {
-  const rawPrompt = [asset.name, asset.description || asset.prompt].filter(Boolean).join("，").trim() || "一个电影短片资产";
+  const rawPrompt = [asset.name, asset.prompt || asset.description].filter(Boolean).join("，").trim() || "一个电影短片资产";
   if (asset.type === "character") {
     return [
-      "横画幅16:9角色三视图设定资产，一张图内展示同一角色的正面、侧面、背面全身三视图。",
-      `角色：${rawPrompt}。`,
-      "三视图必须为同一角色，正面、侧面、背面的人物比例、五官、发型、服装、配饰、随身道具细节完全统一，全身完整入画，从头到脚清晰可见。",
-      "角色站姿自然克制，正面视图面向镜头，侧面视图展示完整侧身轮廓，背面视图展示后背服装结构和发型轮廓。",
-      "35mm胶片摄影质感，电影级角色设定图，柔和低对比度，细腻胶片颗粒，高级真实材质，服饰考据准确，光线干净均匀。",
-      "纯角色设定资产背景，干净高级，无文字，无字幕，无对白气泡，无现代元素，无裁切，无多余人物。"
-    ].join("");
+      `电影角色设定参考表（character lookbook turnaround）：${rawPrompt}。`,
+      "**一张** 16:9 横构图，**真实真人照片级 photoreal live-action** 角色参考图，画面内只能出现一个真实成年人角色；**横向并排**展示同一角色三个全身视图——左：正面 / 中：三分之四侧面 / 右：背面。每视图全身从头到脚完整入画，不要裁切头顶或鞋底。三视图脚踝水平线对齐。",
+      "三个视图必须是同一个角色：人物比例、五官、肤色、发型与发色、瞳色、表情、服装款式与配色、配饰、随身道具、鞋款**像素级一致**。",
+      "姿态：自然克制 A-pose。正面直面镜头平视；三分之四侧面微转身体露出侧脸与服装侧缝；背面展示后背结构、发型轮廓、服装背面。",
+      "**ARRI Alexa Mini LF + Zeiss Supreme Prime 50mm T1.5 + Kodak Vision3 250D 数字胶片质感**，f/5.6 中等景深，三个视图的面部、眼睛、头发边缘、服装轮廓全部清晰锐利；禁止虚焦、散焦、motion blur、低清噪点。",
+      "影棚四点布光：主光右上 45° 大柔光箱（Skypanel 类）+ 正面环形 LED 1/2 强度 fill + 后侧钨丝 rim + 顶部 hair light。5500K 日光平衡，CRI 95+，无硬阴影。",
+      "真实真人皮肤纹理（自然毛孔、法令纹、眼周细纹、胡茬或剃须痕迹、微小油光，subsurface scattering 自然，**无塑料感**）；布料纤维与编织清晰；金属、皮革、丝绸按物性如实表现。",
+      "纯净影棚：light-grey to mid-grey seamless paper backdrop，脚下 ~0.5m 极淡接触阴影，无杂物。",
+      "Kodak Vision3 调色：低饱和、低对比、温和肤色，highlight 软卷曲，shadow 保留细节，胶片颗粒，**不要 HDR halo**。",
+      "**STRICT NEGATIVE**：不要任何屏幕文字 / 字幕 / 对白气泡 / 品牌 LOGO / UI / 水印 / 签名；不要第二人；不要 anime / cartoon / illustration / painting / game CG / 3D 渲染 / 蜡像感；不要塑料皮肤；不要脸部模糊 / 低分辨率 / 虚焦 / motion blur / 眼睛糊；不要变形或多余手指；不要饱和度过高；不要 HDR halo；不要现代乱入元素。"
+    ].join(" ");
   }
-  return `${rawPrompt}，电影短片资产参考图，主体清晰，材质细节明确，构图干净高级，35mm胶片摄影质感，柔和低对比度，细腻胶片颗粒，无文字，无字幕，无水印。`;
+  if (asset.type === "scene") {
+    return [
+      `电影场景 establishing plate：${rawPrompt}。`,
+      "16:9 横构图电影级**全景空镜**，**画面内不出现任何人物**（除非描述显式要求）。",
+      "**ARRI Alexa 35 + Cooke S7/i 32mm T2.0**（或 Master Anamorphic 40mm T1.9 加水平蓝色 lens flare），f/5.6-8 大景深，轻微 anamorphic 横向 oval bokeh，2.39:1 cinemascope feel 在 16:9 内构图。",
+      "**motivated practical lighting**：窗光 / 街灯 / 霓虹 / 烛火 / god ray 等场景内合理光源驱动画面，主光方向明确；atmospheric haze 让光束可见；时间设定（golden hour / blue hour / night / overcast / 黎明）与描述一致。",
+      "**foreground / mid-ground / background 三层景深**清晰可读；三分法或对称中心；leading lines 与 vanishing point 明确。",
+      "材质真实老化：积尘、磨损、湿漉反光、油渍、霉斑；地面 / 墙面 / 织物 / 金属质感各有差别。",
+      "cinema 调色：**teal-orange**（或情绪对应 grade：noir = ENR / 战争 = bleach bypass / 80s = 暖色 push），低饱和，35mm 胶片颗粒。",
+      "**STRICT NEGATIVE**：不要任何屏幕文字 / 字幕 / 可读招牌字 / UI / 水印；**不要任何人物**（除非描述显式要求）；不要变形物体；不要饱和度爆表；不要 HDR halo；不要 anime / cartoon。"
+    ].join(" ");
+  }
+  if (asset.type === "prop") {
+    return [
+      `电影道具参考图：${rawPrompt}。`,
+      "1:1 方画幅产品级 hero shot，单一主体居中，全部入画。",
+      "**Phase One IQ4 + Schneider 90mm T/S Macro**（或 90mm 微距），f/8 全幅锐利，主体占 60-70%。",
+      "三点布光：柔和顶部主光 + 后侧 rim + 正面 fill；5000K，无杂乱反射。",
+      "材质如实：金属（specular + 各向异性）、皮革（毛孔 + 磨损 + 染色不均）、玻璃（透射 + 折射）、布料（weave + drape）、木材（年轮 + 抛光）。",
+      "中性渐变背景纸（light-grey to dark-grey seamless），淡接触阴影，无杂物。",
+      "**STRICT NEGATIVE**：不要文字 / LOGO（除非描述包含）/ 价格标签 / 水印 / 第二物体 / 塑料合成感 / HDR halo / 广角畸变。"
+    ].join(" ");
+  }
+  if (asset.type === "style") {
+    return [
+      `电影风格 mood-board reference：${rawPrompt}。`,
+      "16:9 横构图风格 mood board，用一张有代表性的电影画面承载所有视觉特征。",
+      "**ARRI Alexa Mini LF + Master Anamorphic 50mm T1.9**，f/2.8 浅景深，35mm 胶片质感，2.39:1 cinemascope。",
+      "光线 / 调色 / 构图按该风格核心特征精准还原（noir = 高对比硬光 + ENR / cyberpunk = 霓虹 practicals + 湿地反光 / Wes Anderson = 平面正面 + 严格中心对称）。",
+      "**STRICT NEGATIVE**：不要文字 / 字幕 / UI；不要风格混搭；不要漫画 / 3D 渲染（除非风格要求）；不要 HDR halo。"
+    ].join(" ");
+  }
+  return `${rawPrompt}。电影资产参考图，ARRI Alexa Mini LF + 50mm prime + 35mm 胶片质感；主体清晰，材质细节明确，构图干净高级。**STRICT NEGATIVE**：不要文字 / 字幕 / 水印 / UI / 现代乱入元素 / HDR halo。`;
 }
 
 function extractResponseText(body: unknown): string | undefined {
@@ -1186,7 +1603,63 @@ export async function cacheGeneratedVideo(videoUrl: string, renderId: string) {
   const outputName = `shot-render-${sanitizeFilePart(renderId)}${extension}`;
   const outputPath = path.join(MEDIA_DIR, outputName);
   await downloadVideoToFile(videoUrl, outputPath, `render ${renderId}`);
+  // Re-mux with `+faststart` so the moov atom lives at the front of the file. Without this, every
+  // browser playing the cached mp4 has to download the full file before the player can start
+  // (since moov holds the keyframe index). With faststart, the player streams from the first byte
+  // and starts within ~100 ms. This is the single biggest UX win for canvas video playback.
+  await remuxFaststartIfMp4(outputPath).catch((err) => {
+    console.warn(`[cacheGeneratedVideo] faststart remux failed for ${outputName}: ${err instanceof Error ? err.message : err}`);
+  });
   return { videoUrl: `/media/${outputName}`, remoteVideoUrl: videoUrl };
+}
+
+/**
+ * If `filePath` is an mp4/m4v, run a fast `-c copy -movflags +faststart` remux so the moov atom
+ * is moved to the front. Atomic — writes to a sibling tmp file then renames over the original.
+ * No-op for non-mp4 containers and for files where moov is already at the head.
+ */
+export async function remuxFaststartIfMp4(filePath: string): Promise<void> {
+  const ext = path.extname(filePath).toLowerCase();
+  if (ext !== ".mp4" && ext !== ".m4v") return;
+  // Probe: cheaply check whether faststart is already applied. Use ffmpeg's `-v trace` and inspect
+  // the offsets of the first top-level moov / mdat boxes; if moov is before mdat, we're done.
+  const probe = await new Promise<string>((resolve) => {
+    const child = spawn(ffmpeg.path, ["-v", "trace", "-i", filePath, "-f", "null", "-"], {
+      stdio: ["ignore", "ignore", "pipe"]
+    });
+    let stderr = "";
+    child.stderr.on("data", (chunk: Buffer) => { stderr += chunk.toString(); if (stderr.length > 64_000) child.kill(); });
+    child.on("close", () => resolve(stderr));
+    child.on("error", () => resolve(stderr));
+  });
+  const mdatLine = probe.match(/type:'mdat'\s+parent:'root'\s+sz:\s*\d+\s+(\d+)/);
+  const moovLine = probe.match(/type:'moov'\s+parent:'root'\s+sz:\s*\d+\s+(\d+)/);
+  if (mdatLine && moovLine) {
+    const mdatOff = Number(mdatLine[1]);
+    const moovOff = Number(moovLine[1]);
+    if (moovOff < mdatOff) return; // already faststart
+  }
+
+  const tmpPath = `${filePath}.faststart.tmp.mp4`;
+  try {
+    await runFfmpegCommand([
+      "-y",
+      "-hide_banner",
+      "-loglevel",
+      "error",
+      "-i",
+      filePath,
+      "-c",
+      "copy",
+      "-movflags",
+      "+faststart",
+      tmpPath
+    ]);
+    await rename(tmpPath, filePath);
+  } catch (err) {
+    try { await unlink(tmpPath); } catch { /* ignore */ }
+    throw err;
+  }
 }
 
 export type StitchProgressCallback = (phase: string) => void | Promise<void>;
@@ -1194,6 +1667,8 @@ export type StitchProgressCallback = (phase: string) => void | Promise<void>;
 export interface StitchOptions {
   /** Called with a short human-readable phase string as the job progresses. */
   onProgress?: StitchProgressCallback;
+  /** Force a fresh final artifact even when the input signature matches an existing file. */
+  force?: boolean;
 }
 
 export async function stitchShotVideos(sessionId: string, shots: Shot[], options: StitchOptions = {}) {
@@ -1219,10 +1694,11 @@ export async function stitchShotVideos(sessionId: string, shots: Shot[], options
 
   await mkdir(MEDIA_DIR, { recursive: true });
   const signature = createStitchSignature(shots);
-  const outputName = `final-${sessionId}-${signature}.mp4`;
+  const runSuffix = options.force ? `-${Date.now()}` : "";
+  const outputName = `final-${sessionId}-${signature}${runSuffix}.mp4`;
   const outputPath = path.join(MEDIA_DIR, outputName);
   await report(`signature=${signature} target=${outputName} (${urls.length} shot inputs)`);
-  if (await hasUsableFinalVideo(outputPath, shots)) {
+  if (!options.force && await hasUsableFinalVideo(outputPath, shots)) {
     await report("reused cached final video (signature unchanged)");
     return { finalVideoUrl: `/media/${outputName}`, signature };
   }

@@ -96,7 +96,8 @@ label {
 }
 
 .app-shell {
-  min-height: 100vh;
+  height: 100vh;
+  overflow: hidden;
   display: grid;
   grid-template-columns: 320px 1fr;
 }
@@ -108,6 +109,7 @@ label {
   backdrop-filter: blur(18px);
   display: flex;
   flex-direction: column;
+  overflow: hidden;
   gap: 16px;
 }
 
@@ -174,17 +176,23 @@ label {
 }
 
 .session-dock {
-  display: grid;
+  display: flex;
+  flex-direction: column;
   gap: 10px;
+  flex: 1;
   min-height: 0;
+  overflow: hidden;
 }
 
 .session-list {
   display: grid;
   gap: 8px;
-  overflow: auto;
-  max-height: 280px;
+  overflow-y: auto;
+  overflow-x: hidden;
+  flex: 1;
+  min-height: 0;
   padding-right: 2px;
+  align-content: start;
 }
 
 .session-group-title {
@@ -195,7 +203,7 @@ label {
 
 .session-row {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 34px;
+  grid-template-columns: minmax(0, 1fr) 34px 34px;
   gap: 6px;
   align-items: center;
 }
@@ -216,6 +224,12 @@ label {
 }
 
 .session-delete {
+  width: 34px;
+  min-height: 54px;
+  padding: 0;
+}
+
+.session-oneclick {
   width: 34px;
   min-height: 54px;
   padding: 0;
@@ -300,10 +314,74 @@ label {
   flex-wrap: wrap;
 }
 
+.vision-review-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 999px;
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.75);
+  cursor: help;
+  user-select: none;
+}
+
+.vision-review-toggle input {
+  margin: 0;
+  cursor: pointer;
+}
+
+.vision-review-toggle:hover {
+  color: #fff;
+  border-color: rgba(255, 255, 255, 0.32);
+}
+
+.review-note {
+  display: block;
+  margin-top: 4px;
+  font-size: 11px;
+  line-height: 1.45;
+  color: #f59e0b;
+  white-space: pre-wrap;
+}
+
 .ghost-action {
   margin-left: auto;
   min-height: 32px;
   background: transparent;
+}
+
+.agent-review-map {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  margin-bottom: 16px;
+}
+
+.agent-review-map article {
+  display: grid;
+  gap: 5px;
+  padding: 12px;
+  border: 1px solid #243244;
+  border-radius: 8px;
+  background: rgba(15, 23, 42, 0.48);
+}
+
+.agent-review-map strong {
+  color: #f4c95d;
+  font-size: 13px;
+}
+
+.agent-review-map span {
+  color: #d6e2f0;
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+.agent-review-map small {
+  color: #94a3b8;
+  line-height: 1.4;
 }
 
 .story-panel {
@@ -318,6 +396,26 @@ label {
   display: grid;
   gap: 12px;
   margin-top: 12px;
+}
+
+.human-review-note {
+  display: grid;
+  gap: 4px;
+  padding: 10px 12px;
+  border: 1px solid rgba(100, 210, 200, 0.32);
+  border-radius: 8px;
+  background: rgba(20, 83, 79, 0.12);
+}
+
+.human-review-note strong {
+  color: #b8fff8;
+  font-size: 13px;
+}
+
+.human-review-note span {
+  color: #cbd5e1;
+  font-size: 13px;
+  line-height: 1.45;
 }
 
 .story-grid,
@@ -413,6 +511,38 @@ label {
   gap: 10px;
 }
 
+.shot-workblock {
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid #243244;
+  border-radius: 8px;
+  background: rgba(15, 23, 42, 0.36);
+}
+
+.shot-workblock-head {
+  display: grid;
+  gap: 3px;
+}
+
+.shot-workblock-head strong {
+  color: #e2e8f0;
+  font-size: 13px;
+}
+
+.shot-workblock-head small {
+  color: #94a3b8;
+  line-height: 1.4;
+}
+
+.side-head {
+  margin-bottom: 10px;
+}
+
+.shot-submit-row {
+  padding: 0 2px;
+}
+
 .asset-reference-upload {
   display: grid;
   gap: 6px;
@@ -505,7 +635,7 @@ label {
 .first-frame-row .first-frame-thumb video {
   width: 100%;
   height: 100%;
-  object-fit: cover;
+  object-fit: contain;
   display: block;
 }
 
@@ -610,8 +740,8 @@ label {
 
 .shot-sketches-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(96px, 1fr));
-  gap: 8px;
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  gap: 10px;
 }
 
 .shot-sketch {
@@ -629,10 +759,15 @@ label {
   box-shadow: 0 0 0 1px rgba(245, 158, 11, 0.4);
 }
 
+/* Codex 3x3 / wide contact sheets need the full row — narrow columns crop the grid visually. */
+.shot-sketch.is-contact-sheet {
+  grid-column: 1 / -1;
+}
+
 .shot-sketch-thumb {
   width: 100%;
-  aspect-ratio: 9 / 16;
-  overflow: hidden;
+  min-height: 72px;
+  overflow: visible;
   border-radius: 4px;
   background: rgba(15, 23, 42, 0.6);
   display: flex;
@@ -640,12 +775,46 @@ label {
   justify-content: center;
 }
 
-.shot-sketch-thumb img,
-.shot-sketch-thumb video {
+.shot-sketch-thumb-open {
+  display: flex;
+  align-items: center;
+  justify-content: center;
   width: 100%;
-  height: 100%;
-  object-fit: cover;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  cursor: zoom-in;
+}
+
+.shot-sketch-thumb-open:hover {
+  outline: 1px solid rgba(100, 210, 200, 0.45);
+  outline-offset: 2px;
+}
+
+.shot-sketch-thumb-open:focus-visible {
+  outline: 2px solid #64d2c8;
+  outline-offset: 2px;
+}
+
+/* Storyboard contact sheets (16:9), vertical panels (9:16), and square refs all show full frame. */
+.shot-sketch-thumb img,
+.shot-sketch-thumb video,
+.shot-sketch-thumb-open img,
+.shot-sketch-thumb-open video {
   display: block;
+  width: auto;
+  height: auto;
+  max-width: 100%;
+  max-height: min(280px, 42vh);
+  object-fit: contain;
+  pointer-events: none;
+}
+
+.shot-sketch.is-contact-sheet .shot-sketch-thumb img,
+.shot-sketch.is-contact-sheet .shot-sketch-thumb-open img {
+  max-height: min(480px, 62vh);
 }
 
 .shot-sketch-thumb .thumb {
@@ -686,6 +855,57 @@ label {
 
 .shot-sketch-actions button.danger {
   flex: 0 0 auto;
+}
+
+.shot-sketch-debug {
+  margin-top: 8px;
+  border: 1px solid rgba(148, 163, 184, 0.22);
+  border-radius: 10px;
+  background: rgba(15, 23, 42, 0.72);
+  color: #cbd5e1;
+}
+
+.shot-sketch-debug summary {
+  cursor: pointer;
+  padding: 8px 10px;
+  font-size: 12px;
+  color: #e2e8f0;
+}
+
+.shot-sketch-debug-meta {
+  display: grid;
+  gap: 4px;
+  padding: 0 10px 8px;
+  font-size: 11px;
+  color: #94a3b8;
+  word-break: break-all;
+}
+
+.shot-sketch-debug-refs {
+  display: flex;
+  gap: 8px;
+  padding: 0 10px 8px;
+  overflow-x: auto;
+}
+
+.shot-sketch-debug-refs img {
+  width: 76px;
+  height: 52px;
+  object-fit: cover;
+  border: 1px solid rgba(148, 163, 184, 0.3);
+  border-radius: 8px;
+}
+
+.shot-sketch-debug pre {
+  max-height: 220px;
+  margin: 0;
+  padding: 10px;
+  overflow: auto;
+  border-top: 1px solid rgba(148, 163, 184, 0.18);
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-size: 11px;
+  line-height: 1.55;
 }
 
 .prompt-entry textarea {
@@ -768,6 +988,10 @@ label {
   justify-self: stretch;
 }
 
+.reference-clip-preview .reference-clip-open {
+  width: 100%;
+}
+
 .reference-clip-preview video {
   display: block;
   width: auto;
@@ -778,6 +1002,107 @@ label {
   border-radius: 8px;
   border: 1px solid #243244;
   background: #090c11;
+  pointer-events: none;
+}
+
+.media-lightbox-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: grid;
+  place-items: center;
+  padding: 20px;
+  background: rgba(2, 6, 14, 0.88);
+  backdrop-filter: blur(4px);
+}
+
+.media-lightbox-panel {
+  display: grid;
+  gap: 12px;
+  max-width: min(96vw, 1400px);
+  max-height: 92vh;
+  width: 100%;
+}
+
+.media-lightbox-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  color: #e2e8f0;
+}
+
+.media-lightbox-head strong {
+  font-size: 14px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.media-lightbox-actions {
+  display: inline-flex;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.media-lightbox-actions a,
+.media-lightbox-actions button {
+  min-height: 32px;
+  padding: 0 12px;
+  border-radius: 8px;
+  border: 1px solid #334155;
+  background: #111827;
+  color: #d6e2f0;
+  font-size: 12px;
+  text-decoration: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+}
+
+.media-lightbox-actions button.icon-only {
+  padding: 0 10px;
+}
+
+.media-lightbox-body {
+  overflow: auto;
+  display: grid;
+  place-items: center;
+  border: 1px solid #243244;
+  border-radius: 10px;
+  background: #090c11;
+  padding: 8px;
+}
+
+.media-lightbox-body img,
+.media-lightbox-body video {
+  display: block;
+  width: auto;
+  height: auto;
+  max-width: 100%;
+  max-height: min(82vh, 1200px);
+  object-fit: contain;
+}
+
+.asset-preview-open {
+  display: grid;
+  place-items: center;
+  width: 100%;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: zoom-in;
+}
+
+.asset-preview-open:disabled {
+  cursor: default;
+}
+
+.asset-preview-open img,
+.asset-preview-open video {
+  pointer-events: none;
 }
 
 .asset-picks {
@@ -1215,7 +1540,7 @@ label {
 
 .asset-item {
   display: grid;
-  grid-template-columns: 1fr auto auto;
+  grid-template-columns: 1fr repeat(3, auto);
   align-items: center;
   gap: 6px;
   border: 1px solid #2a3442;
@@ -1303,19 +1628,28 @@ label {
 
 .asset-preview {
   width: 100%;
-  aspect-ratio: 16 / 9;
+  display: grid;
+  place-items: center;
   border: 1px solid #2a3442;
   border-radius: 8px;
   overflow: hidden;
-  display: grid;
-  place-items: center;
   background: #090c11;
+  color: #64748b;
+  min-height: 160px;
+}
+
+.asset-preview:has(> img, > video) {
+  border-color: #243244;
+  min-height: 0;
 }
 
 .asset-preview img,
 .asset-preview video {
-  width: 100%;
-  height: 100%;
+  display: block;
+  width: auto;
+  height: auto;
+  max-width: 100%;
+  max-height: min(70vh, 640px);
   object-fit: contain;
   background: #090c11;
 }
@@ -1452,6 +1786,7 @@ label {
 
   .main-grid,
   .shot-editor,
+  .agent-review-map,
   .story-grid,
   .story-beat-grid {
     grid-template-columns: 1fr;
@@ -1488,3 +1823,1502 @@ label {
     grid-template-columns: 1fr;
   }
 }
+
+/* ============================================================================
+   Flow view (xyflow node graph + inspector)
+   ============================================================================ */
+
+.view-mode-toggle {
+  display: inline-flex;
+  border: 1px solid rgba(255,255,255,0.18);
+  border-radius: 999px;
+  overflow: hidden;
+}
+.view-mode-toggle button {
+  background: transparent;
+  border: 0;
+  color: rgba(255,255,255,0.7);
+  padding: 4px 12px;
+  font-size: 12px;
+  cursor: pointer;
+}
+.view-mode-toggle button.active {
+  background: rgba(99,102,241,0.35);
+  color: #fff;
+}
+
+.flow-view {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  height: calc(100vh - 130px);
+  border: 1px solid rgba(148, 163, 184, 0.18);
+  border-radius: 8px;
+  background: rgba(13, 18, 25, 0.84);
+  overflow: hidden;
+}
+
+.flow-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 14px;
+  border-bottom: 1px solid rgba(255,255,255,0.08);
+  gap: 12px;
+}
+.flow-toolbar-section { display: flex; flex-direction: column; gap: 2px; }
+.flow-toolbar-section small { color: rgba(255,255,255,0.5); }
+.flow-toolbar-actions { display: flex; gap: 8px; }
+.flow-toolbar-actions button.primary { background: #6366f1; color: #fff; border: 0; padding: 6px 14px; border-radius: 6px; cursor: pointer; }
+.flow-toolbar-actions button.primary:disabled { background: #374151; color: #6b7280; cursor: not-allowed; }
+.flow-toolbar-actions button:not(.primary) { background: rgba(255,255,255,0.06); color: #fff; border: 1px solid rgba(255,255,255,0.12); padding: 6px 12px; border-radius: 6px; cursor: pointer; }
+
+.flow-canvas-row {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+}
+
+.flow-canvas {
+  flex: 1;
+  min-width: 0;
+  background: #0b0f17;
+}
+.react-flow__node { font-family: inherit; }
+
+.react-flow__minimap {
+  background: #0b1220 !important;
+  border: 1px solid #334155 !important;
+  border-radius: 8px !important;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.45) !important;
+}
+.react-flow__minimap svg {
+  background: #0b1220 !important;
+  border-radius: 8px !important;
+}
+/* Viewport mask: bright amber outline so the user can see "you are here" at a glance. */
+.react-flow__minimap-mask {
+  fill: rgba(15, 23, 42, 0.78) !important;
+  stroke: #fbbf24 !important;
+  stroke-width: 3px !important;
+}
+
+/* Caption block sitting above the minimap. Pure presentational; pointer-events disabled so it
+   never steals minimap drag/pan/scroll. */
+.flow-minimap-caption {
+  position: absolute;
+  left: 12px;
+  bottom: 168px; /* sits just above the 150px-tall minimap */
+  width: 220px;
+  padding: 6px 8px;
+  background: rgba(11, 18, 32, 0.92);
+  border: 1px solid #334155;
+  border-radius: 6px;
+  color: #e5e7eb;
+  font-size: 11px;
+  line-height: 1.5;
+  pointer-events: none;
+  user-select: none;
+  z-index: 5;
+  display: grid;
+  gap: 2px;
+}
+.flow-minimap-caption strong {
+  color: #fcd34d;
+  font-size: 11px;
+  font-weight: 700;
+}
+.flow-minimap-caption small {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px;
+  color: #94a3b8;
+  font-size: 10px;
+}
+.flow-minimap-caption .legend-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
+  margin-right: 2px;
+  margin-left: 4px;
+}
+.flow-minimap-caption .legend-dot:first-child { margin-left: 0; }
+.flow-minimap-caption .viewport-swatch {
+  display: inline-block;
+  width: 16px;
+  height: 10px;
+  border: 2px solid #fbbf24;
+  background: rgba(15, 23, 42, 0.6);
+  border-radius: 2px;
+  margin-right: 4px;
+  vertical-align: middle;
+}
+.flow-minimap-hint { color: #cbd5e1 !important; }
+
+/* Controls (zoom +/-, fit) — bigger hit area and Chinese-friendly tooltips via title attrs are
+   set in JSX. We add a caption that floats above the cluster pointing out what each button does. */
+.react-flow__controls {
+  background: rgba(11, 18, 32, 0.92) !important;
+  border: 1px solid #334155 !important;
+  border-radius: 8px !important;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.45) !important;
+  overflow: hidden;
+}
+.react-flow__controls-button {
+  background: transparent !important;
+  border: none !important;
+  border-bottom: 1px solid #1f2937 !important;
+  color: #e5e7eb !important;
+  width: 32px !important;
+  height: 32px !important;
+  font-size: 16px !important;
+}
+.react-flow__controls-button:hover {
+  background: rgba(96, 165, 250, 0.15) !important;
+  color: #fff !important;
+}
+.react-flow__controls-button:last-child { border-bottom: none !important; }
+.react-flow__controls-button svg { fill: currentColor !important; }
+
+/* Caption above the bottom-right Controls cluster — same visual treatment as the minimap caption
+   so the two read as a pair. */
+.flow-controls-caption {
+  position: absolute;
+  right: 12px;
+  bottom: 132px; /* sits just above the (3 × 32px) controls cluster */
+  padding: 6px 10px;
+  background: rgba(11, 18, 32, 0.92);
+  border: 1px solid #334155;
+  border-radius: 6px;
+  color: #e5e7eb;
+  font-size: 11px;
+  line-height: 1.5;
+  pointer-events: none;
+  user-select: none;
+  z-index: 5;
+  display: grid;
+  gap: 1px;
+  text-align: right;
+}
+.flow-controls-caption strong {
+  color: #fcd34d;
+  font-weight: 700;
+}
+.flow-controls-caption small {
+  color: #94a3b8;
+  font-size: 10px;
+}
+
+/* node card */
+.flow-node {
+  background: #111827;
+  border: 1px solid rgba(255,255,255,0.10);
+  border-radius: 10px;
+  color: #e5e7eb;
+  font-size: 12px;
+  overflow: hidden;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.4);
+}
+.flow-node.selected {
+  border-color: #6366f1;
+  box-shadow: 0 0 0 2px rgba(99,102,241,0.45);
+}
+.flow-node-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  background: rgba(255,255,255,0.04);
+  border-bottom: 1px solid rgba(255,255,255,0.06);
+}
+.flow-node-title {
+  font-size: 13px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  flex: 1;
+}
+.flow-tag {
+  font-size: 10px;
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-weight: 600;
+  letter-spacing: 0.4px;
+}
+.tag-character { background: rgba(251,191,36,0.18); color: #fcd34d; }
+.tag-scene { background: rgba(59,130,246,0.20); color: #93c5fd; }
+.tag-prop { background: rgba(244,114,182,0.18); color: #f9a8d4; }
+.tag-style { background: rgba(167,139,250,0.18); color: #c4b5fd; }
+.tag-other { background: rgba(156,163,175,0.18); color: #d1d5db; }
+.tag-storyboard { background: rgba(167,139,250,0.22); color: #c4b5fd; }
+.tag-shot { background: rgba(96,165,250,0.20); color: #93c5fd; }
+.tag-stitch { background: rgba(52,211,153,0.20); color: #6ee7b7; }
+
+.flow-node-thumb {
+  background: #050709;
+  /* Default thumb container; specific node types override via fit-contain (see below). */
+  height: 130px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+}
+.flow-node-thumb img,
+.flow-node-thumb video {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+/*
+ * Asset / Storyboard / Shot / Stitch nodes opt into "fit-contain" so the user always sees the
+ * full media (no cropping). The container height adapts to a generous max so portrait 9:16
+ * Seedream / Seedance output renders without forcing a tall scroll, and landscape grids fit
+ * comfortably. Letterbox bars are dark to match the canvas backdrop.
+ */
+.flow-node-thumb.fit-contain {
+  height: auto;
+  min-height: 130px;
+  max-height: 320px;
+  background: #050709;
+}
+.flow-node-thumb.fit-contain img,
+.flow-node-thumb.fit-contain video {
+  width: 100%;
+  height: auto;
+  max-height: 320px;
+  object-fit: contain;
+  display: block;
+}
+
+/* Tiny in-node download button shown only when the node has media. Sits on the right edge of
+ * the head, beside the title. Stops click propagation in TSX so the node doesn't get selected. */
+.flow-node-download {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 6px;
+  color: rgba(255, 255, 255, 0.65);
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid transparent;
+  text-decoration: none;
+  cursor: pointer;
+}
+.flow-node-download:hover {
+  color: #fff;
+  background: rgba(99, 102, 241, 0.2);
+  border-color: rgba(99, 102, 241, 0.5);
+}
+.flow-empty {
+  color: rgba(255,255,255,0.35);
+  font-size: 11px;
+  text-align: center;
+  padding: 0 12px;
+}
+.flow-empty-generating {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: #60a5fa;
+  font-weight: 600;
+}
+.flow-empty-error {
+  color: #fca5a5;
+  font-weight: 600;
+  text-decoration: none;
+  padding: 8px 12px;
+  border: 1px dashed rgba(248, 113, 113, 0.4);
+  border-radius: 6px;
+  text-align: center;
+  display: inline-block;
+}
+.flow-empty-error:hover {
+  background: rgba(248, 113, 113, 0.08);
+  color: #fecaca;
+}
+.lightbox-error {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 24px;
+  color: #fca5a5;
+}
+.lightbox-error a {
+  color: #f4c95d;
+  text-decoration: underline;
+}
+.flow-empty-spinner {
+  width: 14px;
+  height: 14px;
+  border: 2px solid rgba(96, 165, 250, 0.25);
+  border-top-color: #60a5fa;
+  border-radius: 50%;
+  animation: flow-empty-spin 0.9s linear infinite;
+}
+@keyframes flow-empty-spin {
+  to { transform: rotate(360deg); }
+}
+
+.flow-node-foot {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 6px 10px;
+  font-size: 11px;
+  color: rgba(255,255,255,0.55);
+  gap: 8px;
+}
+.flow-node-warn { color: #f59e0b; }
+.flow-node-info { color: #93c5fd; }
+.flow-status { font-size: 11px; font-weight: 600; }
+.flow-review-badge {
+  font-size: 10px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+.flow-review-button {
+  min-height: 0;
+  padding: 2px 7px;
+  font-size: 10px;
+  border-radius: 999px;
+  border-color: rgba(96, 165, 250, 0.45);
+  color: #bfdbfe;
+  background: rgba(15, 23, 42, 0.72);
+}
+.flow-review-button:hover {
+  border-color: rgba(96, 165, 250, 0.9);
+  background: rgba(30, 64, 175, 0.35);
+}
+
+/* In-node model picker. Made visually quiet so it reads as an inline tag, not a chunky form
+ * field. Hover lifts the border to hint at interactivity. */
+.flow-node-model {
+  width: auto;
+  flex: 0 0 auto;
+  min-height: 0;
+  padding: 2px 22px 2px 8px;
+  font-size: 11px;
+  font-weight: 600;
+  background: rgba(15, 23, 42, 0.7);
+  border: 1px solid rgba(148, 163, 184, 0.28);
+  border-radius: 5px;
+  color: #cbd5e1;
+  cursor: pointer;
+  appearance: none;
+  -webkit-appearance: none;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12'><path d='M3 4.5L6 7.5L9 4.5' stroke='%2394a3b8' stroke-width='1.4' fill='none' stroke-linecap='round' stroke-linejoin='round'/></svg>");
+  background-repeat: no-repeat;
+  background-position: right 6px center;
+  background-size: 10px 10px;
+}
+.flow-node-model:hover {
+  border-color: rgba(244, 201, 93, 0.6);
+  color: #f4c95d;
+}
+.flow-node-model:focus {
+  outline: none;
+  border-color: #f4c95d;
+}
+
+/* inspector panel */
+.inspector {
+  width: 460px;
+  background: #0f1419;
+  border-left: 1px solid rgba(255,255,255,0.08);
+  padding: 16px;
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  font-size: 13px;
+}
+.inspector header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  border-bottom: 1px solid rgba(255,255,255,0.06);
+  padding-bottom: 8px;
+  margin-bottom: 4px;
+}
+.inspector-tag {
+  background: rgba(255,255,255,0.06);
+  padding: 3px 10px;
+  border-radius: 999px;
+  font-size: 11px;
+  color: #d1d5db;
+}
+.inspector-close {
+  background: transparent;
+  border: 0;
+  color: #9ca3af;
+  font-size: 22px;
+  cursor: pointer;
+  line-height: 1;
+}
+.inspector label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12px;
+  color: rgba(255,255,255,0.65);
+}
+.inspector input,
+.inspector textarea,
+.inspector select {
+  background: #0a0d12;
+  border: 1px solid rgba(255,255,255,0.12);
+  color: #e5e7eb;
+  padding: 6px 8px;
+  font-size: 13px;
+  border-radius: 6px;
+  font-family: inherit;
+}
+.inspector textarea { resize: vertical; min-height: 60px; line-height: 1.5; }
+.inspector-row { display: flex; gap: 10px; }
+.inspector-row label { flex: 1; }
+
+.inspector-mention-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+  margin: -4px 0 6px;
+  font-size: 11px;
+}
+.inspector-mention-chips.empty {
+  padding: 6px 8px;
+  color: rgba(255, 255, 255, 0.45);
+  font-style: italic;
+  background: rgba(255, 255, 255, 0.02);
+  border-radius: 6px;
+  border: 1px dashed rgba(255, 255, 255, 0.08);
+}
+.inspector-mention-chips-label {
+  color: rgba(255, 255, 255, 0.55);
+  font-weight: 500;
+}
+.inspector-mention-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border: 1px solid rgba(244, 201, 93, 0.4);
+  border-radius: 999px;
+  background: rgba(244, 201, 93, 0.08);
+  color: #f4c95d;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  min-height: 22px;
+}
+.inspector-mention-chip:hover {
+  background: rgba(244, 201, 93, 0.18);
+  border-color: #f4c95d;
+}
+.inspector-mention-chip small {
+  color: rgba(244, 201, 93, 0.55);
+  font-weight: 400;
+  font-size: 10px;
+}
+
+/* @-mention autocomplete textarea + dropdown. Popup floats below the textarea anchored to its
+   bottom-left edge — caret-anchored positioning would need a hidden mirror div for reliable
+   pixel-precise placement, which is overkill for a session-internal tool. */
+.mention-textarea-wrap {
+  position: relative;
+}
+.mention-popup {
+  position: absolute;
+  left: 0;
+  right: auto;
+  top: 100%;
+  margin-top: 4px;
+  z-index: 30;
+  min-width: 240px;
+  max-width: 360px;
+  max-height: 240px;
+  overflow-y: auto;
+  background: rgba(13, 18, 25, 0.97);
+  border: 1px solid rgba(148, 163, 184, 0.32);
+  border-radius: 8px;
+  padding: 4px;
+  box-shadow: 0 12px 24px rgba(0, 0, 0, 0.45);
+  display: grid;
+  gap: 1px;
+}
+.mention-popup-empty {
+  padding: 8px 10px;
+  color: rgba(255, 255, 255, 0.5);
+  font-size: 12px;
+  font-style: italic;
+}
+.mention-option {
+  display: grid;
+  grid-template-columns: minmax(0, auto) minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: baseline;
+  width: 100%;
+  padding: 4px 8px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: #e2e8f0;
+  border-radius: 5px;
+  text-align: left;
+  cursor: pointer;
+  min-height: 28px;
+  font-size: 12px;
+}
+.mention-option:hover,
+.mention-option.active {
+  background: rgba(244, 201, 93, 0.12);
+  border-color: rgba(244, 201, 93, 0.32);
+}
+.mention-option-handle {
+  color: #f4c95d;
+  font-weight: 600;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+.mention-option-label {
+  color: rgba(255, 255, 255, 0.75);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.mention-option-tag {
+  color: rgba(255, 255, 255, 0.45);
+  font-size: 10px;
+  font-weight: 500;
+  flex-shrink: 0;
+}
+.inspector-section {
+  border-top: 1px solid rgba(255,255,255,0.06);
+  padding-top: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.inspector-section strong { font-size: 13px; color: #fff; }
+.inspector-hint { font-size: 11px; color: rgba(255,255,255,0.45); line-height: 1.5; }
+.inspector-empty { font-size: 12px; color: rgba(255,255,255,0.45); padding: 8px; border: 1px dashed rgba(255,255,255,0.10); border-radius: 6px; }
+
+.inspector-stale-tag {
+  margin-left: 8px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 700;
+  background: rgba(245, 158, 11, 0.15);
+  color: #f59e0b;
+  border: 1px solid rgba(245, 158, 11, 0.4);
+  letter-spacing: 0.02em;
+}
+.inspector-stale-warn {
+  display: grid;
+  gap: 8px;
+  margin: 6px 0;
+  padding: 8px 10px;
+  background: rgba(245, 158, 11, 0.08);
+  border: 1px solid rgba(245, 158, 11, 0.4);
+  border-radius: 6px;
+  font-size: 12px;
+  color: #fde68a;
+  line-height: 1.5;
+}
+.inspector-stale-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.inspector-stale-actions button {
+  min-height: 28px;
+  padding: 0 12px;
+  font-size: 12px;
+  background: rgba(245, 158, 11, 0.18);
+  border-color: rgba(245, 158, 11, 0.5);
+  color: #fde68a;
+}
+.inspector-stale-actions button:hover {
+  background: rgba(245, 158, 11, 0.32);
+  border-color: #f59e0b;
+  color: #fff;
+}
+
+.inspector-ref-list { display: flex; flex-direction: column; gap: 6px; max-height: 280px; overflow-y: auto; }
+.inspector-ref-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 8px;
+  border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 6px;
+  cursor: pointer;
+}
+.inspector-ref-item.active { border-color: #fbbf24; background: rgba(251,191,36,0.06); }
+.inspector-ref-item input[type="checkbox"] { width: 16px; height: 16px; }
+.inspector-ref-item img {
+  width: 48px;
+  height: 48px;
+  object-fit: cover;
+  border-radius: 4px;
+}
+.inspector-ref-empty {
+  width: 48px; height: 48px;
+  background: rgba(255,255,255,0.06);
+  border-radius: 4px;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 10px;
+  color: rgba(255,255,255,0.35);
+}
+.inspector-ref-meta { display: flex; flex-direction: column; gap: 2px; flex: 1; min-width: 0; }
+.inspector-ref-meta strong { color: #fff; font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.inspector-ref-meta small { color: rgba(255,255,255,0.4); font-size: 10px; }
+
+.inspector-fold { background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.06); border-radius: 6px; padding: 6px 10px; }
+.inspector-fold summary { font-size: 12px; color: rgba(255,255,255,0.7); cursor: pointer; padding: 2px 0; user-select: none; }
+.inspector-fold summary::marker { color: rgba(255,255,255,0.5); }
+.inspector-fold textarea { margin-top: 6px; }
+.inspector-history-item {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px 0;
+  border-top: 1px solid rgba(255,255,255,0.06);
+}
+.inspector-history-item:first-of-type { border-top: none; }
+.inspector-history-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 11px;
+  color: rgba(255,255,255,0.55);
+}
+.inspector-history-model {
+  font-family: ui-monospace, "SF Mono", monospace;
+  color: rgba(255,255,255,0.45);
+}
+.inspector-history-status {
+  padding: 1px 6px;
+  border-radius: 3px;
+  background: rgba(255,140,80,0.15);
+  color: rgba(255,170,120,0.9);
+}
+.inspector-history-actions {
+  display: flex;
+  gap: 6px;
+  margin-top: 2px;
+}
+.inspector-review-card {
+  border: 1px solid rgba(148, 163, 184, 0.18);
+  border-radius: 10px;
+  padding: 10px;
+  background: rgba(15, 23, 42, 0.55);
+  display: grid;
+  gap: 8px;
+}
+.inspector-review-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 12px;
+  color: #94a3b8;
+}
+.review-score-pass { color: #34d399; }
+.review-score-fail { color: #f87171; }
+.inspector-review-fatal {
+  border: 1px solid rgba(248, 113, 113, 0.28);
+  border-radius: 8px;
+  padding: 8px;
+  color: #fecaca;
+  background: rgba(127, 29, 29, 0.18);
+}
+.inspector-review-criteria {
+  display: grid;
+  gap: 6px;
+}
+.inspector-review-criteria > div {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 4px 8px;
+  padding: 6px;
+  border: 1px solid rgba(148, 163, 184, 0.12);
+  border-radius: 8px;
+  background: rgba(2, 6, 23, 0.28);
+}
+.inspector-review-criteria small {
+  grid-column: 1 / -1;
+  color: #94a3b8;
+}
+
+.inspector-pre {
+  font-family: ui-monospace, "SF Mono", monospace;
+  font-size: 11px;
+  white-space: pre-wrap;
+  background: #050709;
+  border: 1px solid rgba(255,255,255,0.06);
+  border-radius: 4px;
+  padding: 8px;
+  margin-top: 6px;
+  max-height: 280px;
+  overflow-y: auto;
+  color: #d1d5db;
+}
+.inspector-ref-thumbs { display: flex; gap: 6px; margin-top: 6px; flex-wrap: wrap; }
+.inspector-ref-thumbs img { width: 80px; height: 80px; object-fit: cover; border-radius: 4px; }
+
+.inspector-actions { display: flex; gap: 8px; }
+.inspector-actions button {
+  background: rgba(255,255,255,0.06);
+  color: #fff;
+  border: 1px solid rgba(255,255,255,0.12);
+  padding: 6px 12px;
+  font-size: 12px;
+  border-radius: 6px;
+  cursor: pointer;
+  flex: 1;
+}
+.inspector-actions button.primary {
+  background: #6366f1;
+  border-color: transparent;
+}
+.inspector-actions button:disabled { opacity: 0.5; cursor: not-allowed; }
+
+.inspector-error {
+  background: rgba(248,113,113,0.10);
+  border: 1px solid rgba(248,113,113,0.30);
+  color: #fca5a5;
+  padding: 8px;
+  border-radius: 6px;
+  font-size: 12px;
+}
+
+.inspector video { width: 100%; border-radius: 6px; margin-top: 6px; background: #000; }
+
+/* Inspector "preview" image: full-size, native aspect, fits container width. Used so the user can
+ * verify the un-cropped artwork in detail without leaving the canvas. */
+.inspector-preview {
+  width: 100%;
+  height: auto;
+  border-radius: 6px;
+  margin-top: 6px;
+  background: #000;
+  display: block;
+}
+.inspector-preview-button {
+  display: block;
+  width: 100%;
+  padding: 0;
+  margin: 0;
+  border: 1px solid transparent;
+  background: transparent;
+  border-radius: 8px;
+  cursor: zoom-in;
+  min-height: 0;
+  overflow: hidden;
+}
+.inspector-preview-button:hover {
+  border-color: rgba(244, 201, 93, 0.45);
+  background: rgba(244, 201, 93, 0.04);
+}
+.inspector-preview-button .inspector-preview {
+  margin-top: 0;
+}
+.inspector-generating-preview {
+  min-height: 180px;
+  display: grid;
+  place-items: center;
+  gap: 8px;
+  padding: 24px;
+  margin-top: 8px;
+  border: 1px dashed rgba(96, 165, 250, 0.45);
+  border-radius: 8px;
+  background: rgba(15, 23, 42, 0.72);
+  color: #bfdbfe;
+  text-align: center;
+}
+.inspector-generating-preview strong {
+  color: #e0f2fe;
+  font-size: 14px;
+}
+.inspector-generating-preview small,
+.inspector-generating-preview p {
+  margin: 0;
+  color: #94a3b8;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+/* Pill-style download link that visually matches the inspector-actions row but makes the user's
+ * intent explicit (separate row, full-width, distinct color). */
+.inspector-download {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 8px 12px;
+  background: rgba(52, 211, 153, 0.10);
+  color: #6ee7b7;
+  border: 1px solid rgba(52, 211, 153, 0.32);
+  border-radius: 6px;
+  font-size: 12px;
+  text-decoration: none;
+  font-weight: 600;
+  transition: background 0.15s, border-color 0.15s;
+}
+.inspector-download:hover {
+  background: rgba(52, 211, 153, 0.18);
+  border-color: rgba(52, 211, 153, 0.55);
+}
+
+.flow-empty-state {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: rgba(255,255,255,0.4);
+  font-size: 14px;
+}
+
+/* ============================================================================
+   Lightbox + thumb-button + download toast
+   ============================================================================ */
+
+.flow-node-thumb-button {
+  display: block;
+  width: 100%;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  text-align: left;
+  cursor: zoom-in;
+  min-height: auto;
+}
+.flow-node-thumb-button:hover .flow-node-thumb {
+  filter: brightness(1.08);
+}
+
+.lightbox-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(2,4,8,0.92);
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  cursor: zoom-out;
+  backdrop-filter: blur(4px);
+}
+.lightbox-panel {
+  background: #0b0d10;
+  border: 1px solid rgba(255,255,255,0.10);
+  border-radius: 12px;
+  max-width: min(1400px, 96vw);
+  max-height: 96vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  cursor: default;
+  box-shadow: 0 16px 48px rgba(0,0,0,0.6);
+}
+.lightbox-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 16px;
+  border-bottom: 1px solid rgba(255,255,255,0.06);
+  gap: 12px;
+}
+.lightbox-head strong {
+  color: #fff;
+  font-size: 14px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.lightbox-actions { display: inline-flex; gap: 6px; }
+.lightbox-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  background: rgba(255,255,255,0.08);
+  color: #e5e7eb;
+  border: 1px solid rgba(255,255,255,0.10);
+  border-radius: 6px;
+  font-size: 12px;
+  cursor: pointer;
+  text-decoration: none;
+}
+.lightbox-btn:hover {
+  background: rgba(99,102,241,0.18);
+  border-color: rgba(99,102,241,0.45);
+  color: #fff;
+}
+.lightbox-body {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  background: #050709;
+  min-height: 0;
+}
+.lightbox-body img,
+.lightbox-body video {
+  max-width: 100%;
+  max-height: calc(96vh - 80px);
+  object-fit: contain;
+  border-radius: 4px;
+  background: #000;
+}
+
+/* Download toast (top-right, transient) */
+.download-toast-stack {
+  position: absolute;
+  top: 70px;
+  right: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  z-index: 50;
+  pointer-events: none;
+}
+.download-toast {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 14px;
+  background: rgba(15,23,42,0.96);
+  border: 1px solid rgba(52,211,153,0.45);
+  border-radius: 6px;
+  color: #d1fae5;
+  font-size: 12px;
+  box-shadow: 0 4px 16px rgba(0,0,0,0.5);
+  animation: toast-in 0.18s ease-out;
+}
+.download-toast strong {
+  color: #fff;
+  font-weight: 600;
+  max-width: 280px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+@keyframes toast-in {
+  from { opacity: 0; transform: translateY(-6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+/* ============================================================================
+   Create-node floating menu (CreateNodeMenu.tsx)
+   ============================================================================ */
+.flow-canvas {
+  position: relative;  /* anchor for the dblclick trap */
+}
+.flow-canvas-dblclick-trap {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+.flow-canvas-dblclick-trap * { pointer-events: auto; }
+
+/* Discoverability hint pinned to bottom-center of the canvas. Does not block clicks; fades after
+   first user interaction so it doesn't permanently steal screen real-estate. */
+.flow-canvas-hint {
+  position: absolute;
+  left: 50%;
+  bottom: 12px;
+  transform: translateX(-50%);
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: rgba(17, 24, 39, 0.65);
+  color: #cbd5e1;
+  font-size: 11px;
+  letter-spacing: 0.2px;
+  pointer-events: none;
+  z-index: 5;
+  backdrop-filter: blur(4px);
+  animation: flow-canvas-hint-fade 18s ease-out forwards;
+}
+@keyframes flow-canvas-hint-fade {
+  0%   { opacity: 0; }
+  6%   { opacity: 0.95; }
+  60%  { opacity: 0.95; }
+  100% { opacity: 0.25; }
+}
+.flow-canvas:hover .flow-canvas-hint { opacity: 0.85; }
+
+.create-node-menu {
+  position: fixed;
+  z-index: 60;
+  width: 240px;
+  background: #11161e;
+  border: 1px solid rgba(255,255,255,0.10);
+  border-radius: 8px;
+  box-shadow: 0 12px 32px rgba(0,0,0,0.55);
+  padding: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  animation: cnm-in 0.12s ease-out;
+}
+@keyframes cnm-in {
+  from { opacity: 0; transform: translateY(-4px) scale(0.98); }
+  to   { opacity: 1; transform: translateY(0) scale(1); }
+}
+.create-node-menu header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 8px;
+  border-bottom: 1px solid rgba(255,255,255,0.06);
+  margin-bottom: 4px;
+  color: rgba(255,255,255,0.7);
+  font-size: 11px;
+  font-weight: 600;
+}
+.create-node-menu header small {
+  margin-left: auto;
+  font-weight: 400;
+  color: rgba(255,255,255,0.4);
+  font-size: 10px;
+}
+
+.create-node-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  background: transparent;
+  border: 0;
+  border-radius: 6px;
+  color: #e5e7eb;
+  text-align: left;
+  cursor: pointer;
+  width: 100%;
+  font-size: 13px;
+}
+.create-node-menu-item:hover {
+  background: rgba(99,102,241,0.18);
+}
+.create-node-menu-item .cnm-icon {
+  width: 22px;
+  height: 22px;
+  border-radius: 4px;
+  background: rgba(255,255,255,0.06);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: rgba(255,255,255,0.85);
+  flex-shrink: 0;
+}
+.create-node-menu-item .cnm-label {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  flex: 1;
+  min-width: 0;
+}
+.create-node-menu-item .cnm-label strong { color: #fff; font-weight: 600; }
+.create-node-menu-item .cnm-label small { color: rgba(255,255,255,0.45); font-size: 11px; line-height: 1.3; }
+.create-node-menu-item .cnm-key {
+  background: rgba(255,255,255,0.08);
+  border: 1px solid rgba(255,255,255,0.12);
+  border-radius: 3px;
+  padding: 1px 5px;
+  font-size: 10px;
+  font-family: ui-monospace, "SF Mono", monospace;
+  color: rgba(255,255,255,0.65);
+  flex-shrink: 0;
+}
+
+/* ============================================================================
+   Reference-video node + Inspector shot table
+   ============================================================================ */
+.tag-refvideo { background: rgba(244, 114, 182, 0.20); color: #f0abfc; }
+.flow-node.refvideo-node { border-color: rgba(244, 114, 182, 0.32); }
+
+.ref-shot-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 480px;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+.ref-shot-row {
+  background: rgba(255,255,255,0.03);
+  border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 6px;
+  padding: 8px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.ref-shot-row > header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 11px;
+  color: rgba(255,255,255,0.7);
+}
+.ref-shot-row > header strong { color: #f0abfc; font-size: 13px; }
+.ref-shot-row .ref-shot-time {
+  color: rgba(255,255,255,0.45);
+  font-family: ui-monospace, "SF Mono", monospace;
+  font-size: 10px;
+}
+.ref-shot-row .ref-shot-type {
+  margin-left: auto;
+  background: rgba(244, 114, 182, 0.14);
+  color: #f9a8d4;
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-size: 10px;
+}
+.ref-shot-content {
+  margin: 0;
+  font-size: 12px;
+  color: #e5e7eb;
+  line-height: 1.5;
+}
+.ref-shot-row details summary {
+  font-size: 11px;
+  color: rgba(255,255,255,0.55);
+  cursor: pointer;
+}
+.ref-shot-field { margin-top: 4px; }
+.ref-shot-field label {
+  display: block;
+  font-size: 10px;
+  color: rgba(255,255,255,0.4);
+  font-family: ui-monospace, "SF Mono", monospace;
+  margin-bottom: 2px;
+}
+.ref-shot-field pre {
+  margin: 0;
+  font-family: ui-monospace, "SF Mono", monospace;
+  font-size: 11px;
+  white-space: pre-wrap;
+  background: #050709;
+  border: 1px solid rgba(255,255,255,0.06);
+  border-radius: 4px;
+  padding: 6px 8px;
+  color: #d1d5db;
+  max-height: 120px;
+  overflow-y: auto;
+}
+.ref-shot-apply select {
+  width: 100%;
+  padding: 6px 8px;
+  font-size: 12px;
+  background: #0a0d12;
+  border: 1px solid rgba(244,114,182,0.32);
+  color: #fff;
+  border-radius: 4px;
+}
+.ref-shot-apply select:hover { border-color: rgba(244,114,182,0.55); }
+
+/* Toolbar undo / redo buttons. Distinct from "+ 创建" actions: ghosty, slate-tinted. */
+.flow-toolbar-actions .flow-toolbar-undo {
+  background: rgba(255,255,255,0.04);
+  border: 1px solid rgba(255,255,255,0.10);
+  color: rgba(255,255,255,0.80);
+  padding: 6px 10px;
+  font-size: 12px;
+}
+.flow-toolbar-actions .flow-toolbar-undo:hover:not(:disabled) {
+  background: rgba(99,102,241,0.16);
+  border-color: rgba(99,102,241,0.45);
+  color: #fff;
+}
+.flow-toolbar-actions .flow-toolbar-undo:disabled {
+  opacity: 0.42;
+  cursor: not-allowed;
+}
+
+/* Toast variants — share the base style, color the border accent. */
+.download-toast-undo { border-color: rgba(168, 85, 247, 0.55); color: #e9d5ff; }
+.download-toast-redo { border-color: rgba(96, 165, 250, 0.55); color: #dbeafe; }
+
+/* Reference-video → Shot binding picker */
+.ref-bind-list { display: flex; flex-direction: column; gap: 4px; }
+.ref-bind-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 10px;
+  border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 12px;
+  color: #e5e7eb;
+}
+.ref-bind-row:hover { background: rgba(244,114,182,0.06); }
+.ref-bind-row.active {
+  border-color: rgba(244,114,182,0.55);
+  background: rgba(244,114,182,0.10);
+}
+.ref-bind-row input { width: 16px; height: 16px; margin: 0; }
+.ref-bind-row strong { color: #fff; font-weight: 600; }
+.ref-bind-badge {
+  margin-left: auto;
+  padding: 2px 6px;
+  background: rgba(244,114,182,0.18);
+  color: #f0abfc;
+  border-radius: 3px;
+  font-size: 10px;
+}
+
+/* Server-unreachable banner. Pinned to the top of the viewport, spans both columns of app-shell.
+   Pure CSS animation in case JS itself is in trouble. Auto-disappears when api-network-up fires. */
+.server-down-banner {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 16px;
+  background: linear-gradient(90deg, #7f1d1d, #9f1239);
+  color: #fff;
+  font-size: 13px;
+  border-bottom: 1px solid #fecaca;
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.45);
+}
+.server-down-banner strong { font-weight: 700; color: #fef3c7; }
+.server-down-banner code {
+  background: rgba(255, 255, 255, 0.18);
+  padding: 1px 6px;
+  border-radius: 3px;
+  font-family: ui-monospace, monospace;
+  font-size: 12px;
+}
+
+/* Clickable wrapper around the in-node video thumbnail. The wrapper hosts the <video>/<img> +
+   a small ▶ overlay so it's obvious you can click it. Hover state lifts the overlay color and
+   draws a faint outline around the whole thumb. Pure CSS — pointer-events stay on the wrapper. */
+.flow-thumb-clickable {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  cursor: pointer;
+  border-radius: 6px;
+  overflow: hidden;
+  outline: 1px solid transparent;
+  transition: outline-color 120ms ease;
+}
+.flow-thumb-clickable:hover {
+  outline-color: rgba(96, 165, 250, 0.6);
+}
+.flow-thumb-clickable > video,
+.flow-thumb-clickable > img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  background: #0b1220;
+  display: block;
+}
+.flow-thumb-clickable > .flow-empty {
+  width: 100%;
+  height: 100%;
+}
+.flow-thumb-play {
+  position: absolute;
+  right: 8px;
+  bottom: 8px;
+  width: 28px;
+  height: 28px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.6);
+  color: #fff;
+  font-size: 12px;
+  pointer-events: none;
+  opacity: 0.7;
+  transition: opacity 120ms ease, transform 120ms ease;
+}
+.flow-thumb-clickable:hover .flow-thumb-play {
+  opacity: 1;
+  transform: scale(1.06);
+  background: rgba(96, 165, 250, 0.9);
+}
+
+/* Connection handles (the dots on each node where edges start/end). The default xyflow handle is
+   8×8 px, which makes initiating a drag a precision exercise. We keep the visible dot small but
+   enlarge the invisible hit target via a ::before pseudo-element so anywhere within ~24 px of the
+   handle catches the pointer. Combined with `connectionRadius={48}` on <ReactFlow/>, the user
+   barely has to aim. */
+.react-flow__handle {
+  width: 12px !important;
+  height: 12px !important;
+  background: #fbbf24 !important;
+  border: 2px solid #0b0f17 !important;
+  box-shadow: 0 0 0 1px rgba(251, 191, 36, 0.45);
+  transition: transform 120ms ease, box-shadow 120ms ease, background 120ms ease;
+  z-index: 5;
+}
+.react-flow__handle::before {
+  /* Invisible 32×32 hit target centered on the handle. Catches drags that start "near" the dot. */
+  content: "";
+  position: absolute;
+  inset: -10px;
+  border-radius: 50%;
+  background: transparent;
+  pointer-events: auto;
+}
+.react-flow__handle:hover,
+.react-flow__handle.connectionindicator:hover {
+  transform: scale(1.25);
+  background: #fcd34d !important;
+  box-shadow: 0 0 0 4px rgba(251, 191, 36, 0.28);
+}
+/* Pulsing ring on the source handle of a hovered node so the user can see "you can drag from
+   here". Targets the right-side source handle on each node. */
+.flow-node:hover .react-flow__handle.react-flow__handle-right {
+  animation: flow-handle-pulse 1.6s ease-in-out infinite;
+}
+@keyframes flow-handle-pulse {
+  0%, 100% { box-shadow: 0 0 0 1px rgba(251, 191, 36, 0.45); }
+  50%      { box-shadow: 0 0 0 8px rgba(251, 191, 36, 0.18); }
+}
+/* While the user is mid-drag, every legal target handle gets a glow so you can see where to drop. */
+.react-flow__handle.connectingto,
+.react-flow__handle.connectionindicator.valid {
+  background: #34d399 !important;
+  transform: scale(1.4);
+  box-shadow: 0 0 0 6px rgba(52, 211, 153, 0.30);
+}
+
+/* Inspector "stage" blocks: a numbered ① / ② section with a clear hierarchical title and small
+   explanatory line. Used by AssetInspector to make the two-stage prompt flow visually obvious
+   (1. user's free-text intent → 2. AI-expanded composed prompt actually sent). */
+.inspector-stage {
+  display: grid;
+  gap: 6px;
+  padding: 12px;
+  border: 1px solid #243244;
+  border-radius: 8px;
+  background: rgba(15, 23, 42, 0.42);
+  margin-bottom: 10px;
+}
+.inspector-stage-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.inspector-stage-head strong {
+  color: #fcd34d;
+  font-size: 13px;
+}
+.inspector-stage-head small {
+  color: #94a3b8;
+  font-size: 11px;
+  flex: 1;
+  min-width: 200px;
+}
+.inspector-stage-head small em {
+  color: #fbbf24;
+  font-style: normal;
+  font-weight: 700;
+}
+.inspector-stage-num {
+  display: inline-grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: rgba(251, 191, 36, 0.18);
+  color: #fcd34d;
+  font-size: 12px;
+  font-weight: 700;
+}
+.inspector-stage-hint {
+  font-size: 11px;
+  color: #94a3b8;
+  padding-top: 2px;
+}
+
+/* Per-session shareable link button. Sits next to the session title input; clicking it copies
+   the URL hash form (#/s/<id>) of this session to clipboard. */
+.session-share {
+  margin-left: 8px;
+  height: 32px;
+  padding: 0 12px;
+  font-size: 12px;
+  color: #cbd5e1;
+  background: transparent;
+  border: 1px solid #334155;
+  border-radius: 6px;
+}
+.session-share:hover {
+  border-color: #fbbf24;
+  color: #fcd34d;
+  background: rgba(251, 191, 36, 0.08);
+}
+
+/* Pending-generation indicators on canvas node cards. The user kicks off Seedream image gen on
+   one node, then can navigate to other nodes — these visuals tell them "this node is still
+   working in the background", and the same channel allows multiple gens to fan out in parallel
+   without UI lock. */
+.flow-node.generating {
+  outline: 2px solid rgba(96, 165, 250, 0.55);
+  outline-offset: 2px;
+  animation: flow-node-pending-pulse 2s ease-in-out infinite;
+}
+@keyframes flow-node-pending-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(96, 165, 250, 0.0); }
+  50%      { box-shadow: 0 0 0 8px rgba(96, 165, 250, 0.20); }
+}
+.flow-node-pending-badge {
+  margin-left: auto;
+  margin-right: 8px;
+  padding: 2px 8px;
+  font-size: 10px;
+  color: #93c5fd;
+  background: rgba(96, 165, 250, 0.15);
+  border: 1px solid rgba(96, 165, 250, 0.35);
+  border-radius: 999px;
+  white-space: nowrap;
+}
+.flow-node-pending-overlay {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  gap: 8px;
+  background: rgba(11, 18, 32, 0.72);
+  color: #cbd5e1;
+  font-size: 12px;
+  pointer-events: none;
+  border-radius: 6px;
+}
+/* The thumb wrapper needs `position:relative` for the overlay to anchor inside it. */
+.flow-node-thumb { position: relative; }
+
+/* Asset Inspector auto-save status badge — sits next to the action buttons. Color-codes the
+   three states so the user knows their typing is being persisted without having to click "保存". */
+.inspector-save-status {
+  margin-left: auto;
+  font-size: 11px;
+  color: #94a3b8;
+  align-self: center;
+  white-space: nowrap;
+  user-select: none;
+}
+.inspector-save-status[data-status="saved"]   { color: #34d399; }
+.inspector-save-status[data-status="saving"]  { color: #60a5fa; }
+.inspector-save-status[data-status="dirty"]   { color: #fbbf24; }

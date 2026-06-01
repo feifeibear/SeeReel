@@ -1,6 +1,6 @@
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import path from "node:path";
-import type { Asset, CreateSessionPayload, Session, Shot, ShotRender, StoreSnapshot } from "../shared/types";
+import type { Asset, CreateSessionPayload, Session, Shot, ShotRender, StitchJob, StoreSnapshot } from "../shared/types";
 
 const DATA_DIR = path.resolve(process.cwd(), "data");
 const STORE_FILE = path.join(DATA_DIR, "cinema-store.json");
@@ -16,6 +16,7 @@ const emptyStore = (): StoreSnapshot => ({
 
 export class CinemaStore {
   private data: StoreSnapshot = emptyStore();
+  private writeQueue: Promise<void> = Promise.resolve();
 
   async load() {
     await mkdir(DATA_DIR, { recursive: true });
@@ -32,25 +33,36 @@ export class CinemaStore {
   }
 
   async save() {
-    await mkdir(DATA_DIR, { recursive: true });
-    await writeFile(STORE_FILE, JSON.stringify(this.data, null, 2), "utf8");
+    const payload = JSON.stringify(this.data, null, 2);
+    const tmpFile = `${STORE_FILE}.${process.pid}.${Date.now()}.${crypto.randomUUID().slice(0, 8)}.tmp`;
+    const write = this.writeQueue.then(async () => {
+      await mkdir(DATA_DIR, { recursive: true });
+      await writeFile(tmpFile, payload, "utf8");
+      await rename(tmpFile, STORE_FILE);
+    });
+    this.writeQueue = write.catch(() => undefined);
+    await write;
   }
 
   async createSession(payload: CreateSessionPayload) {
     const ts = now();
     const targetDurationSec = Math.max(15, Number(payload.targetDurationSec) || 60);
-    const shotCount = Math.max(1, Math.min(20, Number(payload.shotCount) || 4));
+    // Allow 0 — a fresh session is intentionally empty (canvas-first product flow). The user
+    // grows it by adding shots / anchor assets / reference videos via the toolbar or
+    // double-click menu. Hard cap at 20 to keep the auto-laid-out canvas legible.
+    const shotCount = Math.max(0, Math.min(20, Math.floor(Number(payload.shotCount ?? 0))));
     const session: Session = {
       id: id("ses"),
       title: normalizeSessionTitle(payload.title, this.data.sessions),
       logline: payload.logline?.trim() || "",
       style: payload.style?.trim() || "cinematic, emotionally grounded, coherent visual continuity",
+      language: payload.language === "en" ? "en" : "zh",
       targetDurationSec,
       createdAt: ts,
       updatedAt: ts
     };
 
-    const perShot = Math.max(4, Math.round(targetDurationSec / shotCount));
+    const perShot = shotCount > 0 ? Math.max(4, Math.round(targetDurationSec / shotCount)) : 0;
     const shots: Shot[] = Array.from({ length: shotCount }, (_, index) => ({
       id: id("shot"),
       sessionId: session.id,
@@ -77,10 +89,89 @@ export class CinemaStore {
     return { ...session, shots };
   }
 
+  /**
+   * Append a single shot to an existing session. Used by the canvas "新建分镜镜头" flow:
+   * double-clicking empty space lets the user add one more shot without creating a new session.
+   * The new shot gets the next available index, an empty rawPrompt, and the same default
+   * durationSec the session was created with (or `Math.round(target/count)` as a sane default).
+   */
+  async appendShot(sessionId: string, partial?: Partial<Shot>) {
+    const session = this.data.sessions.find((item) => item.id === sessionId);
+    if (!session) return undefined;
+    const ts = now();
+    const existing = this.data.shots.filter((s) => s.sessionId === sessionId);
+    const nextIndex = existing.length ? Math.max(...existing.map((s) => s.index)) + 1 : 1;
+    const fallbackDuration = existing.length
+      ? existing[0].durationSec
+      : Math.max(4, Math.round(session.targetDurationSec / Math.max(nextIndex, 1)));
+    const shot: Shot = {
+      id: id("shot"),
+      sessionId: session.id,
+      index: nextIndex,
+      title: partial?.title || `Shot ${nextIndex}`,
+      script: partial?.script ?? "",
+      camera: partial?.camera ?? "",
+      durationSec: Math.max(1, Math.min(15, partial?.durationSec || fallbackDuration)),
+      assetIds: partial?.assetIds ?? [],
+      rawPrompt: partial?.rawPrompt ?? "",
+      prompt: partial?.prompt ?? partial?.rawPrompt ?? "",
+      debugNote: "",
+      seedanceVariant: partial?.seedanceVariant || "standard",
+      usePreviousShotClip: false,
+      renders: [],
+      status: "draft",
+      createdAt: ts,
+      updatedAt: ts
+    };
+    this.data.shots.push(shot);
+    session.updatedAt = ts;
+    await this.save();
+    return structuredClone(shot);
+  }
+
   async updateSession(sessionId: string, patch: Partial<Session>) {
     const session = this.data.sessions.find((item) => item.id === sessionId);
     if (!session) return undefined;
     Object.assign(session, patch, { id: session.id, updatedAt: now() });
+    await this.save();
+    return this.getSession(session.id);
+  }
+
+  async createStitchJob(sessionId: string, partial?: Partial<StitchJob>) {
+    const session = this.data.sessions.find((item) => item.id === sessionId);
+    if (!session) return undefined;
+    const ts = now();
+    const jobs = session.stitchJobs || [];
+    const job: StitchJob = {
+      id: partial?.id || id("stitch"),
+      name: partial?.name || `拼接 ${jobs.length + 1}`,
+      shotIds: partial?.shotIds || [],
+      status: partial?.status || "idle",
+      createdAt: partial?.createdAt || ts,
+      updatedAt: ts
+    };
+    session.stitchJobs = [...jobs, job];
+    session.updatedAt = ts;
+    await this.save();
+    return this.getSession(session.id);
+  }
+
+  async updateStitchJob(sessionId: string, jobId: string, patch: Partial<StitchJob>) {
+    const session = this.data.sessions.find((item) => item.id === sessionId);
+    if (!session) return undefined;
+    const job = (session.stitchJobs || []).find((item) => item.id === jobId);
+    if (!job) return undefined;
+    Object.assign(job, patch, { id: job.id, updatedAt: now() });
+    session.updatedAt = now();
+    await this.save();
+    return this.getSession(session.id);
+  }
+
+  async deleteStitchJob(sessionId: string, jobId: string) {
+    const session = this.data.sessions.find((item) => item.id === sessionId);
+    if (!session) return undefined;
+    session.stitchJobs = (session.stitchJobs || []).filter((item) => item.id !== jobId);
+    session.updatedAt = now();
     await this.save();
     return this.getSession(session.id);
   }
@@ -155,7 +246,12 @@ export class CinemaStore {
       return structuredClone(existing);
     }
 
+    // Shallow-merge the partial first so newer fields (composedPrompt / composedPromptDraft /
+    // parsedShots / parseStatus / parseError etc.) flow through automatically without explicitly
+    // listing every one. The explicit defaults below override id, timestamps, and validate the
+    // few fields that need normalization (name trimmed, tags array, scope undefined-coerce).
     const created: Asset = {
+      ...(asset as Partial<Asset>),
       id: id("asset"),
       name: asset.name?.trim() || "未命名资产",
       type: asset.type ?? "other",
@@ -165,6 +261,11 @@ export class CinemaStore {
       mediaUrl: asset.mediaUrl ?? asset.imageUrl,
       imageUrl: asset.imageUrl,
       referenceImageUrl: asset.referenceImageUrl,
+      tosObjectKey: asset.tosObjectKey,
+      tosPublishedAt: asset.tosPublishedAt,
+      referenceAssetIds: asset.referenceAssetIds,
+      referenceImageUrls: asset.referenceImageUrls,
+      generationModel: asset.generationModel,
       tags: asset.tags ?? [],
       parentAssetId: asset.parentAssetId || undefined,
       ownerShotId: asset.ownerShotId || undefined,
@@ -177,10 +278,80 @@ export class CinemaStore {
     return structuredClone(created);
   }
 
+  async restoreAsset(asset: Asset) {
+    const restored = structuredClone(asset);
+    const index = this.data.assets.findIndex((item) => item.id === restored.id);
+    if (index >= 0) this.data.assets[index] = restored;
+    else this.data.assets.unshift(restored);
+    await this.save();
+    return structuredClone(restored);
+  }
+
+  async restoreShot(shot: Shot, assets: Asset[] = []) {
+    const session = this.data.sessions.find((item) => item.id === shot.sessionId);
+    if (!session) return undefined;
+    const restoredShot = structuredClone(shot);
+    const existingShotIndex = this.data.shots.findIndex((item) => item.id === restoredShot.id);
+    if (existingShotIndex >= 0) this.data.shots[existingShotIndex] = restoredShot;
+    else this.data.shots.push(restoredShot);
+
+    const restoredAssets: Asset[] = [];
+    for (const asset of assets) {
+      const restoredAsset = structuredClone(asset);
+      const existingAssetIndex = this.data.assets.findIndex((item) => item.id === restoredAsset.id);
+      if (existingAssetIndex >= 0) this.data.assets[existingAssetIndex] = restoredAsset;
+      else this.data.assets.unshift(restoredAsset);
+      restoredAssets.push(structuredClone(restoredAsset));
+    }
+
+    session.updatedAt = now();
+    await this.save();
+    return { session: this.getSession(session.id), assets: restoredAssets };
+  }
+
+  async copyGlobalAssetToSession(assetId: string, sessionId: string) {
+    const session = this.data.sessions.find((item) => item.id === sessionId);
+    if (!session) return undefined;
+    const source = this.data.assets.find((item) => item.id === assetId);
+    if (!source || source.ownerShotId || source.ownerSessionId) return undefined;
+
+    const existing = this.data.assets.find(
+      (item) => !item.ownerShotId && item.ownerSessionId === sessionId && item.parentAssetId === source.id
+    );
+    if (existing) return structuredClone(existing);
+
+    return this.upsertAsset({
+      name: source.name,
+      type: source.type,
+      mediaKind: source.mediaKind,
+      description: source.description,
+      prompt: source.prompt,
+      mediaUrl: source.mediaUrl,
+      imageUrl: source.imageUrl,
+      referenceImageUrl: source.referenceImageUrl,
+      tosObjectKey: source.tosObjectKey,
+      tosPublishedAt: source.tosPublishedAt,
+      tags: [...(source.tags ?? [])],
+      parentAssetId: source.id,
+      referenceAssetIds: source.referenceAssetIds ? [...source.referenceAssetIds] : undefined,
+      referenceImageUrls: source.referenceImageUrls ? [...source.referenceImageUrls] : undefined,
+      generationModel: source.generationModel,
+      ownerSessionId: sessionId
+    });
+  }
+
   async deleteAsset(assetId: string) {
     this.data.assets = this.data.assets.filter((asset) => asset.id !== assetId);
     this.data.shots.forEach((shot) => {
-      shot.assetIds = shot.assetIds.filter((id) => id !== assetId);
+      shot.assetIds = (shot.assetIds || []).filter((id) => id !== assetId);
+      shot.subShotStoryboardAssetIds = (shot.subShotStoryboardAssetIds || []).filter((id) => id !== assetId);
+      if (shot.subShotStoryboardAssetId === assetId) shot.subShotStoryboardAssetId = undefined;
+      if (shot.referenceVideoAssetId === assetId) {
+        shot.referenceVideoAssetId = undefined;
+        shot.referenceClipUrl = null;
+      }
+      if (shot.firstFrameAssetId === assetId) shot.firstFrameAssetId = undefined;
+      if (shot.lastFrameAssetId === assetId) shot.lastFrameAssetId = undefined;
     });
     await this.save();
   }
@@ -188,6 +359,15 @@ export class CinemaStore {
   async updateShot(shotId: string, patch: Partial<Shot>) {
     const shot = this.data.shots.find((item) => item.id === shotId);
     if (!shot) return undefined;
+    // Auto-clear seedancePhase whenever generationTaskId is being cleared OR status leaves the
+    // generating state — this keeps the queue/running sub-phase from sticking on the UI after a
+    // terminal transition (ready / error / cancelled) without forcing every call site to remember
+    // to pass `seedancePhase: undefined` alongside.
+    const clearingTask = Object.hasOwn(patch, "generationTaskId") && !patch.generationTaskId;
+    const leavingGenerating = Object.hasOwn(patch, "status") && patch.status !== "generating";
+    if ((clearingTask || leavingGenerating) && !Object.hasOwn(patch, "seedancePhase")) {
+      (patch as Partial<Shot>).seedancePhase = undefined;
+    }
     Object.assign(shot, patch, { id: shot.id, sessionId: shot.sessionId, updatedAt: now() });
     await this.save();
     return structuredClone(shot);
@@ -201,8 +381,33 @@ export class CinemaStore {
     const shot = this.data.shots.find((item) => item.id === shotId);
     if (!shot) return undefined;
     const snapshot = structuredClone(shot);
+    const deletedAssetIds = new Set(
+      this.data.assets.filter((asset) => asset.ownerShotId === shotId).map((asset) => asset.id)
+    );
     this.data.shots = this.data.shots.filter((item) => item.id !== shotId);
     this.data.assets = this.data.assets.filter((asset) => asset.ownerShotId !== shotId);
+    this.data.shots.forEach((survivor) => {
+      if (survivor.referenceVideoFromShotId === shotId) {
+        survivor.referenceVideoFromShotId = undefined;
+        survivor.referenceClipUrl = null;
+        survivor.referenceAudioUrl = null;
+        survivor.referenceClipPreviewUrl = null;
+        survivor.referenceAudioPreviewUrl = null;
+      }
+      if (!deletedAssetIds.size) return;
+      survivor.assetIds = (survivor.assetIds || []).filter((id) => !deletedAssetIds.has(id));
+      survivor.subShotStoryboardAssetIds = (survivor.subShotStoryboardAssetIds || []).filter((id) => !deletedAssetIds.has(id));
+      if (survivor.subShotStoryboardAssetId && deletedAssetIds.has(survivor.subShotStoryboardAssetId)) {
+        survivor.subShotStoryboardAssetId = survivor.subShotStoryboardAssetIds?.[0];
+      }
+      if (survivor.referenceVideoAssetId && deletedAssetIds.has(survivor.referenceVideoAssetId)) {
+        survivor.referenceVideoAssetId = undefined;
+        survivor.referenceClipUrl = null;
+        survivor.referenceAudioUrl = null;
+      }
+      if (survivor.firstFrameAssetId && deletedAssetIds.has(survivor.firstFrameAssetId)) survivor.firstFrameAssetId = undefined;
+      if (survivor.lastFrameAssetId && deletedAssetIds.has(survivor.lastFrameAssetId)) survivor.lastFrameAssetId = undefined;
+    });
     await this.save();
     return snapshot;
   }
@@ -212,7 +417,37 @@ export class CinemaStore {
     if (!shot) return undefined;
     const render = (shot.renders || []).find((item) => item.id === renderId);
     if (!render) return structuredClone(shot);
+    // Mirror the auto-clear on render: terminal transitions drop seedancePhase.
+    const clearingTask = Object.hasOwn(patch, "generationTaskId") && !patch.generationTaskId;
+    const leavingGenerating = Object.hasOwn(patch, "status") && patch.status !== "generating";
+    if ((clearingTask || leavingGenerating) && !Object.hasOwn(patch, "seedancePhase")) {
+      (patch as Partial<ShotRender>).seedancePhase = undefined;
+    }
     Object.assign(render, patch, { id: render.id });
+    shot.updatedAt = now();
+    await this.save();
+    return structuredClone(shot);
+  }
+
+  async restoreShotRender(shotId: string, renderId: string) {
+    const shot = this.data.shots.find((item) => item.id === shotId);
+    if (!shot) return undefined;
+
+    const renders = shot.renders || [];
+    const target = renders.find((render) => render.id === renderId);
+    if (!target) return structuredClone(shot);
+    if (!target.videoUrl) {
+      throw new Error("Render has no video to restore");
+    }
+
+    // Move the target render to the front so the "newest is current" invariant holds.
+    shot.renders = [target, ...renders.filter((render) => render.id !== renderId)];
+    Object.assign(shot, shotPatchFromRender(target));
+    // Restoring an old result clears any in-flight task state.
+    shot.generationTaskId = undefined;
+    shot.generationStartedAt = undefined;
+    shot.error = undefined;
+
     shot.updatedAt = now();
     await this.save();
     return structuredClone(shot);
@@ -235,6 +470,7 @@ export class CinemaStore {
         Object.assign(shot, shotPatchFromRender(nextRender));
       } else {
         shot.videoUrl = undefined;
+        shot.videoGeneratedAt = undefined;
         shot.referenceClipUrl = undefined;
         shot.referenceAudioUrl = undefined;
         shot.status = shot.prompt ? "scripted" : "draft";
@@ -277,13 +513,15 @@ export class CinemaStore {
       wanted.add(assetId);
     });
     const prompt = normalizeMentionText(`${shot.rawPrompt || ""}\n${shot.prompt || ""}`);
+    const matchedAssets: Asset[] = [];
     this.data.assets.forEach((asset) => {
       if (!isVisible(asset)) return;
       const aliases = [asset.name, ...(asset.tags ?? [])]
         .map((value) => normalizeMentionText(value))
         .filter(Boolean);
-      if (aliases.some((alias) => prompt.includes(`@${alias}`))) wanted.add(asset.id);
+      if (aliases.some((alias) => prompt.includes(`@${alias}`))) matchedAssets.push(asset);
     });
+    preferSessionAssets(matchedAssets, shot.sessionId).forEach((asset) => wanted.add(asset.id));
     return structuredClone(this.data.assets.filter((asset) => wanted.has(asset.id)));
   }
 }
@@ -294,17 +532,31 @@ function normalizeSessionTitle(title: string | undefined, sessions: Session[]) {
 
   const used = new Set<number>();
   sessions.forEach((session) => {
-    const match = session.title.trim().match(/^unamed session\s+(\d+)$/i);
+    const match = session.title.trim().match(/^un(?:n)?amed session\s+(\d+)$/i);
     if (match) used.add(Number(match[1]));
   });
 
   let index = 1;
   while (used.has(index)) index += 1;
-  return `unamed session ${index}`;
+  return `unnamed session ${index}`;
 }
 
 function normalizeMentionText(value: string) {
   return value.toLowerCase().replace(/\s+/g, "").replace(/／/g, "/").trim();
+}
+
+function assetAliases(asset: Asset) {
+  return [asset.name, ...(asset.tags ?? [])].map((value) => normalizeMentionText(value)).filter(Boolean);
+}
+
+function preferSessionAssets(assets: Asset[], sessionId: string) {
+  const sessionAliases = new Set(
+    assets
+      .filter((asset) => asset.ownerSessionId === sessionId)
+      .flatMap((asset) => assetAliases(asset))
+  );
+  if (!sessionAliases.size) return assets;
+  return assets.filter((asset) => asset.ownerSessionId || !assetAliases(asset).some((alias) => sessionAliases.has(alias)));
 }
 
 function shotPatchFromRender(render: ShotRender): Partial<Shot> {
@@ -316,6 +568,7 @@ function shotPatchFromRender(render: ShotRender): Partial<Shot> {
     prompt: render.prompt,
     debugNote: render.note || "",
     videoUrl: render.videoUrl,
+    videoGeneratedAt: render.videoGeneratedAt || render.createdAt,
     usePreviousShotClip: render.usePreviousShotClip,
     previousShotClipSec: render.previousShotClipSec,
     previousShotClipSecOverride: render.previousShotClipSecOverride,
@@ -324,6 +577,12 @@ function shotPatchFromRender(render: ShotRender): Partial<Shot> {
     referenceClipPreviewUrl: render.referenceClipPreviewUrl,
     referenceAudioPreviewUrl: render.referenceAudioPreviewUrl,
     firstFrameAssetId: render.firstFrameAssetId,
+    lastFrameAssetId: render.lastFrameAssetId,
+    subShotPanelCount: render.subShotPanelCount,
+    subShotStoryboardAssetId: render.subShotStoryboardAssetId,
+    subShotStoryboardAssetIds: render.subShotStoryboardAssetIds,
+    referenceVideoAssetId: render.referenceVideoAssetId,
+    referenceVideoFromShotId: render.referenceVideoFromShotId,
     status: "ready"
   };
   return Object.fromEntries(Object.entries(patch).filter(([, value]) => value !== undefined)) as Partial<Shot>;

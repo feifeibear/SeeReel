@@ -6,6 +6,8 @@
   "scripts": {
     "dev": "tsx src/server/index.ts",
     "build": "tsc --noEmit && vite build",
+    "verify:canvas-crud": "npm run build && npm run smoke:canvas-crud",
+    "smoke:canvas-crud": "tsx scripts/smoke-canvas-crud.ts",
     "install:skill": "node scripts/install_agent_skill.mjs",
     "postinstall": "node scripts/install_agent_skill.mjs --postinstall || true",
     "start": "NODE_ENV=production tsx src/server/index.ts"
@@ -14,6 +16,7 @@
     "@ffmpeg-installer/ffmpeg": "^1.1.0",
     "@vitejs/plugin-react": "^5.0.4",
     "@volcengine/tos-sdk": "^2.9.1",
+    "@xyflow/react": "^12.10.2",
     "cors": "^2.8.5",
     "dotenv": "^17.2.3",
     "express": "^5.1.0",
@@ -23,6 +26,8 @@
     "vite": "^7.1.7"
   },
   "devDependencies": {
+    "@rollup/rollup-darwin-arm64": "^4.60.4",
+    "@rollup/wasm-node": "^4.60.4",
     "@types/cors": "^2.8.17",
     "@types/express": "^5.0.3",
     "@types/node": "^24.5.2",

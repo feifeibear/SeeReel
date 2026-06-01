@@ -93,6 +93,53 @@ export async function publishAssetImageToTos(asset: Asset, shot: Shot): Promise<
   };
 }
 
+/**
+ * Generic upload helper that doesn't require a Shot — used by reference-video uploads where the
+ * asset isn't tied to a specific shot. Uploads any local /media file (image OR video) to TOS,
+ * returns a public URL (preferred) or a presigned URL with TTL.
+ */
+export async function publishLocalMediaToTos(localUrl: string, opts: { keyHint?: string } = {}): Promise<TosPublishResult> {
+  if (!localUrl.startsWith(mediaUrlPrefix)) {
+    throw new Error("publishLocalMediaToTos 只接受 /media/ 路径");
+  }
+  const filePath = localMediaPath(localUrl);
+  const info = await stat(filePath);
+  if (!info.isFile() || info.size <= 0) throw new Error("本地媒体文件为空或不存在。");
+
+  const config = getTosConfig(true);
+  const ext = path.extname(filePath).toLowerCase() || ".bin";
+  const safeHint = sanitizeKeyPart(opts.keyHint || path.basename(filePath, ext));
+  const stamp = Date.now();
+  const key = [config.keyPrefix, "uploads", `${safeHint}-${stamp}${ext}`].filter(Boolean).join("/");
+  const client = new TosClient({
+    accessKeyId: config.accessKeyId,
+    accessKeySecret: config.accessKeySecret,
+    stsToken: config.stsToken,
+    region: config.region,
+    endpoint: config.endpoint,
+    bucket: config.bucket
+  });
+
+  await client.putObjectFromFile({
+    bucket: config.bucket,
+    key,
+    filePath,
+    contentType: contentTypeFromPath(filePath),
+    cacheControl: "public, max-age=604800"
+  });
+
+  if (config.publicBaseUrl) {
+    return { key, url: joinPublicBase(config.publicBaseUrl, key), localUrl };
+  }
+  const url = client.getPreSignedUrl({
+    bucket: config.bucket,
+    key,
+    expires: config.presignExpiresSec,
+    response: { contentType: contentTypeFromPath(filePath) }
+  });
+  return { key, url, localUrl, expiresSec: config.presignExpiresSec };
+}
+
 function getTosConfig(throwOnMissing: true): TosConfig;
 function getTosConfig(throwOnMissing: false): TosConfig | undefined;
 function getTosConfig(throwOnMissing: boolean): TosConfig | undefined {
@@ -196,5 +243,11 @@ function contentTypeFromPath(filePath: string) {
   const ext = path.extname(filePath).toLowerCase();
   if (ext === ".jpg" || ext === ".jpeg") return "image/jpeg";
   if (ext === ".webp") return "image/webp";
+  if (ext === ".mp4" || ext === ".m4v") return "video/mp4";
+  if (ext === ".mov") return "video/quicktime";
+  if (ext === ".webm") return "video/webm";
+  if (ext === ".mp3") return "audio/mpeg";
+  if (ext === ".wav") return "audio/wav";
+  if (ext === ".m4a") return "audio/mp4";
   return "image/png";
 }
