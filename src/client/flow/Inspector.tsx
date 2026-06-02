@@ -6,6 +6,7 @@ import { emitDownloadToast } from "./nodes";
 import { Lightbox } from "./Lightbox";
 import { MentionTextarea, type MentionOption } from "./MentionTextarea";
 import { usePendingGenerationActions } from "./PendingGenerations";
+import { useI18n } from "../i18n";
 
 /**
  * Click-to-zoom preview for use inside Inspector. The thumbnail is rendered as a button so
@@ -34,7 +35,10 @@ function ZoomablePreview({
   fallbackAt?: string;
   fallbackLabel?: string;
 }) {
+  const { t } = useI18n();
   const [open, setOpen] = useState(false);
+  generatedLabel = generatedLabel === "生成时间" ? t.inspector.generatedAt : generatedLabel;
+  fallbackLabel = fallbackLabel === "创建时间" ? t.inspector.createdAt : fallbackLabel;
   const generatedTime = formatMediaTime(generatedAt);
   const fallbackTime = generatedTime ? undefined : formatMediaTime(fallbackAt);
   const timeLabel = generatedTime ? generatedLabel : fallbackTime ? fallbackLabel : "";
@@ -45,7 +49,7 @@ function ZoomablePreview({
         type="button"
         className="inspector-preview-button"
         onClick={() => setOpen(true)}
-        title="点击查看完整尺寸"
+        title={t.inspector.openFullSize}
       >
         {mediaKind === "image" ? (
           <img className="inspector-preview" src={url} alt={title} />
@@ -120,15 +124,16 @@ function latestReviewNoteReasons(reviewNote?: string) {
 }
 
 function ReviewSummaryCard({ verdict, status, error, reviewNote, label }: ReviewSummarySource) {
+  const { t } = useI18n();
   const noteReasons = latestReviewNoteReasons(reviewNote);
   if (status === "running") {
     return (
       <div className="inspector-review-summary is-running">
         <div className="inspector-review-summary-head">
           <strong>{label}</strong>
-          <span>审片中</span>
+          <span>{t.inspector.reviewing}</span>
         </div>
-        <p>VLM 正在检查画面与 prompt / 参考资产的一致性。</p>
+        <p>{t.inspector.reviewRunningText}</p>
       </div>
     );
   }
@@ -137,9 +142,9 @@ function ReviewSummaryCard({ verdict, status, error, reviewNote, label }: Review
       <div className="inspector-review-summary is-fail">
         <div className="inspector-review-summary-head">
           <strong>{label}</strong>
-          <span>审核失败</span>
+          <span>{t.inspector.reviewFailed}</span>
         </div>
-        <p>{error || "未知错误"}</p>
+        <p>{error || t.errors.unknown}</p>
       </div>
     );
   }
@@ -150,8 +155,8 @@ function ReviewSummaryCard({ verdict, status, error, reviewNote, label }: Review
     ? [...verdict.fatalIssues, ...verdict.reasons].filter(Boolean).slice(0, 3)
     : noteReasons.slice(0, 3);
   const fixes = verdict?.fixes.map((fix) => [
-    fix.shot ? `镜头 ${fix.shot}` : "",
-    fix.frame ? `帧 ${fix.frame}` : "",
+    fix.shot ? t.inspector.shotPrefix(fix.shot) : "",
+    fix.frame ? t.inspector.framePrefix(fix.frame) : "",
     fix.action
   ].filter(Boolean).join("：")).filter(Boolean).slice(0, 3) || [];
   const reviewedAt = verdict?.reviewedAt ? formatMediaTime(verdict.reviewedAt) : undefined;
@@ -160,12 +165,12 @@ function ReviewSummaryCard({ verdict, status, error, reviewNote, label }: Review
     <div className={`inspector-review-summary ${pass ? "is-pass" : "is-fail"}`}>
       <div className="inspector-review-summary-head">
         <strong>{label}</strong>
-        <span>{verdict ? `${pass ? "通过" : "需修"} · ${Math.round(verdict.score)}` : "自审发现瑕疵"}</span>
+        <span>{verdict ? `${pass ? t.inspector.pass : t.inspector.needsFix} · ${Math.round(verdict.score)}` : t.inspector.selfReviewIssue}</span>
       </div>
-      {verdict?.summary ? <p>{verdict.summary}</p> : <p>最近一次自审发现生成结果仍有瑕疵，可以按下面原因调整 prompt 或参考图后重生。</p>}
+      {verdict?.summary ? <p>{verdict.summary}</p> : <p>{t.inspector.selfReviewIssueText}</p>}
       {reasons.length > 0 && (
         <div>
-          <small>主要问题</small>
+          <small>{t.inspector.mainIssues}</small>
           <ul>{reasons.map((item, i) => <li key={i}>{item}</li>)}</ul>
         </div>
       )}

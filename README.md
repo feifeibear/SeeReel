@@ -1,6 +1,14 @@
-# ReelyAI Agent
+<p align="center">
+  <img src="docs/reelyai-logo.png" alt="ReelyAI" width="360" />
+</p>
 
-Agent-native short-film production workstation.
+<p align="center">
+  <strong>Agent-native short-film production workstation.</strong>
+</p>
+
+<p align="center">
+  Create reviewable video workflows with Codex, Claude Code, Cursor Agent, and the ReelyAI canvas.
+</p>
 
 ReelyAI lets you create a short video by talking to an agent in **Codex, Claude Code, Cursor Agent, or any AGENTS.md-compatible runtime**. The agent turns your creative instruction into a visible canvas workflow: character and scene assets, storyboard boards, Seedance video nodes, review nodes, stitch jobs, and the final downloadable cut.
 

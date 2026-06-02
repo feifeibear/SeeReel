@@ -134,6 +134,22 @@ label {
   min-height: 48px;
 }
 
+.brand-logo {
+  width: 40px;
+  height: 40px;
+  flex: 0 0 40px;
+  border-radius: 10px;
+  object-fit: cover;
+  background: #070b12;
+  box-shadow:
+    0 0 0 1px rgba(250, 204, 21, 0.22),
+    0 12px 26px rgba(56, 189, 248, 0.14);
+}
+
+.brand-copy {
+  min-width: 0;
+}
+
 .brand strong {
   display: block;
   font-size: 18px;

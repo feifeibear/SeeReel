@@ -373,13 +373,11 @@ export function buildSessionGraph(snapshot: StoreSnapshot, session: SessionWithS
     // up. We also overlay any audit-only refs — assets that *were* used last time but have since
     // been disconnected — as dashed edges so the user can see "this is no longer wired but the
     // current image still bakes it in until you regenerate".
-    // When the storyboard node is on the canvas, asset edges land on `storyboard-${shot.id}`
-    // (the upstream node in the pipeline). When it's hidden, they land directly on the shot node
-    // — same `shot.assetIds` source of truth, just rerouted to the closest visible target so the
-    // wiring stays draggable / inspectable. The Seedance video generator already pulls character
-    // assets from `shot.assetIds` (server/generators.ts buildVideoPrompt), so the asset→shot edge
-    // is more than visual — it controls cross-shot character identity locking too.
-    const assetEdgeTargetId = showStoryboardNode ? storyboardNodeId : shotNodeId;
+    // Current intent edges always land on the Shot node. `shot.assetIds` is the live source of
+    // truth for video generation, even when a storyboard node is visible, so dragging an anchor
+    // onto a Shot should leave a visible Shot connection instead of being rerouted upstream.
+    // Storyboard-baked historical references are still shown below as dashed audit-only edges.
+    const assetEdgeTargetId = shotNodeId;
     const intentIds = (shot.assetIds || []).filter((id) => {
       const a = snapshot.assets.find((item) => item.id === id);
       return a && a.type !== "other" && !a.ownerShotId;

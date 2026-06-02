@@ -924,8 +924,11 @@ export function App() {
       )}
       <aside className="sidebar">
         <div className="brand">
-          <strong>ReelyAI</strong>
-          <span>{t.app.brandSubtitle}</span>
+          <img className="brand-logo" src="/reelyai-mark.png" alt="" aria-hidden="true" />
+          <div className="brand-copy">
+            <strong>ReelyAI</strong>
+            <span>{t.app.brandSubtitle}</span>
+          </div>
         </div>
         <button className="primary" onClick={createSession} disabled={busy === "create-session"}>
           {busy === "create-session" ? <Loader2 size={16} className="spin" /> : <Plus size={16} />}
