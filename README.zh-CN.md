@@ -10,6 +10,8 @@
 
 你和 Codex、Claude Code 或 Cursor Agent 聊创意即可开拍；本地 Web 工作台（`npm run dev`）同步展示剧本、资产、分镜进度与成片，方便随时审阅、改 prompt 或人工接管某一环。
 
+![ReelyAI 画布工作流](docs/reelyai-workflow-ui.png)
+
 ---
 
 ## 人类用户：开通 Agent Plan 与 TOS
