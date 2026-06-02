@@ -10,6 +10,10 @@
   Create reviewable video workflows with Codex, Claude Code, Cursor Agent, and the ReelyAI canvas.
 </p>
 
+<p align="center">
+  <strong>English</strong> · <a href="README.zh-CN.md">中文文档</a>
+</p>
+
 ReelyAI lets you create a short video by talking to an agent in **Codex, Claude Code, Cursor Agent, or any AGENTS.md-compatible runtime**. The agent turns your creative instruction into a visible canvas workflow: character and scene assets, storyboard boards, Seedance video nodes, review nodes, stitch jobs, and the final downloadable cut.
 
 The canvas is not just a progress screen. It is the human takeover surface. You can pause in the middle, edit prompts, reconnect references, regenerate weak nodes, inspect VLM feedback, and change the final result before the agent continues.
