@@ -7,7 +7,7 @@
 </p>
 
 <p align="center">
-  Create reviewable video workflows with Codex, Claude Code, Cursor Agent, and the ReelyAI canvas.
+  Create reviewable video workflows with Codex, Claude Code, Cursor Agent, and the ReelyAI canvas — powered by <a href="https://www.volcengine.com/docs/82379/2366394?lang=zh">Volcengine Agent Plan</a>.
 </p>
 
 <p align="center">
@@ -16,9 +16,49 @@
 
 ReelyAI lets you create a short video by talking to an agent in **Codex, Claude Code, Cursor Agent, or any AGENTS.md-compatible runtime**. The agent turns your creative instruction into a visible canvas workflow: character and scene assets, storyboard boards, Seedance video nodes, review nodes, stitch jobs, and the final downloadable cut.
 
+**ReelyAI is built to showcase [Volcengine Agent Plan](https://www.volcengine.com/docs/82379/2366394?lang=zh).** One Agent Plan subscription can fuel the full short-film loop — **Seedream** reference images, **Seedance 2.0** shot videos, and **Seed** / VLM review — through a single API key and the dedicated `/api/plan/v3` route, with session-level token usage visible in the canvas.
+
 The canvas is not just a progress screen. It is the human takeover surface. You can pause in the middle, edit prompts, reconnect references, regenerate weak nodes, inspect VLM feedback, and change the final result before the agent continues.
 
 ![ReelyAI canvas workflow](docs/reelyai-workflow-ui.png)
+
+## Recommended: Volcengine Agent Plan
+
+[Agent Plan](https://www.volcengine.com/docs/82379/2366394?lang=zh) is Volcengine Ark’s subscription package for **Agent workloads**. Instead of wiring separate pay-as-you-go keys for every model, Agent Plan bundles the models and harness tools an agent actually needs — text, image, video, web search, and memory — and meters usage with **Agent Fuel Points (AFP)**.
+
+| What you get | Why it matters for ReelyAI |
+| --- | --- |
+| **Doubao-Seed** text models | Script planning, prompt expansion, and agent reasoning |
+| **Doubao-Seedream** (`doubao-seedream-5.0-lite`) | Character, scene, prop, and storyboard reference images |
+| **Doubao-Seedance 2.0** / **2.0-fast** | Multi-shot short-film video generation |
+| **Harness tools** | Web search, embeddings, and other agent-side capabilities documented in the [Agent Plan guide](https://www.volcengine.com/docs/82379/2366394?lang=zh) |
+
+**We recommend Agent Plan as the default way to run ReelyAI in production.** The project routes Seedream, Seedance, and VLM review calls through one `ARK_AGENT_PLAN_KEY`, tracks usage per canvas node, and keeps the UI aligned with the models your plan actually exposes.
+
+**Quick path**
+
+1. Read the official [Agent Plan package overview](https://www.volcengine.com/docs/82379/2366394?lang=zh) and subscribe on the [Agent Plan activity page](https://www.volcengine.com/activity/agentplan).
+2. Create an **Agent Plan API Key** in the [Volcengine Ark console](https://console.volcengine.com/ark).
+3. Add the key to `.env` and opt in:
+
+```bash
+ARK_AGENT_PLAN_KEY=<your-agent-plan-key>
+REELYAI_USE_AGENT_PLAN=1
+ARK_AGENT_PLAN_BASE=https://ark.cn-beijing.volces.com/api/plan/v3
+SEEDREAM_AGENT_PLAN_MODEL=doubao-seedream-5.0-lite
+SEEDANCE_AGENT_PLAN_MODEL=doubao-seedance-2-0-260128
+SEEDANCE_AGENT_PLAN_FAST_MODEL=doubao-seedance-2-0-fast-260128
+```
+
+4. Configure **TOS** separately so local/Codex storyboards become remote `https://` references Seedance can fetch. Agent Plan covers model tokens; it does **not** replace object storage.
+
+See [Minimum Real-Generation Setup](#minimum-real-generation-setup) for the full credential table and fallback Ark keys.
+
+**Official docs**
+
+- [Agent Plan package overview](https://www.volcengine.com/docs/82379/2366394?lang=zh)
+- [Connect multimodal generation models](https://www.volcengine.com/docs/82379/2373738?lang=zh)
+- [Build a short-video site with Agent Plan](https://www.volcengine.com/docs/82379/2366394?lang=zh) — ReelyAI is the open-source canvas version of that workflow
 
 ## Why ReelyAI
 
@@ -108,15 +148,18 @@ Open the printed localhost URL, usually:
 http://localhost:5173
 ```
 
-Without provider keys, the app still opens and can be explored in mock mode. Real Seedream / Seedance generation requires credentials.
+Without provider keys, the app still opens and can be explored in mock mode. For real generation, **start with Agent Plan** (recommended) or fall back to standard Ark keys.
 
 ## Minimum Real-Generation Setup
 
+**Recommended:** [Volcengine Agent Plan](https://www.volcengine.com/docs/82379/2366394?lang=zh) — one subscription for Seedream + Seedance + review-model calls.
+
 | Capability | Environment |
 | --- | --- |
-| Ark / Agent Plan model calls | `ARK_AGENT_PLAN_KEY` + `REELYAI_USE_AGENT_PLAN=1`, or normal Ark keys such as `BP_ARK_API_KEY` / `ARK_API_KEY` |
-| Seedream images | Ark key fallback, `SEEDREAM_API_KEY`, or Agent Plan route |
-| Seedance videos | Ark key route with Seedance 2.0 access |
+| **Recommended** Agent Plan route | `ARK_AGENT_PLAN_KEY` + `REELYAI_USE_AGENT_PLAN=1` — see [Agent Plan section](#recommended-volcengine-agent-plan) |
+| Fallback Ark model calls | `BP_ARK_API_KEY` / `ARK_API_KEY` / service-specific keys |
+| Seedream images | Agent Plan route (default `doubao-seedream-5.0-lite`) or Ark / `SEEDREAM_API_KEY` |
+| Seedance videos | Agent Plan route (default `doubao-seedance-2-0-260128`) or Ark with Seedance 2.0 access |
 | Local media as remote references | TOS config or a public `PUBLIC_MEDIA_BASE_URL` |
 | Optional script generation | `OPENAI_API_KEY` / `OAI_KEY` |
 | Optional narration | `VOLC_TTS_APPID` / `VOLC_TTS_TOKEN` |
