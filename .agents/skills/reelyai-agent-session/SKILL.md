@@ -57,6 +57,14 @@ Use only the reelyai-agent web/API surface and the providers wired into the proj
    - Tell the user they can still edit assets, prompts, seconds, and "参考上一个分镜" in the web UI before generation.
 
 6. After confirmation, generate shots:
+   - Before running multiple canvas shots, plan the workflow order instead of blindly looping by index:
+     `POST /api/sessions/:sessionId/workflow/plan` with `{ "mode": "missing", "maxParallelShots": 3 }`.
+   - Execute the returned `layers` in order. Shots inside one layer have no active dependencies and should be generated/polled concurrently.
+   - Treat these as blocking dependencies when their source shot is still generating or must be regenerated:
+     `firstFrameAssetId` pointing to a tailframe from another shot, `referenceVideoFromShotId`, and `usePreviousShotClip`.
+   - For tailframe dependencies where the source shot is regenerated in this run, extract a fresh remote first frame before the dependent shot:
+     `POST /api/shots/:sourceShotId/tailframe` with `{ "publishToTos": true, "canvasNode": true }`, then `PATCH /api/shots/:targetShotId` with `{ "firstFrameAssetId": asset.id }`.
+   - Default speed strategy: `mode="missing"` only fills missing/error/running shots and reuses ready shots; use full regeneration only when the user explicitly asks for it.
    - Shot 1 special (optional): if first-frame anchoring applies (see Defaults), confirm the chosen asset has a public `http(s)` `mediaUrl`; if it only has a local `/media/...` URL, generate the asset image first (`POST /api/assets/:assetId/generate` with `{"model":"seedream-4"}`) so it gets a remote URL. Then `PATCH /api/shots/:shotId` with `{"firstFrameAssetId":"asset_xxx"}` and leave `usePreviousShotClip` false. The server will automatically strip all other reference media for this shot.
    - For shot 2+, patch continuity before generation:
      `PATCH /api/shots/:shotId` with `{"usePreviousShotClip":true,"previousShotClipSec":2}`.

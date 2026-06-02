@@ -27,7 +27,19 @@ const MAX_STACK = 50;
  *   - emits `flow-undo-toast` window events with `{kind: "undo"|"redo", description}` so a
  *     single global toast component can show feedback without prop-drilling
  */
-export function useUndoStack() {
+interface UndoStackLabels {
+  undoFailed: (message: string) => string;
+  redoFailed: (message: string) => string;
+  unknownError: string;
+}
+
+const defaultLabels: UndoStackLabels = {
+  undoFailed: (message) => `撤销失败：${message}`,
+  redoFailed: (message) => `恢复失败：${message}`,
+  unknownError: "未知错误"
+};
+
+export function useUndoStack(labels: UndoStackLabels = defaultLabels) {
   const pastRef = useRef<UndoableAction[]>([]);
   const futureRef = useRef<UndoableAction[]>([]);
   const [, setVersion] = useState(0);
@@ -68,12 +80,12 @@ export function useUndoStack() {
       // On failure, push the action back onto past so the user can retry; surface a toast that
       // shows the error so they know something went wrong.
       pastRef.current = [...pastRef.current, popped].slice(-MAX_STACK);
-      emit("undo", `撤销失败：${error instanceof Error ? error.message : "未知错误"}`);
+      emit("undo", labels.undoFailed(error instanceof Error ? error.message : labels.unknownError));
     } finally {
       setBusy(false);
       sync();
     }
-  }, [setBusy, sync]);
+  }, [labels, setBusy, sync]);
 
   const redo = useCallback(async () => {
     if (busyRef.current) return;
@@ -88,12 +100,12 @@ export function useUndoStack() {
       emit("redo", next.description);
     } catch (error) {
       futureRef.current = [next, ...futureRef.current].slice(0, MAX_STACK);
-      emit("redo", `恢复失败：${error instanceof Error ? error.message : "未知错误"}`);
+      emit("redo", labels.redoFailed(error instanceof Error ? error.message : labels.unknownError));
     } finally {
       setBusy(false);
       sync();
     }
-  }, [setBusy, sync]);
+  }, [labels, setBusy, sync]);
 
   const past = pastRef.current;
   const future = futureRef.current;

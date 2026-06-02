@@ -13,23 +13,26 @@ import {
   cancelSeedanceVideoTask,
   createSeedanceVideoTask,
   createStitchSignature,
+  defaultSeedreamAssetImageModel,
   expandAssetPrompt,
   extractTailAudioClip,
   extractTailVideoClip,
   generateAssetImage,
   generateShotVideo,
-  generateStoryPlan,
-  generateStoryboard,
+  generateStoryPlanDetailed,
+  generateStoryboardDetailed,
   MEDIA_DIR,
   pollSeedanceVideoTask,
   probeMediaDurationSec,
   resolveSeedanceModel,
   runFfmpegCommand,
+  seedreamCredentialSource,
   seedanceTimeoutMs,
   stitchShotVideos
 } from "./generators";
 import { computeNarrationSignature, resolveEffectiveVoice, runNarrationPipeline } from "./narration";
 import { CinemaStore } from "./store";
+import { tokenUsageEventFromRaw } from "./tokenUsage";
 import { publishAssetImageToTos, publishLocalMediaToTos, hasTosConfig } from "./tos";
 import { condenseForSeedanceR2V, probeVideo, type CondenseStrategy } from "./videoCondense";
 import { buildShotFrameAssignments, generateStoryboardGrid } from "./storyboardGrid";
@@ -46,7 +49,6 @@ import {
   clampMaxAttempts,
   reviewImage,
   reviewImageDetailed,
-  reviewVideo,
   reviewVideoDetailed,
   rewritePromptWithReviewFeedback,
   shouldEnableReview,
@@ -58,14 +60,22 @@ import type {
   NarrationStrategy,
   SeedancePhase,
   Session,
+  SessionWithShots,
   Shot,
   ShotRender,
   StitchJob,
   StoryCharacter,
   StoryPlan,
   SubStoryboardModel,
+  StoreSnapshot,
   VideoReviewRepairPlan,
-  VideoReviewVerdict
+  VideoReviewVerdict,
+  WorkflowExecutionPlan,
+  WorkflowRunMode,
+  WorkflowShotDependency,
+  WorkflowShotPlanItem,
+  WorkflowShotPreflight,
+  WorkflowStitchTarget
 } from "../shared/types";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -153,7 +163,7 @@ app.get("/api/healthz", (_req, res) => {
 });
 
 app.get("/api/state", (_req, res) => {
-  res.json(store.snapshot());
+  res.json({ ...store.snapshot(), runtime: runtimeInfo() });
 });
 
 function resolveAssetPromptOverride(asset: Asset, explicitOverride?: string) {
@@ -165,14 +175,265 @@ function resolveAssetPromptOverride(asset: Asset, explicitOverride?: string) {
   return draft === rawPrompt ? undefined : draft;
 }
 
+function sessionIdForAsset(asset: Asset) {
+  if (asset.ownerSessionId) return asset.ownerSessionId;
+  if (asset.ownerShotId) return store.getShot(asset.ownerShotId)?.sessionId;
+  return undefined;
+}
+
+function assetImageModelFromActual(actualModelId: string | undefined, fallback: "gpt-image-2" | "seedream-4" | "seedream-4-5" | "seedream-5-lite") {
+  const actual = (actualModelId || "").toLowerCase();
+  if (actual.includes("seedream-5.0-lite") || actual.includes("seedream-5-lite")) return "seedream-5-lite";
+  if (actual.includes("seedream-4-5")) return "seedream-4-5";
+  if (actual.includes("seedream-4-0") || actual.includes("seedream-4")) return "seedream-4";
+  return fallback;
+}
+
+function runtimeInfo() {
+  return {
+    seedreamCredentialSource: seedreamCredentialSource(),
+    seedreamDefaultModel: defaultSeedreamAssetImageModel()
+  };
+}
+
+async function recordTokenUsage(
+  sessionId: string | undefined,
+  rawUsage: unknown,
+  event: Parameters<typeof tokenUsageEventFromRaw>[1]
+) {
+  if (!sessionId) return;
+  const row = tokenUsageEventFromRaw(rawUsage, event);
+  if (!row) return;
+  await store.addTokenUsage(sessionId, row);
+}
+
+function shotLabel(shot: Shot) {
+  return shot.title || `Shot ${shot.index}`;
+}
+
+function workflowMaxParallelShots(value: unknown): number {
+  const raw = value ?? process.env.WORKFLOW_MAX_PARALLEL_SHOTS ?? 3;
+  const n = Math.floor(Number(raw));
+  if (!Number.isFinite(n) || n <= 0) return 3;
+  return Math.min(Math.max(n, 1), 8);
+}
+
+function workflowRunMode(value: unknown): WorkflowRunMode {
+  return value === "all" ? "all" : "missing";
+}
+
+function sourceShotIdForTailframeAsset(asset: Asset | undefined): string | undefined {
+  if (!asset) return undefined;
+  return (asset.tags || []).find((tag) => tag.startsWith("source-shot:"))?.slice("source-shot:".length) || asset.ownerShotId;
+}
+
+function isRemoteWorkflowAsset(asset: Asset | undefined): boolean {
+  const url = asset?.mediaUrl || asset?.imageUrl || "";
+  return /^https?:\/\//.test(url);
+}
+
+function workflowShotAction(shot: Shot, mode: WorkflowRunMode): WorkflowShotPlanItem["action"] {
+  if (shot.status === "generating" || Boolean(shot.generationTaskId) || Boolean(findPendingRender(shot))) return "poll";
+  if (mode === "all") return "generate";
+  if (!shot.videoUrl || shot.status === "error" || shot.status === "cancelled") return "generate";
+  return "skip";
+}
+
+function workflowStitchTargets(session: SessionWithShots, shots: Shot[]): WorkflowStitchTarget[] {
+  const readyById = new Map(shots.map((shot) => [shot.id, Boolean(shot.videoUrl)]));
+  if (session.stitchJobs?.length) {
+    return session.stitchJobs
+      .filter((job) => (job.shotIds || []).length > 0)
+      .map((job) => ({
+        jobId: job.id,
+        name: job.name || `拼接节点 ${job.id}`,
+        shotIds: [...(job.shotIds || [])],
+        ready: (job.shotIds || []).length > 0 && (job.shotIds || []).every((id) => readyById.get(id))
+      }));
+  }
+  if (session.stitchHidden) return [];
+  const shotIds = (session.stitchShotIds && session.stitchShotIds.length > 0)
+    ? [...session.stitchShotIds]
+    : shots.map((shot) => shot.id);
+  return shotIds.length
+    ? [{
+        name: "完整视频",
+        shotIds,
+        ready: shotIds.every((id) => readyById.get(id))
+      }]
+    : [];
+}
+
+function buildWorkflowExecutionPlan(
+  session: SessionWithShots,
+  snapshot: StoreSnapshot,
+  options: { mode?: unknown; maxParallelShots?: unknown } = {}
+): WorkflowExecutionPlan {
+  const mode = workflowRunMode(options.mode);
+  const maxParallelShots = workflowMaxParallelShots(options.maxParallelShots);
+  const shots = (session.shots || []).slice().sort((a, b) => a.index - b.index);
+  const shotById = new Map(shots.map((shot) => [shot.id, shot]));
+  const activeIds = new Set<string>();
+  const tailframeAssetById = new Map(
+    snapshot.assets
+      .filter((asset) => (asset.tags || []).includes("tailframe") || (asset.tags || []).includes("frame-anchor"))
+      .map((asset) => [asset.id, asset])
+  );
+  const warnings: string[] = [];
+
+  const items: WorkflowShotPlanItem[] = shots.map((shot) => {
+    const action = workflowShotAction(shot, mode);
+    if (action !== "skip") activeIds.add(shot.id);
+    return {
+      shotId: shot.id,
+      index: shot.index,
+      title: shot.title || `Shot ${shot.index}`,
+      status: shot.status,
+      hasVideo: Boolean(shot.videoUrl),
+      action,
+      dependencies: [],
+      preflights: [],
+      estimatedDurationSec: shot.durationSec
+    };
+  });
+  const itemByShotId = new Map(items.map((item) => [item.shotId, item]));
+
+  const addDependency = (target: Shot, dep: WorkflowShotDependency) => {
+    const item = itemByShotId.get(target.id);
+    if (!item) return;
+    if (!shotById.has(dep.sourceShotId)) {
+      warnings.push(`${item.title} 的依赖 ${dep.label} 指向不存在的镜头 ${dep.sourceShotId}`);
+      return;
+    }
+    item.dependencies.push(dep);
+  };
+
+  for (const shot of shots) {
+    if (shot.referenceVideoFromShotId && shot.referenceVideoFromShotId !== shot.id) {
+      const source = shotById.get(shot.referenceVideoFromShotId);
+      addDependency(shot, {
+        kind: "reference_video",
+        sourceShotId: shot.referenceVideoFromShotId,
+        targetShotId: shot.id,
+        label: source ? shotLabel(source) : shot.referenceVideoFromShotId,
+        reason: "下游镜头使用上游镜头的视频作为 Seedance reference_video"
+      });
+    }
+    if (shot.usePreviousShotClip) {
+      const previous = shots.find((candidate) => candidate.index === shot.index - 1);
+      if (previous) {
+        addDependency(shot, {
+          kind: "previous_clip",
+          sourceShotId: previous.id,
+          targetShotId: shot.id,
+          label: shotLabel(previous),
+          reason: "下游镜头开启了“参考上一个分镜”"
+        });
+      }
+    }
+    if (shot.firstFrameAssetId) {
+      const asset = tailframeAssetById.get(shot.firstFrameAssetId);
+      const sourceShotId = sourceShotIdForTailframeAsset(asset);
+      if (sourceShotId && sourceShotId !== shot.id) {
+        const source = shotById.get(sourceShotId);
+        addDependency(shot, {
+          kind: "tailframe",
+          sourceShotId,
+          targetShotId: shot.id,
+          label: source ? shotLabel(source) : sourceShotId,
+          reason: "下游镜头首帧来自上游镜头尾帧"
+        });
+        const targetItem = itemByShotId.get(shot.id);
+        if (targetItem && targetItem.action !== "skip" && (activeIds.has(sourceShotId) || !isRemoteWorkflowAsset(asset))) {
+          targetItem.preflights.push({
+            kind: "fresh_tailframe",
+            sourceShotId,
+            targetShotId: shot.id,
+            reason: activeIds.has(sourceShotId)
+              ? "上游镜头本轮会更新，需重新抽取并发布最新尾帧"
+              : "当前尾帧不是远端 URL，需发布到 TOS 后才能作为 Seedance first_frame"
+          });
+        }
+      } else if (asset && !isRemoteWorkflowAsset(asset)) {
+        warnings.push(`${shotLabel(shot)} 的首帧资产不是远端 URL；Seedance 可能无法读取。`);
+      }
+    }
+  }
+
+  const activeItems = items.filter((item) => item.action !== "skip");
+  const indegree = new Map(activeItems.map((item) => [item.shotId, 0]));
+  const outgoing = new Map<string, string[]>();
+  for (const item of activeItems) {
+    for (const dep of item.dependencies) {
+      if (!activeIds.has(dep.sourceShotId)) continue;
+      outgoing.set(dep.sourceShotId, [...(outgoing.get(dep.sourceShotId) || []), item.shotId]);
+      indegree.set(item.shotId, (indegree.get(item.shotId) || 0) + 1);
+    }
+  }
+
+  const layers: WorkflowShotPlanItem[][] = [];
+  const remaining = new Set(activeItems.map((item) => item.shotId));
+  while (remaining.size > 0) {
+    let ready = Array.from(remaining)
+      .filter((shotId) => (indegree.get(shotId) || 0) === 0)
+      .map((shotId) => itemByShotId.get(shotId))
+      .filter((item): item is WorkflowShotPlanItem => Boolean(item))
+      .sort((a, b) => a.index - b.index);
+    if (!ready.length) {
+      warnings.push("workflow 依赖图存在环，已退回按 shot index 分批执行。");
+      ready = Array.from(remaining)
+        .map((shotId) => itemByShotId.get(shotId))
+        .filter((item): item is WorkflowShotPlanItem => Boolean(item))
+        .sort((a, b) => a.index - b.index);
+    }
+    const chunk = ready.slice(0, maxParallelShots);
+    layers.push(chunk);
+    for (const item of chunk) {
+      remaining.delete(item.shotId);
+      for (const targetId of outgoing.get(item.shotId) || []) {
+        indegree.set(targetId, Math.max(0, (indegree.get(targetId) || 0) - 1));
+      }
+    }
+  }
+
+  const runnable = activeItems.length;
+  const width = layers.reduce((max, layer) => Math.max(max, layer.length), 0);
+  const summary = runnable
+    ? `计划执行 ${runnable} 个镜头，拆成 ${layers.length} 批，最大并发 ${Math.max(width, 1)} / ${maxParallelShots}。`
+    : "没有需要执行的镜头；可直接拼接或终审。";
+
+  return {
+    sessionId: session.id,
+    mode,
+    maxParallelShots,
+    layers,
+    skipped: items.filter((item) => item.action === "skip"),
+    stitchTargets: workflowStitchTargets(session, shots),
+    warnings,
+    summary
+  };
+}
+
 app.post("/api/sessions", async (req, res) => {
   res.json(await store.createSession(req.body));
+});
+
+app.delete("/api/sessions/:sessionId/token-usage", async (req, res) => {
+  const session = await store.clearSessionTokenUsage(req.params.sessionId);
+  if (!session) return res.status(404).json({ error: "Session not found" });
+  res.json(session);
 });
 
 app.patch("/api/sessions/:sessionId", async (req, res) => {
   const session = await store.updateSession(req.params.sessionId, req.body);
   if (!session) return res.status(404).json({ error: "Session not found" });
   res.json(session);
+});
+
+app.post("/api/sessions/:sessionId/workflow/plan", async (req, res) => {
+  const session = store.getSession(req.params.sessionId);
+  if (!session) return res.status(404).json({ error: "Session not found" });
+  res.json(buildWorkflowExecutionPlan(session, store.snapshot(), req.body as Record<string, unknown>));
 });
 
 app.post("/api/sessions/:sessionId/stitch-jobs", async (req, res) => {
@@ -206,7 +467,11 @@ app.delete("/api/sessions/:sessionId", async (req, res) => {
 });
 
 app.post("/api/assets", async (req, res) => {
-  res.json(await store.upsertAsset(req.body));
+  const body = { ...((req.body as Record<string, unknown>) || {}) };
+  if (!body.generationModel && body.mediaKind !== "video") {
+    body.generationModel = defaultSeedreamAssetImageModel();
+  }
+  res.json(await store.upsertAsset(body));
 });
 
 app.patch("/api/assets/:assetId", async (req, res) => {
@@ -657,7 +922,18 @@ app.post("/api/assets/:assetId/analyze-video", async (req, res) => {
 
 app.post("/api/assets/expand-prompt", async (req, res) => {
   try {
-    res.json(await expandAssetPrompt(req.body?.asset || {}));
+    const asset = (req.body?.asset || {}) as Partial<Asset>;
+    const result = await expandAssetPrompt(asset);
+    const sessionId = asset.ownerSessionId || (asset.ownerShotId ? store.getShot(asset.ownerShotId)?.sessionId : undefined);
+    await recordTokenUsage(sessionId, result.rawUsage, {
+      nodeId: asset.id || sessionId || "asset-prompt",
+      nodeType: asset.id ? "asset" : "session",
+      nodeLabel: asset.name || "资产 prompt",
+      operation: "asset_prompt_expand",
+      provider: "ark-responses",
+      model: result.model
+    });
+    res.json(result);
   } catch (error) {
     res.status(500).json({ error: friendlyApiError(error, "Asset prompt expansion failed") });
   }
@@ -708,11 +984,10 @@ app.get("/api/shots/:shotId/stream.mp4", async (req, res) => {
 app.get("/api/sessions/:sessionId/stream.mp4", async (req, res) => {
   const session = store.getSession(req.params.sessionId);
   if (!session) return res.status(404).json({ error: "Session not found" });
-  const jobId = typeof req.query.jobId === "string" ? req.query.jobId : "";
-  const job = jobId ? (session.stitchJobs || []).find((item) => item.id === jobId) : undefined;
-  const finalVideoUrl = job?.finalVideoUrl || (!jobId ? session.finalVideoUrl : undefined);
-  if (!finalVideoUrl) return res.status(404).json({ error: "Final video not ready" });
-  return streamVideoInline(req, res, finalVideoUrl);
+  const jobId = typeof req.query.jobId === "string" ? req.query.jobId : undefined;
+  const resolved = resolveFinalArtifact(session, jobId);
+  if (resolved.error) return res.status(resolved.error.status).json({ error: resolved.error.message });
+  return streamVideoInline(req, res, resolved.artifact.finalVideoUrl);
 });
 
 app.get("/api/assets/:assetId/stream.mp4", async (req, res) => {
@@ -730,11 +1005,10 @@ app.get("/api/assets/:assetId/stream.mp4", async (req, res) => {
 app.get("/api/sessions/:sessionId/poster.jpg", async (req, res) => {
   const session = store.getSession(req.params.sessionId);
   if (!session) return res.status(404).json({ error: "Session not found" });
-  const jobId = typeof req.query.jobId === "string" ? req.query.jobId : "";
-  const job = jobId ? (session.stitchJobs || []).find((item) => item.id === jobId) : undefined;
-  const finalVideoUrl = job?.finalVideoUrl || (!jobId ? session.finalVideoUrl : undefined);
-  if (!finalVideoUrl) return res.status(404).json({ error: "Final video not ready" });
-  return servePosterJpeg(res, finalVideoUrl);
+  const jobId = typeof req.query.jobId === "string" ? req.query.jobId : undefined;
+  const resolved = resolveFinalArtifact(session, jobId);
+  if (resolved.error) return res.status(resolved.error.status).json({ error: resolved.error.message });
+  return servePosterJpeg(res, resolved.artifact.finalVideoUrl);
 });
 
 // Per-asset video poster: any asset whose mediaUrl points at a video. Used by the reference
@@ -774,19 +1048,21 @@ app.post("/api/shots/:shotId/renders/:renderId/restore", async (req, res) => {
 // Library and DON'T contaminate @mention scanning for other shots. They are also automatically
 // cleaned up when the shot (or its session) is deleted.
 //
-// Body: { prompt?: string, model?: "seedream-4" | "seedream-4-5" | "gpt-image-2", count?: number, name?: string }
+// Body: { prompt?: string, model?: "seedream-4" | "seedream-4-5" | "seedream-5-lite" | "gpt-image-2", count?: number, name?: string }
 app.post("/api/shots/:shotId/sketches", async (req, res) => {
   const shot = store.getShot(req.params.shotId);
   if (!shot) return res.status(404).json({ error: "Shot not found" });
 
   try {
     const requestedModel = req.body?.model;
-    const model: "gpt-image-2" | "seedream-4" | "seedream-4-5" =
+    const model: "gpt-image-2" | "seedream-4" | "seedream-4-5" | "seedream-5-lite" =
       requestedModel === "gpt-image-2"
         ? "gpt-image-2"
         : requestedModel === "seedream-4-5"
           ? "seedream-4-5"
-          : "seedream-4";
+          : requestedModel === "seedream-5-lite"
+            ? "seedream-5-lite"
+            : defaultSeedreamAssetImageModel();
     const count = Math.max(1, Math.min(6, Number(req.body?.count) || 1));
     const baseName = (req.body?.name || `${shot.title || `Shot ${shot.index}`} 草图`).toString().trim();
     const promptText = (
@@ -868,11 +1144,29 @@ app.post("/api/shots/:shotId/sketches", async (req, res) => {
               promptOverride: overrideForThisAttempt,
               lang
             });
+            await recordTokenUsage(shot.sessionId, result.rawUsage, {
+              nodeId: placeholder.id,
+              nodeType: "asset",
+              nodeLabel: placeholder.name,
+              operation: "shot_sketch_generate",
+              provider: model === "gpt-image-2" ? "openai-image" : "seedream",
+              model: result.actualModelId || result.model,
+              modelFamily: result.actualModelId?.includes("seedream-5.0-lite") ? "seedream-5-lite" : undefined,
+              note: result.credentialSource === "agent-plan" ? "Agent Plan credential route" : undefined
+            });
             lastComposedPrompt = result.composedPrompt;
-            return { url: result.url, payload: undefined };
+            return { url: result.url, payload: result };
           }
         });
         const generatedAt = new Date().toISOString();
+        await recordTokenUsage(shot.sessionId, reviewed.imageReview?.tokenUsage, {
+          nodeId: placeholder.id,
+          nodeType: "review",
+          nodeLabel: `${placeholder.name} VLM`,
+          operation: "shot_sketch_vlm_review",
+          provider: "ark-responses",
+          model: reviewed.imageReview?.model
+        });
         const updated = await store.upsertAsset({
           id: placeholder.id,
           imageUrl: reviewed.url,
@@ -883,6 +1177,9 @@ app.post("/api/shots/:shotId/sketches", async (req, res) => {
           reviewNote: reviewed.reviewNote,
           reviewAttempts: reviewed.reviewAttempts,
           reviewModel: reviewed.reviewModel,
+          generationModel: assetImageModelFromActual(reviewed.payload?.actualModelId, model),
+          generationModelActual: reviewed.payload?.actualModelId,
+          generationCredentialSource: reviewed.payload?.credentialSource,
           imageReviewStatus: reviewed.imageReview ? "ready" : undefined,
           imageReview: reviewed.imageReview,
           imageReviewError: undefined,
@@ -1095,13 +1392,12 @@ app.post("/api/sessions/:sessionId/shots", async (req, res) => {
 app.get("/api/sessions/:sessionId/download", async (req, res) => {
   const session = store.getSession(req.params.sessionId);
   if (!session) return res.status(404).json({ error: "Session not found" });
-  const jobId = typeof req.query.jobId === "string" ? req.query.jobId : "";
-  const job = jobId ? (session.stitchJobs || []).find((item) => item.id === jobId) : undefined;
-  const finalVideoUrl = job?.finalVideoUrl || (!jobId ? session.finalVideoUrl : undefined);
-  if (!finalVideoUrl) return res.status(404).json({ error: "Final video not ready" });
+  const jobId = typeof req.query.jobId === "string" ? req.query.jobId : undefined;
+  const resolved = resolveFinalArtifact(session, jobId);
+  if (resolved.error) return res.status(resolved.error.status).json({ error: resolved.error.message });
 
-  const filename = `${sanitizeDownloadName(`${session.title || session.id}-${job?.name || "完整视频"}`)}.mp4`;
-  return sendVideoDownload(res, finalVideoUrl, filename);
+  const filename = `${sanitizeDownloadName(`${session.title || session.id}-${resolved.artifact.name || "完整视频"}`)}.mp4`;
+  return sendVideoDownload(res, resolved.artifact.finalVideoUrl, filename);
 });
 
 app.post("/api/assets/:assetId/generate", async (req, res) => {
@@ -1112,12 +1408,14 @@ app.post("/api/assets/:assetId/generate", async (req, res) => {
 
   try {
     const requestedModel = reqBody.model;
-    const model: "gpt-image-2" | "seedream-4" | "seedream-4-5" =
+    const model: "gpt-image-2" | "seedream-4" | "seedream-4-5" | "seedream-5-lite" =
       requestedModel === "gpt-image-2"
         ? "gpt-image-2"
         : requestedModel === "seedream-4"
           ? "seedream-4"
-          : "seedream-4-5";
+          : requestedModel === "seedream-5-lite"
+            ? "seedream-5-lite"
+            : defaultSeedreamAssetImageModel();
     // Collect explicit reference images only. A previous generated image on this same asset
     // (`imageUrl` / `mediaUrl`) must NOT be fed back as a Seedream `image` by default, otherwise
     // "重新出图" silently becomes image-to-image and can preserve stale identity from an earlier
@@ -1176,11 +1474,29 @@ app.post("/api/assets/:assetId/generate", async (req, res) => {
           promptOverride: overrideForThisAttempt,
           lang
         });
+        await recordTokenUsage(sessionIdForAsset(asset), result.rawUsage, {
+          nodeId: asset.id,
+          nodeType: "asset",
+          nodeLabel: asset.name,
+          operation: "asset_image_generate",
+          provider: model === "gpt-image-2" ? "openai-image" : "seedream",
+          model: result.actualModelId || result.model,
+          modelFamily: result.actualModelId?.includes("seedream-5.0-lite") ? "seedream-5-lite" : undefined,
+          note: result.credentialSource === "agent-plan" ? "Agent Plan credential route" : undefined
+        });
         lastComposedPrompt = result.composedPrompt;
         return { url: result.url, payload: result };
       }
     });
     const generatedAt = new Date().toISOString();
+    await recordTokenUsage(sessionIdForAsset(asset), reviewed.imageReview?.tokenUsage, {
+      nodeId: asset.id,
+      nodeType: "review",
+      nodeLabel: `${asset.name} VLM`,
+      operation: "asset_vlm_review",
+      provider: "ark-responses",
+      model: reviewed.imageReview?.model
+    });
     res.json(
       await store.upsertAsset({
         id: asset.id,
@@ -1192,7 +1508,9 @@ app.post("/api/assets/:assetId/generate", async (req, res) => {
         reviewNote: reviewed.reviewNote,
         reviewAttempts: reviewed.reviewAttempts,
         reviewModel: reviewed.reviewModel,
-        generationModel: reviewed.payload?.model || model,
+        generationModel: assetImageModelFromActual(reviewed.payload?.actualModelId, reviewed.payload?.model || model),
+        generationModelActual: reviewed.payload?.actualModelId,
+        generationCredentialSource: reviewed.payload?.credentialSource,
         referenceImageUrls,
         referenceAssetIds,
         imageReviewStatus: reviewed.imageReview ? "ready" : undefined,
@@ -1235,6 +1553,14 @@ app.post("/api/assets/:assetId/review", async (req, res) => {
       productUrl,
       referenceUrls
     });
+    await recordTokenUsage(sessionIdForAsset(asset), verdict.tokenUsage, {
+      nodeId: asset.id,
+      nodeType: "review",
+      nodeLabel: `${asset.name} VLM`,
+      operation: "asset_vlm_review",
+      provider: "ark-responses",
+      model: verdict.model
+    });
     return res.json(await store.upsertAsset({
       id: asset.id,
       imageReviewStatus: "ready",
@@ -1260,8 +1586,16 @@ app.post("/api/sessions/:sessionId/script/generate", async (req, res) => {
   if (!session) return res.status(404).json({ error: "Session not found" });
 
   try {
-    const story = await generateStoryPlan(session, store.snapshot().assets);
-    res.json(await store.updateSession(session.id, { story }));
+    const result = await generateStoryPlanDetailed(session, store.snapshot().assets);
+    await recordTokenUsage(session.id, result.rawUsage, {
+      nodeId: session.id,
+      nodeType: "session",
+      nodeLabel: session.title || "Session",
+      operation: "script_generate",
+      provider: "openai-responses",
+      model: result.model
+    });
+    res.json(await store.updateSession(session.id, { story: result.story }));
   } catch (error) {
     res.status(500).json({ error: friendlyApiError(error, "Script generation failed") });
   }
@@ -2456,7 +2790,16 @@ app.post("/api/sessions/:sessionId/storyboard", async (req, res) => {
   if (!session) return res.status(404).json({ error: "Session not found" });
 
   const assets = store.snapshot().assets;
-  const plannedShots = await generateStoryboard(session, assets);
+  const storyboardResult = await generateStoryboardDetailed(session, assets);
+  const plannedShots = storyboardResult.shots;
+  await recordTokenUsage(session.id, storyboardResult.rawUsage, {
+    nodeId: session.id,
+    nodeType: "session",
+    nodeLabel: session.title || "Session",
+    operation: "storyboard_plan_generate",
+    provider: "openai-responses",
+    model: storyboardResult.model
+  });
   const updated = [];
 
   const castMentions = getSessionCastMentions(session);
@@ -2513,6 +2856,14 @@ app.post("/api/sessions/:sessionId/storyboard-grid", async (req, res) => {
 
   try {
     const result = await generateStoryboardGrid({ prompt: promptText, panelCount, size, referenceImageUrls });
+    await recordTokenUsage(session.id, result.rawUsage, {
+      nodeId: session.id,
+      nodeType: "session",
+      nodeLabel: `${session.title || session.id} 故事板`,
+      operation: "session_storyboard_grid_generate",
+      provider: "seedream",
+      model: result.model
+    });
     const created: Asset[] = [];
     for (let i = 0; i < result.panels.length; i += 1) {
       const panel = result.panels[i];
@@ -2527,7 +2878,9 @@ app.post("/api/sessions/:sessionId/storyboard-grid", async (req, res) => {
         mediaUrl: panel.url,
         imageUrl: panel.url,
         generatedAt: new Date().toISOString(),
-        generationModel: "seedream-4-5"
+        generationModel: result.model.includes("seedream-5.0-lite") ? "seedream-5-lite" : result.model.includes("seedream-4-0") ? "seedream-4" : "seedream-4-5",
+        generationModelActual: result.model,
+        generationCredentialSource: result.model.includes("seedream-5.0-lite") ? "agent-plan" : undefined
       });
       if (placeholder) created.push(placeholder);
     }
@@ -2591,6 +2944,14 @@ app.post("/api/sessions/:sessionId/storyboard-grid", async (req, res) => {
             failedProductUrl: panel.mediaUrl || panel.imageUrl,
             lang: "zh"
           });
+          await recordTokenUsage(session.id, rewrite.tokenUsage, {
+            nodeId: panel.id,
+            nodeType: "review",
+            nodeLabel: `${panel.name} prompt 修复`,
+            operation: "storyboard_panel_prompt_rewrite",
+            provider: "ark-responses",
+            model: rewrite.model
+          });
           const refinedPrompt = rewrite.rewritten ? rewrite.prompt : [
             panelPrompt.trim(),
             "",
@@ -2610,6 +2971,14 @@ app.post("/api/sessions/:sessionId/storyboard-grid", async (req, res) => {
             const fresh = await generateAssetImage(panel, "seedream-4-5", otherUrls, {
               promptOverride: refinedPrompt,
               lang: "zh"
+            });
+            await recordTokenUsage(session.id, fresh.rawUsage, {
+              nodeId: panel.id,
+              nodeType: "asset",
+              nodeLabel: panel.name,
+              operation: "storyboard_panel_regenerate",
+              provider: "seedream",
+              model: fresh.model
             });
             const updated = await store.upsertAsset({
               id: panel.id,
@@ -2754,12 +3123,13 @@ app.post("/api/shots/:shotId/sub-storyboard", async (req, res) => {
       });
     }
 
-    // Pull the requested model variant out of the body. We only accept the two known seedream
-    // variants here; gpt-image-2 lives in a separate code path and is not legal for storyboards.
+    // Pull the requested model variant out of the body. We only accept known Seedream variants
+    // here; gpt-image-2 lives in a separate code path and is not legal for storyboards.
     const requestedModel = reqBody.model;
     const modelVariant: SubStoryboardModel | undefined =
       requestedModel === "seedream-4" ? "seedream-4"
       : requestedModel === "seedream-4-5" ? "seedream-4-5"
+      : requestedModel === "seedream-5-lite" ? "seedream-5-lite"
       : (shot.subStoryboardModel as SubStoryboardModel | undefined);
 
     // ----- Mode dispatch -----
@@ -2880,6 +3250,14 @@ app.post("/api/shots/:shotId/sub-storyboard", async (req, res) => {
       referenceImageUrls,
       referenceImageLabels,
       modelVariant
+    });
+    await recordTokenUsage(shot.sessionId, grid.rawUsage, {
+      nodeId: shot.id,
+      nodeType: "shot",
+      nodeLabel: `${shotLabel(shot)} 分镜板`,
+      operation: "shot_sub_storyboard_generate",
+      provider: "seedream",
+      model: grid.model
     });
     const payload = {
       ...buildSubStoryboardAssetPayload(shot.id, shot.title || `Shot ${shot.index}`, scenePrompt, grid),
@@ -3378,10 +3756,18 @@ async function startSeedanceVideoTask(
   shot: Shot,
   renderId: string,
   assets: Asset[],
-  opts: { prebuiltText?: string; lang?: "zh" | "en" } = {}
+  opts: { prebuiltText?: string; lang?: "zh" | "en"; generateAudio?: boolean } = {}
 ) {
   try {
     const task = await createSeedanceVideoTask(shot, assets, opts);
+    await recordTokenUsage(shot.sessionId, task.createResponse, {
+      nodeId: renderId,
+      nodeType: "shot",
+      nodeLabel: `${shotLabel(shot)} Seedance`,
+      operation: "seedance_task_create",
+      provider: "seedance",
+      model: task.model
+    });
     const current = store.getShot(shot.id);
     const currentRender = current?.renders?.find((render) => render.id === renderId);
     if (!currentRender || currentRender.status !== "generating") {
@@ -3492,6 +3878,14 @@ app.post("/api/shots/:shotId/review", async (req, res) => {
       frameCount: Number(req.body?.frameCount) || 8,
       context
     });
+    await recordTokenUsage(shot.sessionId, verdict.tokenUsage, {
+      nodeId: selectedRender.id,
+      nodeType: "review",
+      nodeLabel: `${shotLabel(shot)} VLM`,
+      operation: "shot_vlm_review",
+      provider: "ark-responses",
+      model: verdict.model
+    });
     const updatedShot = await store.updateShotRender(shot.id, selectedRender.id, {
       videoReviewStatus: "ready",
       videoReview: verdict,
@@ -3572,6 +3966,7 @@ app.post("/api/shots/:shotId/poll", async (req, res) => {
   // state (in_queue/generating/etc.) past our deadline.
   try {
     const result = await pollSeedanceVideoTask(taskId);
+    const seedanceModel = pendingRender?.model || resolveSeedanceModel(shot);
 
     // === ARK still working past our deadline → real timeout ===
     if (isPastDeadline && !["succeeded", "failed", "expired", "cancelled", "canceled"].includes(result.status)) {
@@ -3596,6 +3991,14 @@ app.post("/api/shots/:shotId/poll", async (req, res) => {
     }
 
     if (result.status === "succeeded" && result.videoUrl) {
+      await recordTokenUsage(shot.sessionId, result.response, {
+        nodeId: pendingRender?.id || shot.id,
+        nodeType: "shot",
+        nodeLabel: `${shotLabel(shot)} Seedance`,
+        operation: "seedance_task_succeeded",
+        provider: "seedance",
+        model: seedanceModel
+      });
       let nextShot = shot;
       const completedAt = new Date().toISOString();
       const cachedVideo = await cacheVideoOrKeepRemote(result.videoUrl, pendingRender?.id || `shot-${shot.id}`);
@@ -3651,10 +4054,20 @@ app.post("/api/shots/:shotId/poll", async (req, res) => {
           reviewLocks.set(renderId, lock);
           try {
             const referenceUrls = collectVideoReviewReferences(shot, pendingRender);
-            const verdict = await reviewVideo({
+            const verdict = await reviewVideoDetailed({
+              scope: "shot",
               prompt: (pendingRender.rawPrompt || pendingRender.prompt || shot.prompt || "").toString(),
               videoUrl: cachedVideo.videoUrl,
-              referenceUrls
+              referenceUrls,
+              frameCount: 8
+            });
+            await recordTokenUsage(shot.sessionId, verdict.tokenUsage, {
+              nodeId: pendingRender.id,
+              nodeType: "review",
+              nodeLabel: `${shotLabel(shot)} 自审`,
+              operation: "shot_auto_vlm_review",
+              provider: "ark-responses",
+              model: verdict.model
             });
             reviewVerdictModel = verdict.model;
             if (!verdict.ok) {
@@ -3701,6 +4114,14 @@ app.post("/api/shots/:shotId/poll", async (req, res) => {
                     referenceUrls: collectVideoReviewReferences(shot, pendingRender).slice(0, 2),
                     lang: retryLang
                   });
+                  await recordTokenUsage(shot.sessionId, rewrite.tokenUsage, {
+                    nodeId: pendingRender.id,
+                    nodeType: "review",
+                    nodeLabel: `${shotLabel(shot)} prompt 修复`,
+                    operation: "shot_prompt_rewrite",
+                    provider: "ark-responses",
+                    model: rewrite.model
+                  });
                   const rewrittenSeedanceText = rewrite.rewritten ? rewrite.prompt : baseSeedanceText;
                   if (rewrite.rewritten) {
                     console.warn(
@@ -3713,6 +4134,14 @@ app.post("/api/shots/:shotId/poll", async (req, res) => {
                     prebuiltText: rewrittenSeedanceText,
                     lang: retryLang,
                     ...(typeof pendingRender.generateAudio === "boolean" ? { generateAudio: pendingRender.generateAudio } : {})
+                  });
+                  await recordTokenUsage(shot.sessionId, task.createResponse, {
+                    nodeId: pendingRender.id,
+                    nodeType: "shot",
+                    nodeLabel: `${shotLabel(shot)} Seedance retry`,
+                    operation: "seedance_task_retry_create",
+                    provider: "seedance",
+                    model: task.model
                   });
                   await store.updateShotRender(shot.id, pendingRender.id, {
                     status: "generating",
@@ -4153,15 +4582,111 @@ function shotPatchFromCompletedRender(shot: Shot, renderId: string | undefined, 
   };
 }
 
+type FinalArtifact = {
+  source: "legacy" | "job";
+  job?: StitchJob;
+  name?: string;
+  finalVideoUrl: string;
+  finalVideoSignature?: string;
+  finalVideoGeneratedAt?: string;
+  finalVideoReview?: VideoReviewVerdict;
+  finalVideoReviewBuiltForSignature?: string;
+  updatedAt?: string;
+  createdAt?: string;
+};
+
+type FinalArtifactResolution =
+  | { artifact: FinalArtifact; error?: undefined }
+  | { artifact?: undefined; error: { status: number; message: string } };
+
+function resolveFinalArtifact(
+  session: NonNullable<ReturnType<CinemaStore["getSession"]>>,
+  jobId?: string
+): FinalArtifactResolution {
+  if (jobId) {
+    const job = (session.stitchJobs || []).find((item) => item.id === jobId);
+    if (!job) return { error: { status: 404, message: "Stitch job not found" } };
+    if (!job.finalVideoUrl) return { error: { status: 404, message: "Final video not ready" } };
+    return { artifact: stitchJobFinalArtifact(job) };
+  }
+
+  const candidates: FinalArtifact[] = [];
+  for (const job of session.stitchJobs || []) {
+    if (job.status === "ready" && job.finalVideoUrl) candidates.push(stitchJobFinalArtifact(job));
+  }
+  if (session.finalVideoUrl && session.stitchStatus !== "idle") {
+    candidates.push({
+      source: "legacy",
+      name: "完整视频",
+      finalVideoUrl: session.finalVideoUrl,
+      finalVideoSignature: session.finalVideoSignature,
+      finalVideoGeneratedAt: session.finalVideoGeneratedAt,
+      finalVideoReview: session.finalVideoReview,
+      finalVideoReviewBuiltForSignature: session.finalVideoReviewBuiltForSignature,
+      updatedAt: session.stitchUpdatedAt || session.updatedAt,
+      createdAt: session.createdAt
+    });
+  }
+  if (!candidates.length) return { error: { status: 404, message: "Final video not ready" } };
+  candidates.sort(compareFinalArtifacts);
+  return { artifact: candidates[0] };
+}
+
+function stitchJobFinalArtifact(job: StitchJob): FinalArtifact {
+  return {
+    source: "job",
+    job,
+    name: job.name || "完整视频",
+    finalVideoUrl: job.finalVideoUrl || "",
+    finalVideoSignature: job.finalVideoSignature,
+    finalVideoGeneratedAt: job.finalVideoGeneratedAt,
+    finalVideoReview: job.finalVideoReview,
+    finalVideoReviewBuiltForSignature: job.finalVideoReviewBuiltForSignature,
+    updatedAt: job.updatedAt,
+    createdAt: job.createdAt
+  };
+}
+
+function compareFinalArtifacts(a: FinalArtifact, b: FinalArtifact) {
+  const scoreDelta = finalArtifactReviewScore(b) - finalArtifactReviewScore(a);
+  if (scoreDelta) return scoreDelta;
+  const reviewedDelta = Number(Boolean(validFinalArtifactReview(b))) - Number(Boolean(validFinalArtifactReview(a)));
+  if (reviewedDelta) return reviewedDelta;
+  const timeDelta = finalArtifactTime(b) - finalArtifactTime(a);
+  if (timeDelta) return timeDelta;
+  return finalArtifactId(a).localeCompare(finalArtifactId(b));
+}
+
+function validFinalArtifactReview(artifact: FinalArtifact) {
+  if (!artifact.finalVideoReview) return undefined;
+  if (artifact.finalVideoReviewBuiltForSignature && artifact.finalVideoSignature && artifact.finalVideoReviewBuiltForSignature !== artifact.finalVideoSignature) return undefined;
+  return artifact.finalVideoReview;
+}
+
+function finalArtifactReviewScore(artifact: FinalArtifact) {
+  const review = validFinalArtifactReview(artifact);
+  return typeof review?.score === "number" ? review.score : -1;
+}
+
+function finalArtifactTime(artifact: FinalArtifact) {
+  const stamp = artifact.finalVideoGeneratedAt || artifact.updatedAt || artifact.createdAt || "";
+  const ms = Date.parse(stamp);
+  return Number.isFinite(ms) ? ms : 0;
+}
+
+function finalArtifactId(artifact: FinalArtifact) {
+  return artifact.job?.id || artifact.finalVideoSignature || artifact.finalVideoUrl;
+}
+
 app.post("/api/sessions/:sessionId/final-review", async (req, res) => {
   const session = store.getSession(req.params.sessionId);
   if (!session) return res.status(404).json({ error: "Session not found" });
   const jobId = typeof req.body?.jobId === "string" ? req.body.jobId : undefined;
-  const job = jobId ? (session.stitchJobs || []).find((item) => item.id === jobId) : undefined;
-  if (jobId && !job) return res.status(404).json({ error: "Stitch job not found" });
-  const finalVideoUrl = job?.finalVideoUrl || session.finalVideoUrl;
-  const finalVideoSignature = job?.finalVideoSignature || session.finalVideoSignature;
-  if (!finalVideoUrl) return res.status(400).json({ error: "Final video not ready" });
+  const resolved = resolveFinalArtifact(session, jobId);
+  if (resolved.error) return res.status(resolved.error.status).json({ error: resolved.error.message });
+  const { artifact } = resolved;
+  const job = artifact.job;
+  const finalVideoSignature = artifact.finalVideoSignature;
   const startedAt = new Date().toISOString();
   if (job) {
     await store.updateStitchJob(session.id, job.id, {
@@ -4182,10 +4707,18 @@ app.post("/api/sessions/:sessionId/final-review", async (req, res) => {
     const verdict = await reviewVideoDetailed({
       scope: "session_final",
       prompt: composeFinalReviewPrompt(session),
-      videoUrl: finalVideoUrl,
+      videoUrl: artifact.finalVideoUrl,
       frameCount: Number(req.body?.frameCount) || 10,
       context: composeFinalReviewContext(session),
       videoSignature: finalVideoSignature
+    });
+    await recordTokenUsage(session.id, verdict.tokenUsage, {
+      nodeId: job?.id || session.id,
+      nodeType: "review",
+      nodeLabel: `${job?.name || "完整视频"} VLM`,
+      operation: "final_vlm_review",
+      provider: "ark-responses",
+      model: verdict.model
     });
     if (job) {
       return res.json(await store.updateStitchJob(session.id, job.id, {
@@ -4228,9 +4761,11 @@ app.post("/api/sessions/:sessionId/final-review/repair-prompts", async (req, res
   const session = store.getSession(req.params.sessionId);
   if (!session) return res.status(404).json({ error: "Session not found" });
   const jobId = typeof req.body?.jobId === "string" ? req.body.jobId : undefined;
-  const job = jobId ? (session.stitchJobs || []).find((item) => item.id === jobId) : undefined;
-  if (jobId && !job) return res.status(404).json({ error: "Stitch job not found" });
-  const verdict = job?.finalVideoReview || session.finalVideoReview;
+  const resolved = resolveFinalArtifact(session, jobId);
+  if (resolved.error) return res.status(resolved.error.status).json({ error: resolved.error.message });
+  const { artifact } = resolved;
+  const job = artifact.job;
+  const verdict = artifact.finalVideoReview;
   if (!verdict) return res.status(400).json({ error: "Run final VLM review before repairing prompts" });
   const reasons = [...verdict.fatalIssues, ...verdict.reasons, ...verdict.fixes.map((fix) => fix.action)].filter(Boolean);
   const targets: VideoReviewRepairPlan["targets"] = [];
@@ -4387,9 +4922,13 @@ function resolveStitchShots(session: NonNullable<ReturnType<CinemaStore["getSess
     if (seen.has(shotId)) continue;
     seen.add(shotId);
     const shot = byId.get(shotId);
-    if (!shot) continue;
+    if (!shot) {
+      const label = job ? `Stitch job "${job.name || job.id}"` : "Session stitch playlist";
+      return { shots: [], error: `${label} references deleted shot id "${shotId}". Remove the stale reference or reconnect the replacement shot.` };
+    }
     if (!shot.videoUrl) {
-      return { shots: [], error: `Connected shot "${shot.title || `Shot ${shot.index}`}" has no generated video` };
+      const status = shot.status ? ` (status: ${shot.status})` : "";
+      return { shots: [], error: `Connected shot "${shot.title || `Shot ${shot.index}`}" has no generated video${status}` };
     }
     shots.push(shot);
   }
@@ -4539,8 +5078,13 @@ async function triggerNarrationJob(
 ): Promise<{ session: ReturnType<CinemaStore["getSession"]> } | { status: number; error: string }> {
   const session = store.getSession(sessionId);
   if (!session) return { status: 404, error: "Session not found" };
-  if (!session.finalVideoUrl || !session.finalVideoSignature) {
-    return { status: 400, error: "Final video not ready — please run stitch first." };
+  const resolved = resolveFinalArtifact(session);
+  if (resolved.error) {
+    return { status: resolved.error.status === 404 ? 400 : resolved.error.status, error: "Final video not ready — please run stitch first." };
+  }
+  const finalArtifact = resolved.artifact;
+  if (!finalArtifact.finalVideoSignature) {
+    return { status: 400, error: "Final video signature missing — please re-run stitch first." };
   }
 
   // Pre-apply the same language-mismatch safety net the pipeline uses so the signature we compute
@@ -4551,7 +5095,7 @@ async function triggerNarrationJob(
     script: input.script,
     voice: effectiveVoice,
     strategy: input.strategy,
-    finalVideoSignature: session.finalVideoSignature
+    finalVideoSignature: finalArtifact.finalVideoSignature
   });
 
   // Reuse already-ready artifacts.
@@ -4598,7 +5142,10 @@ async function triggerNarrationJob(
   });
 
   setImmediate(() => {
-    void runNarrationJobInBackground(sessionId, { ...input, voice: effectiveVoice }, signature);
+    void runNarrationJobInBackground(sessionId, { ...input, voice: effectiveVoice }, signature, {
+      finalVideoUrl: finalArtifact.finalVideoUrl,
+      finalVideoSignature: finalArtifact.finalVideoSignature
+    });
   });
 
   return { session: queued };
@@ -4607,7 +5154,8 @@ async function triggerNarrationJob(
 async function runNarrationJobInBackground(
   sessionId: string,
   input: { script: string; voice: string; strategy: NarrationStrategy },
-  signature: string
+  signature: string,
+  finalArtifact: { finalVideoUrl: string; finalVideoSignature?: string }
 ) {
   const startedAt = Date.now();
   try {
@@ -4616,8 +5164,8 @@ async function runNarrationJobInBackground(
     const result = await runNarrationPipeline(
       {
         id: sessionSnapshot.id,
-        finalVideoUrl: sessionSnapshot.finalVideoUrl,
-        finalVideoSignature: sessionSnapshot.finalVideoSignature
+        finalVideoUrl: finalArtifact.finalVideoUrl,
+        finalVideoSignature: finalArtifact.finalVideoSignature
       },
       input,
       {
@@ -4635,7 +5183,7 @@ async function runNarrationJobInBackground(
       narrationSignature: result.narrationSignature,
       // Reflect the voice the pipeline actually used (may have language-swapped from input.voice).
       narrationVoice: result.effectiveVoice,
-      narrationBuiltForFinalVideoSignature: sessionSnapshot.finalVideoSignature,
+      narrationBuiltForFinalVideoSignature: finalArtifact.finalVideoSignature,
       narrationStatus: "ready",
       narrationUpdatedAt: new Date().toISOString(),
       narrationError: undefined,

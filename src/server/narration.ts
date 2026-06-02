@@ -9,6 +9,7 @@ import {
   probeMediaDurationSec,
   runFfmpegCommand
 } from "./generators";
+import { hasAgentPlanKey } from "./arkCredentials";
 import type { NarrationStrategy, Session } from "../shared/types";
 
 // Bumped whenever rendering / timing / TTS request shape changes so cached narration artifacts get
@@ -213,8 +214,11 @@ function readVolcConfig(voiceOverride?: string): VolcConfig {
   const appid = process.env.VOLC_TTS_APPID || "";
   const token = process.env.VOLC_TTS_TOKEN || "";
   if (!appid || !token) {
+    const agentPlanNote = hasAgentPlanKey()
+      ? " ARK_AGENT_PLAN_KEY 已检测到，但它是 Ark/Agent Plan 模型 API Key，当前 OpenSpeech TTS 仍需要 VOLC_TTS_APPID 与 VOLC_TTS_TOKEN。"
+      : "";
     throw new Error(
-      "火山 TTS 凭证未配置。请在 shell（如 ~/.zshrc）或 .env 设置 VOLC_TTS_APPID 与 VOLC_TTS_TOKEN，参考 Volcengine OpenSpeech 控制台。"
+      `火山 TTS 凭证未配置。请在 shell（如 ~/.zshrc）或 .env 设置 VOLC_TTS_APPID 与 VOLC_TTS_TOKEN，参考 Volcengine OpenSpeech 控制台。${agentPlanNote}`
     );
   }
   return {

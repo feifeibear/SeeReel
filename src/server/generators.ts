@@ -10,6 +10,8 @@ import ffmpeg from "@ffmpeg-installer/ffmpeg";
 import type { Asset, AssetImageModel, SessionWithShots, Shot, StoryBeat, StoryPlan } from "../shared/types";
 import { composeSeedanceVideoText, composeSeedreamAssetPrompt, type Lang } from "./promptCompose";
 import { fetchWithRetry } from "./fetchWithRetry";
+import { arkMissingKeyMessage, resolveArkCredential, type ArkCredential } from "./arkCredentials";
+import { seedreamWebSearchPayload } from "./seedreamOptions";
 
 export interface BuildSeedancePayloadOpts {
   /** Override the assembled text content. Used when the user audited & edited the dryRun preview. */
@@ -29,6 +31,8 @@ export const MEDIA_DIR = path.resolve(process.cwd(), "data", "media");
 const BYTEPLUS_SEEDANCE_BASE = "https://ark.ap-southeast.bytepluses.com/api/v3";
 const BYTEPLUS_SEEDANCE_MODEL = "dreamina-seedance-2-0-260128";
 const BYTEPLUS_SEEDANCE_FAST_MODEL = "dreamina-seedance-2-0-fast-260128";
+const AGENT_PLAN_SEEDANCE_MODEL = "doubao-seedance-2-0-260128";
+const AGENT_PLAN_SEEDANCE_FAST_MODEL = "doubao-seedance-2-0-fast-260128";
 const TERMINAL_STATUSES = new Set(["succeeded", "failed", "cancelled", "canceled"]);
 const STITCH_SIGNATURE_VERSION = "stitch-v3-crf18-high";
 const openAIKey = () => process.env.OAI_KEY || process.env.OPENAI_API_KEY;
@@ -41,22 +45,76 @@ const jsonHeaders = (apiKey?: string) => ({
   ...(apiKey ? { Authorization: `Bearer ${apiKey}` } : {})
 });
 
+const SEED_PROMPT_KEY_ENVS = ["SEED_PROMPT_API_KEY", "BP_ARK_API_KEY", "ARK_API_KEY"];
+const SEEDREAM_KEY_ENVS = ["SEEDREAM_API_KEY", "BP_ARK_API_KEY", "ARK_API_KEY"];
+const SEEDANCE_KEY_ENVS = ["BP_ARK_API_KEY", "SEEDANCE_API_KEY", "ARK_API_KEY"];
+
+function seedPromptCredential() {
+  return resolveArkCredential({
+    keyEnvNames: SEED_PROMPT_KEY_ENVS,
+    baseEnvNames: ["SEED_PROMPT_API_BASE", "SEEDANCE_API_BASE"],
+    defaultBase: BYTEPLUS_SEEDANCE_BASE
+  });
+}
+
+function seedreamCredential() {
+  return resolveArkCredential({
+    keyEnvNames: SEEDREAM_KEY_ENVS,
+    baseEnvNames: ["SEEDREAM_API_BASE", "SEEDANCE_API_BASE"],
+    defaultBase: BYTEPLUS_SEEDANCE_BASE
+  });
+}
+
+export function seedreamCredentialSource() {
+  return seedreamCredential().source;
+}
+
+export function defaultSeedreamAssetImageModel(): AssetImageModel {
+  return seedreamCredentialSource() === "agent-plan" ? "seedream-5-lite" : "seedream-4-5";
+}
+
+function seedanceCredential() {
+  return resolveArkCredential({
+    keyEnvNames: SEEDANCE_KEY_ENVS,
+    baseEnvNames: ["SEEDANCE_API_BASE"],
+    defaultBase: BYTEPLUS_SEEDANCE_BASE
+  });
+}
+
+export interface StoryboardPlanResult {
+  shots: Array<Partial<Shot> & { index?: number }>;
+  model?: string;
+  rawUsage?: unknown;
+}
+
+export interface StoryPlanResult {
+  story: StoryPlan;
+  model?: string;
+  rawUsage?: unknown;
+}
+
 export async function generateStoryboard(session: SessionWithShots, assets: Asset[]): Promise<Array<Partial<Shot> & { index?: number }>> {
+  return (await generateStoryboardDetailed(session, assets)).shots;
+}
+
+export async function generateStoryboardDetailed(session: SessionWithShots, assets: Asset[]): Promise<StoryboardPlanResult> {
   if (session.story?.beats?.length) {
-    return session.shots.map((shot, index) => {
+    const shots = session.shots.map((shot, index) => {
       const beat = session.story?.beats.find((item) => item.index === shot.index) || session.story?.beats[index % session.story.beats.length];
       return beat ? shotFromStoryBeat(session, beat, shot, assets) : undefined;
     }).filter(Boolean) as Array<Partial<Shot>>;
+    return { shots, model: session.story.model };
   }
 
   const apiKey = openAIKey();
   if (apiKey) {
     try {
+      const model = process.env.OPENAI_TEXT_MODEL || "gpt-4.1-mini";
       const response = await fetch("https://api.openai.com/v1/responses", {
         method: "POST",
         headers: jsonHeaders(apiKey),
         body: JSON.stringify({
-          model: process.env.OPENAI_TEXT_MODEL || "gpt-4.1-mini",
+          model,
           input: [
             {
               role: "system",
@@ -95,11 +153,11 @@ export async function generateStoryboard(session: SessionWithShots, assets: Asse
       });
 
       if (response.ok) {
-        const data = (await response.json()) as { output_text?: string; output?: Array<{ content?: Array<{ text?: string }> }> };
+        const data = (await response.json()) as { output_text?: string; output?: Array<{ content?: Array<{ text?: string }> }>; usage?: unknown };
         const text = data.output_text || data.output?.flatMap((item) => item.content ?? []).map((item) => item.text).join("");
         if (text) {
           const parsed = JSON.parse(text) as { shots?: Array<Partial<Shot>> };
-          if (Array.isArray(parsed.shots) && parsed.shots.length) return parsed.shots;
+          if (Array.isArray(parsed.shots) && parsed.shots.length) return { shots: parsed.shots, model, rawUsage: data.usage };
         }
       }
     } catch {
@@ -118,7 +176,7 @@ export async function generateStoryboard(session: SessionWithShots, assets: Asse
     "余韵收束，留下短片的最后情绪"
   ];
 
-  return session.shots.map((shot, index) => {
+  const shots = session.shots.map((shot, index) => {
     const beat = beats[index % beats.length];
     const title = `${String(index + 1).padStart(2, "0")} ${beat}`;
     const script = `${session.logline}\n本分镜承担“${beat}”：让画面清晰推进一个叙事动作，并保持人物、场景和道具连续。`;
@@ -139,14 +197,19 @@ export async function generateStoryboard(session: SessionWithShots, assets: Asse
 
     return { index: index + 1, title, script, camera, prompt };
   });
+  return { shots, model: "local-template" };
 }
 
 export async function generateStoryPlan(session: SessionWithShots, assets: Asset[]): Promise<StoryPlan> {
-  if (session.story?.locked) return normalizeStoryPlan(session.story, session, assets, session.story.model || "locked");
+  return (await generateStoryPlanDetailed(session, assets)).story;
+}
+
+export async function generateStoryPlanDetailed(session: SessionWithShots, assets: Asset[]): Promise<StoryPlanResult> {
+  if (session.story?.locked) return { story: normalizeStoryPlan(session.story, session, assets, session.story.model || "locked"), model: session.story.model || "locked" };
 
   const fallback = buildLocalStoryPlan(session, assets);
   const apiKey = openAIKey();
-  if (!apiKey) return fallback;
+  if (!apiKey) return { story: fallback, model: "local-template" };
 
   try {
     const model = process.env.OPENAI_TEXT_MODEL || "gpt-4.1-mini";
@@ -218,13 +281,13 @@ export async function generateStoryPlan(session: SessionWithShots, assets: Asset
       })
     });
 
-    if (!response.ok) return fallback;
-    const data = (await response.json()) as { output_text?: string; output?: Array<{ content?: Array<{ text?: string }> }> };
+    if (!response.ok) return { story: fallback, model: "local-template" };
+    const data = (await response.json()) as { output_text?: string; output?: Array<{ content?: Array<{ text?: string }> }>; usage?: unknown };
     const text = data.output_text || data.output?.flatMap((item) => item.content ?? []).map((item) => item.text).join("");
-    if (!text) return fallback;
-    return normalizeStoryPlan(JSON.parse(text), session, assets, model);
+    if (!text) return { story: fallback, model: "local-template" };
+    return { story: normalizeStoryPlan(JSON.parse(text), session, assets, model), model, rawUsage: data.usage };
   } catch {
-    return fallback;
+    return { story: fallback, model: "local-template" };
   }
 }
 
@@ -392,6 +455,11 @@ export interface AssetImageResult {
   composedPrompt: string;
   /** The model variant that actually produced the image. Can differ from the request after fallback. */
   model: AssetImageModel;
+  /** The concrete provider model id sent to the image API. */
+  actualModelId?: string;
+  /** Which credential route was used for the generation. */
+  credentialSource?: ArkCredential["source"];
+  rawUsage?: unknown;
 }
 
 export async function generateAssetImage(
@@ -413,6 +481,7 @@ export async function generateAssetImage(
     }
   }
   if (model === "seedream-4") return generateAssetImageViaSeedream(asset, referenceImageUrls, "seedream-4", opts);
+  if (model === "seedream-5-lite") return generateAssetImageViaSeedream(asset, referenceImageUrls, "seedream-5-lite", opts);
   const url = await generateAssetImageViaOpenAI(asset, referenceImageUrls);
   return { url, composedPrompt: "", model: "gpt-image-2" };
 }
@@ -422,24 +491,35 @@ function isMissingSeedreamModelError(error: unknown) {
   return /InvalidEndpointOrModel\.NotFound|model or endpoint .* does not exist|does not have access/i.test(message);
 }
 
-export async function expandAssetPrompt(asset: Partial<Asset>) {
-  const model = process.env.SEED_PROMPT_MODEL || "seed-2-0-pro-260328";
-  const fallback = buildLocalExpandedAssetPrompt(asset);
-  const apiKey = process.env.SEED_PROMPT_API_KEY || process.env.BP_ARK_API_KEY || process.env.ARK_API_KEY;
-  if (!apiKey) return { prompt: fallback, model: "local-template" };
+function resolveSeedPromptModel(source: "standard" | "agent-plan" | "missing") {
+  if (source === "agent-plan") {
+    return process.env.SEED_PROMPT_AGENT_PLAN_MODEL || process.env.AGENT_PLAN_TEXT_MODEL || "";
+  }
+  return process.env.SEED_PROMPT_MODEL || "seed-2-0-pro-260328";
+}
 
-  const apiBase = (process.env.SEED_PROMPT_API_BASE || process.env.SEEDANCE_API_BASE || BYTEPLUS_SEEDANCE_BASE).replace(/\/$/, "");
+function isAgentPlanUnsupportedModelError(status: number, text: string) {
+  return status === 404 && /UnsupportedModel|does not support the agent plan feature/i.test(text);
+}
+
+export async function expandAssetPrompt(asset: Partial<Asset>) {
+  const fallback = buildLocalExpandedAssetPrompt(asset);
+  const credential = seedPromptCredential();
+  const model = resolveSeedPromptModel(credential.source);
+  if (!credential.apiKey) return { prompt: fallback, model: "local-template" };
+  if (!model) return { prompt: fallback, model: "local-template-agent-plan" };
+
   // Wrapped in fetchWithRetry — when BytePlus throws a transient "fetch failed" / 5xx, we
   // silently retry with backoff instead of bubbling the network blip up to the user. The user's
   // prompt-expansion request is read-only on BytePlus's side (no content created) so retry-on-
   // timeout is safe.
-  const response = await fetchWithRetry(`${apiBase}/responses`, {
+  const response = await fetchWithRetry(`${credential.apiBase}/responses`, {
     method: "POST",
     timeoutMs: 60_000,
     idempotent: true,
     tag: "doubao:expand-prompt",
     headers: {
-      ...jsonHeaders(apiKey),
+      ...jsonHeaders(credential.apiKey),
       "ark-beta-mcp": "true"
     },
     body: JSON.stringify({
@@ -470,10 +550,16 @@ export async function expandAssetPrompt(asset: Partial<Asset>) {
   });
 
   const text = await response.text();
-  if (!response.ok) throw new Error(`Seed prompt API failed: ${response.status} ${text.slice(0, 1000)}`);
+  if (!response.ok) {
+    if (credential.source === "agent-plan" && isAgentPlanUnsupportedModelError(response.status, text)) {
+      console.warn(`[seed-prompt] ${model} is not supported by Agent Plan; falling back to local template expansion`);
+      return { prompt: fallback, model: "local-template-agent-plan" };
+    }
+    throw new Error(`Seed prompt API failed: ${response.status} ${text.slice(0, 1000)}`);
+  }
   const body = text ? JSON.parse(text) : {};
   const expanded = (extractResponseText(body) || "").trim();
-  return { prompt: isNoOpPromptExpansion(expanded, asset) ? fallback : expanded, model };
+  return { prompt: isNoOpPromptExpansion(expanded, asset) ? fallback : expanded, model, rawUsage: body.usage };
 }
 
 function isNoOpPromptExpansion(expanded: string, asset: Partial<Asset>) {
@@ -558,12 +644,13 @@ async function downloadImageAsDataUrl(url: string) {
   }
 }
 
-type SeedreamVariant = "seedream-4" | "seedream-4-5";
+type SeedreamVariant = "seedream-4" | "seedream-4-5" | "seedream-5-lite";
 
-const SEEDREAM_DEFAULT_MODEL: Record<SeedreamVariant, string> = {
+const SEEDREAM_DEFAULT_MODEL: Record<Exclude<SeedreamVariant, "seedream-5-lite">, string> = {
   "seedream-4": "doubao-seedream-4-0-250828",
   "seedream-4-5": "doubao-seedream-4-5-251128"
 };
+const AGENT_PLAN_SEEDREAM_MODEL = "doubao-seedream-5.0-lite";
 
 // The 4.5 model accepts the same OpenAI-compatible image-generation request shape as 4.0
 // (model + prompt + size + optional image references). We keep a per-variant model id and a shared
@@ -579,7 +666,13 @@ function seedreamModelAlternates(modelId: string) {
   return [...new Set(ids)];
 }
 
-function resolveSeedreamModelIds(variant: SeedreamVariant) {
+function resolveSeedreamModelIds(variant: SeedreamVariant, usesAgentPlan = false) {
+  if (usesAgentPlan) {
+    return [process.env.SEEDREAM_AGENT_PLAN_MODEL || AGENT_PLAN_SEEDREAM_MODEL];
+  }
+  if (variant === "seedream-5-lite") {
+    return [process.env.SEEDREAM_AGENT_PLAN_MODEL || AGENT_PLAN_SEEDREAM_MODEL];
+  }
   const model = variant === "seedream-4-5"
     ? process.env.SEEDREAM_45_MODEL || process.env.SEEDREAM_4_5_MODEL || SEEDREAM_DEFAULT_MODEL["seedream-4-5"]
     : process.env.SEEDREAM_MODEL || SEEDREAM_DEFAULT_MODEL["seedream-4"];
@@ -592,12 +685,13 @@ async function generateAssetImageViaSeedream(
   variant: SeedreamVariant = "seedream-4-5",
   opts: SeedreamGenerateOpts = {}
 ) {
-  const apiKey = process.env.SEEDREAM_API_KEY || process.env.BP_ARK_API_KEY || process.env.ARK_API_KEY;
-  if (!apiKey) {
+  const credential = seedreamCredential();
+  if (!credential.apiKey) {
     return {
       url: `https://placehold.co/2048x2048/1f2937/f8fafc?text=${encodeURIComponent(asset.name)}`,
       composedPrompt: "",
-      model: variant
+      model: variant,
+      credentialSource: credential.source
     };
   }
 
@@ -609,7 +703,6 @@ async function generateAssetImageViaSeedream(
     ? opts.promptOverride
     : composeSeedreamAssetPrompt(asset, usableRefs.length > 0, lang).composedPrompt;
 
-  const apiBase = (process.env.SEEDREAM_API_BASE || process.env.SEEDANCE_API_BASE || BYTEPLUS_SEEDANCE_BASE).replace(/\/$/, "");
   // Default to Seedream 4K for higher-fidelity role/scene anchors. Env override still wins so ops
   // can temporarily lower cost/latency without touching code.
   const size = process.env.SEEDREAM_SIZE || "4K";
@@ -617,15 +710,15 @@ async function generateAssetImageViaSeedream(
   // — Seedream's API is request/response (the response body IS the image URL), so retry-on-
   // timeout is safe (no orphaned task to clean up). Wrap in fetchWithRetry so transient
   // "fetch failed" / 5xx don't kill the user's gen.
-  const modelIds = resolveSeedreamModelIds(variant);
+  const modelIds = resolveSeedreamModelIds(variant, credential.source === "agent-plan");
   let lastMissingModelError: unknown;
   for (const modelId of modelIds) {
-    const response = await fetchWithRetry(`${apiBase}/images/generations`, {
+    const response = await fetchWithRetry(`${credential.apiBase}/images/generations`, {
       method: "POST",
       timeoutMs: 240_000,
       idempotent: true,
       tag: `seedream:asset:${asset.id}`,
-      headers: jsonHeaders(apiKey),
+      headers: jsonHeaders(credential.apiKey),
       body: JSON.stringify({
         model: modelId,
         prompt: composedPrompt,
@@ -633,7 +726,8 @@ async function generateAssetImageViaSeedream(
         response_format: "url",
         size,
         stream: false,
-        watermark: false
+        watermark: false,
+        ...seedreamWebSearchPayload()
       })
     });
 
@@ -649,7 +743,16 @@ async function generateAssetImageViaSeedream(
     }
 
     const imageUrl = findUrl(body, ["url", "image_url"]);
-    if (imageUrl) return { url: imageUrl, composedPrompt, model: variant };
+    if (imageUrl) {
+      return {
+        url: imageUrl,
+        composedPrompt,
+        model: variant,
+        actualModelId: modelId,
+        credentialSource: credential.source,
+        rawUsage: body.usage
+      };
+    }
     throw new Error(`Seedream image API returned no image url: ${JSON.stringify(body).slice(0, 1000)}`);
   }
   throw lastMissingModelError instanceof Error ? lastMissingModelError : new Error(`Seedream model unavailable: ${modelIds.join(" / ")}`);
@@ -700,15 +803,15 @@ async function upscaleReferenceImageDataUrl(dataUrl: string, assetId: string, in
 }
 
 export function canUseBytePlusSeedance() {
-  return Boolean(!process.env.SEEDANCE_API_URL && (process.env.BP_ARK_API_KEY || process.env.SEEDANCE_API_KEY || process.env.ARK_API_KEY));
+  const credential = seedanceCredential();
+  return Boolean(!process.env.SEEDANCE_API_URL && credential.apiKey);
 }
 
 export async function createSeedanceVideoTask(shot: Shot, assets: Asset[], opts: BuildSeedancePayloadOpts = {}) {
-  const apiKey = process.env.BP_ARK_API_KEY || process.env.SEEDANCE_API_KEY || process.env.ARK_API_KEY;
-  if (!apiKey) throw new Error("Missing BP_ARK_API_KEY for Seedance generation");
-  const apiBase = (process.env.SEEDANCE_API_BASE || BYTEPLUS_SEEDANCE_BASE).replace(/\/$/, "");
+  const credential = seedanceCredential();
+  if (!credential.apiKey) throw new Error(arkMissingKeyMessage("Seedance generation", SEEDANCE_KEY_ENVS));
   const payload = await buildBytePlusSeedancePayload(shot, assets, opts);
-  const createBody = await requestSeedanceJson(`${apiBase}/contents/generations/tasks`, apiKey, {
+  const createBody = await requestSeedanceJson(`${credential.apiBase}/contents/generations/tasks`, credential.apiKey, {
     method: "POST",
     body: JSON.stringify(payload)
   });
@@ -721,10 +824,9 @@ export async function createSeedanceVideoTask(shot: Shot, assets: Asset[], opts:
 }
 
 export async function pollSeedanceVideoTask(taskId: string) {
-  const apiKey = process.env.BP_ARK_API_KEY || process.env.SEEDANCE_API_KEY || process.env.ARK_API_KEY;
-  if (!apiKey) throw new Error("Missing BP_ARK_API_KEY for Seedance polling");
-  const apiBase = (process.env.SEEDANCE_API_BASE || BYTEPLUS_SEEDANCE_BASE).replace(/\/$/, "");
-  const body = await requestSeedanceJson(`${apiBase}/contents/generations/tasks/${taskId}`, apiKey);
+  const credential = seedanceCredential();
+  if (!credential.apiKey) throw new Error(arkMissingKeyMessage("Seedance polling", SEEDANCE_KEY_ENVS));
+  const body = await requestSeedanceJson(`${credential.apiBase}/contents/generations/tasks/${taskId}`, credential.apiKey);
   const status = extractStatus(body);
   return {
     taskId,
@@ -736,10 +838,9 @@ export async function pollSeedanceVideoTask(taskId: string) {
 }
 
 export async function cancelSeedanceVideoTask(taskId: string) {
-  const apiKey = process.env.BP_ARK_API_KEY || process.env.SEEDANCE_API_KEY || process.env.ARK_API_KEY;
-  if (!apiKey) throw new Error("Missing BP_ARK_API_KEY for Seedance cancellation");
-  const apiBase = (process.env.SEEDANCE_API_BASE || BYTEPLUS_SEEDANCE_BASE).replace(/\/$/, "");
-  const body = await requestSeedanceJson(`${apiBase}/contents/generations/tasks/${taskId}`, apiKey, {
+  const credential = seedanceCredential();
+  if (!credential.apiKey) throw new Error(arkMissingKeyMessage("Seedance cancellation", SEEDANCE_KEY_ENVS));
+  const body = await requestSeedanceJson(`${credential.apiBase}/contents/generations/tasks/${taskId}`, credential.apiKey, {
     method: "DELETE"
   });
   return {
@@ -753,9 +854,9 @@ export async function generateShotVideo(shot: Shot, assets: Asset[], opts: Build
     return generateShotVideoViaCustomEndpoint(shot, assets, opts);
   }
 
-  const apiKey = process.env.BP_ARK_API_KEY || process.env.SEEDANCE_API_KEY || process.env.ARK_API_KEY;
-  if (!apiKey) return `https://placehold.co/1280x720/111827/f8fafc?text=${encodeURIComponent(`Video ${shot.index}`)}`;
-  return generateShotVideoViaBytePlusArk(shot, assets, apiKey, opts);
+  const credential = seedanceCredential();
+  if (!credential.apiKey) return `https://placehold.co/1280x720/111827/f8fafc?text=${encodeURIComponent(`Video ${shot.index}`)}`;
+  return generateShotVideoViaBytePlusArk(shot, assets, credential, opts);
 }
 
 export async function extractTailVideoClip(videoUrl: string, shotId: string, sourceShotId: string, seconds?: number) {
@@ -935,10 +1036,10 @@ function decorateSeedanceError(status: number, text: string): string {
   return base;
 }
 
-async function generateShotVideoViaBytePlusArk(shot: Shot, assets: Asset[], apiKey: string, opts: BuildSeedancePayloadOpts = {}) {
-  const apiBase = (process.env.SEEDANCE_API_BASE || BYTEPLUS_SEEDANCE_BASE).replace(/\/$/, "");
+async function generateShotVideoViaBytePlusArk(shot: Shot, assets: Asset[], credential: ArkCredential, opts: BuildSeedancePayloadOpts = {}) {
   const payload = await buildBytePlusSeedancePayload(shot, assets, opts);
-  const createBody = await requestSeedanceJson(`${apiBase}/contents/generations/tasks`, apiKey, {
+  if (!credential.apiKey) throw new Error(arkMissingKeyMessage("Seedance generation", SEEDANCE_KEY_ENVS));
+  const createBody = await requestSeedanceJson(`${credential.apiBase}/contents/generations/tasks`, credential.apiKey, {
     method: "POST",
     body: JSON.stringify(payload)
   });
@@ -949,7 +1050,7 @@ async function generateShotVideoViaBytePlusArk(shot: Shot, assets: Asset[], apiK
 
   while (Date.now() < deadline) {
     await new Promise((resolve) => setTimeout(resolve, pollMs));
-    lastBody = await requestSeedanceJson(`${apiBase}/contents/generations/tasks/${taskId}`, apiKey);
+    lastBody = await requestSeedanceJson(`${credential.apiBase}/contents/generations/tasks/${taskId}`, credential.apiKey);
     const status = extractStatus(lastBody);
     if (TERMINAL_STATUSES.has(status)) {
       const videoUrl = findUrl(lastBody, ["video_url", "output_url", "url"]);
@@ -1383,8 +1484,15 @@ function getAssetReferenceUsage(asset: Asset) {
 }
 
 export function resolveSeedanceModel(shot: Pick<Shot, "seedanceVariant">) {
-  if (shot.seedanceVariant === "fast") return process.env.SEEDANCE_FAST_MODEL || BYTEPLUS_SEEDANCE_FAST_MODEL;
-  return process.env.SEEDANCE_MODEL || BYTEPLUS_SEEDANCE_MODEL;
+  const usesAgentPlan = seedanceCredential().source === "agent-plan";
+  if (shot.seedanceVariant === "fast") {
+    return usesAgentPlan
+      ? process.env.SEEDANCE_AGENT_PLAN_FAST_MODEL || AGENT_PLAN_SEEDANCE_FAST_MODEL
+      : process.env.SEEDANCE_FAST_MODEL || BYTEPLUS_SEEDANCE_FAST_MODEL;
+  }
+  return usesAgentPlan
+    ? process.env.SEEDANCE_AGENT_PLAN_MODEL || AGENT_PLAN_SEEDANCE_MODEL
+    : process.env.SEEDANCE_MODEL || BYTEPLUS_SEEDANCE_MODEL;
 }
 
 async function requestSeedanceJson(

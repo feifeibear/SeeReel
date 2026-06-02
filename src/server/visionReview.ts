@@ -2,23 +2,23 @@ import { mkdir, readFile, unlink } from "node:fs/promises";
 import path from "node:path";
 import { MEDIA_DIR, runFfmpegCommand, probeMediaDurationSec } from "./generators";
 import { fetchWithRetry } from "./fetchWithRetry";
-import type { ImageReviewScope, ImageReviewVerdict, VideoReviewCriterionScore, VideoReviewFix, VideoReviewScope, VideoReviewVerdict } from "../shared/types";
+import type { ImageReviewScope, ImageReviewVerdict, TokenUsageBreakdown, VideoReviewCriterionScore, VideoReviewFix, VideoReviewScope, VideoReviewVerdict } from "../shared/types";
+import { tokenUsageFromRaw } from "./tokenUsage";
+import { resolveArkCredential } from "./arkCredentials";
 
 const BYTEPLUS_SEEDANCE_BASE = "https://ark.ap-southeast.bytepluses.com/api/v3";
+const VISION_KEY_ENVS = ["VISION_REVIEW_API_KEY", "SEED_PROMPT_API_KEY", "BP_ARK_API_KEY", "ARK_API_KEY"];
 
-const reviewApiBase = () =>
-  (
-    process.env.VISION_REVIEW_API_BASE ||
-    process.env.SEED_PROMPT_API_BASE ||
-    process.env.SEEDANCE_API_BASE ||
-    BYTEPLUS_SEEDANCE_BASE
-  ).replace(/\/$/, "");
-
-const reviewApiKey = () =>
-  process.env.VISION_REVIEW_API_KEY ||
-  process.env.SEED_PROMPT_API_KEY ||
-  process.env.BP_ARK_API_KEY ||
-  process.env.ARK_API_KEY;
+const reviewCredential = () =>
+  resolveArkCredential({
+    keyEnvNames: VISION_KEY_ENVS,
+    baseEnvNames: ["VISION_REVIEW_API_BASE", "SEED_PROMPT_API_BASE", "SEEDANCE_API_BASE"],
+    defaultBase: BYTEPLUS_SEEDANCE_BASE,
+    // Vision review models currently run more reliably on the standard Responses base.
+    // Keep Agent Plan as a fallback only when no standard key is available, or when the
+    // operator explicitly opts review into Agent Plan.
+    preferAgentPlan: /^(1|true|yes|on)$/i.test(process.env.REELYAI_VISION_REVIEW_USE_AGENT_PLAN || "")
+  });
 
 const reviewModel = () => process.env.VISION_REVIEW_MODEL || "seed-2-0-pro-260328";
 
@@ -95,7 +95,7 @@ export async function reviewImageDetailed(
   input: ImageReviewInput,
   opts: { tolerant?: boolean } = {}
 ): Promise<ImageReviewVerdict> {
-  const apiKey = reviewApiKey();
+  const { apiKey } = reviewCredential();
   const model = reviewModel();
   const reviewedAt = new Date().toISOString();
   if (!apiKey) {
@@ -123,13 +123,15 @@ export async function reviewImageDetailed(
       productImage
     ];
 
-    const rawText = await callArkVisionText({
+    const vision = await callArkVisionText({
       apiKey,
       model,
       systemPrompt: SYSTEM_PROMPT_IMAGE,
       userContent
     });
-    return parseDetailedImageVerdict(rawText, input.kind, model, reviewedAt);
+    const verdict = parseDetailedImageVerdict(vision.rawText, input.kind, model, reviewedAt);
+    verdict.tokenUsage = vision.tokenUsage;
+    return verdict;
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     if (opts.tolerant) return skippedImageVerdict(input.kind, `[skip] review failed: ${message.slice(0, 300)}`, model, reviewedAt);
@@ -148,7 +150,7 @@ export async function reviewVideo(input: VideoReviewInput): Promise<ReviewVerdic
 }
 
 export async function reviewVideoDetailed(input: DetailedVideoReviewInput): Promise<VideoReviewVerdict> {
-  const apiKey = reviewApiKey();
+  const { apiKey } = reviewCredential();
   const model = reviewModel();
   const reviewedAt = new Date().toISOString();
   if (!apiKey) throw new Error("No VLM API key configured");
@@ -172,8 +174,9 @@ export async function reviewVideoDetailed(input: DetailedVideoReviewInput): Prom
       { type: "input_text" as const, text: `以下是视频按时间顺序采样的 ${frames.length} 帧；帧序号从 1 开始，对应时间秒：${extracted.timestamps.map((t) => t.toFixed(1)).join(", ")}` },
       ...frames
     ];
-    const rawText = await callArkVisionText({ apiKey, model, systemPrompt: SYSTEM_PROMPT_VIDEO, userContent });
-    const parsed = parseDetailedVideoVerdict(rawText, input.scope, model, reviewedAt, extracted, input.videoSignature);
+    const vision = await callArkVisionText({ apiKey, model, systemPrompt: SYSTEM_PROMPT_VIDEO, userContent });
+    const parsed = parseDetailedVideoVerdict(vision.rawText, input.scope, model, reviewedAt, extracted, input.videoSignature);
+    parsed.tokenUsage = vision.tokenUsage;
     return parsed;
   } finally {
     await Promise.all((extracted?.tempPaths || []).map((p) => unlink(p).catch(() => undefined)));
@@ -212,7 +215,7 @@ async function callArkVisionResponses({ apiKey, model, systemPrompt, userContent
   return { ok: true, reasons: [`[skip] verdict not parseable: ${rawText.slice(0, 300)}`], rawText, model };
 }
 
-async function callArkVisionText({ apiKey, model, systemPrompt, userContent }: CallVisionParams): Promise<string> {
+async function callArkVisionText({ apiKey, model, systemPrompt, userContent }: CallVisionParams): Promise<{ rawText: string; tokenUsage?: TokenUsageBreakdown }> {
   const first = await postArkVisionResponse({ apiKey, model, systemPrompt, userContent, imageContentShape: "input_image", tag: "ark:video-audit" });
   let response = first.response;
   let text = first.text;
@@ -223,7 +226,7 @@ async function callArkVisionText({ apiKey, model, systemPrompt, userContent }: C
   }
   if (!response.ok) throw new Error(`vision API ${response.status}: ${text.slice(0, 500)}`);
   const body = text ? safeJson(text) : undefined;
-  return extractResponseText(body) || "";
+  return { rawText: extractResponseText(body) || "", tokenUsage: tokenUsageFromRaw(body) };
 }
 
 type ArkImageContentShape = "input_image" | "image_url";
@@ -236,7 +239,7 @@ async function postArkVisionResponse({
   imageContentShape,
   tag
 }: CallVisionParams & { imageContentShape: ArkImageContentShape; tag: string }): Promise<{ response: Response; text: string }> {
-  const apiBase = reviewApiBase();
+  const apiBase = reviewCredential().apiBase;
   const response = await fetchWithRetry(`${apiBase}/responses`, {
     method: "POST",
     timeoutMs: tag.includes("video-audit") ? 120_000 : 90_000,
@@ -765,7 +768,7 @@ export interface RewritePromptInput {
   /** Optional product image URL (the rejected output) to attach so the rewriter sees what went wrong visually. */
   failedProductUrl?: string;
   lang?: "zh" | "en";
-  /** Force a specific Ark text-model id; defaults to PROMPT_REWRITE_MODEL → SEED_PROMPT_MODEL → "seed-2-0-pro-260328". */
+  /** Force a specific Ark text-model id; defaults to PROMPT_REWRITE_MODEL → SEED_PROMPT_MODEL on standard Ark, or PROMPT_REWRITE_AGENT_PLAN_MODEL / SEED_PROMPT_AGENT_PLAN_MODEL on Agent Plan. */
   model?: string;
 }
 
@@ -778,6 +781,15 @@ export interface RewritePromptResult {
   model: string;
   /** Short note for audit when rewriter was skipped or failed (no key, API error, empty output). */
   note?: string;
+  tokenUsage?: TokenUsageBreakdown;
+}
+
+function resolvePromptRewriteModel(explicitModel: string | undefined, source: "standard" | "agent-plan" | "missing") {
+  if (explicitModel) return explicitModel;
+  if (source === "agent-plan") {
+    return process.env.PROMPT_REWRITE_AGENT_PLAN_MODEL || process.env.SEED_PROMPT_AGENT_PLAN_MODEL || process.env.AGENT_PLAN_TEXT_MODEL || "";
+  }
+  return process.env.PROMPT_REWRITE_MODEL || process.env.SEED_PROMPT_MODEL || "seed-2-0-pro-260328";
 }
 
 /**
@@ -790,14 +802,18 @@ export interface RewritePromptResult {
  *   - the video review-driven retry branch in submitShotGeneration
  */
 export async function rewritePromptWithReviewFeedback(input: RewritePromptInput): Promise<RewritePromptResult> {
-  const apiKey = reviewApiKey();
-  const model = input.model || process.env.PROMPT_REWRITE_MODEL || process.env.SEED_PROMPT_MODEL || "seed-2-0-pro-260328";
+  const credential = reviewCredential();
+  const { apiKey } = credential;
+  const model = resolvePromptRewriteModel(input.model, credential.source);
   const lang: "zh" | "en" = input.lang === "en" ? "en" : "zh";
   const original = (input.originalPrompt || "").trim();
   const reasons = (input.reviewReasons || []).map((r) => (r || "").trim()).filter(Boolean);
 
   if (!apiKey) {
     return { prompt: original, rewritten: false, model: "", note: "[skip] no API key" };
+  }
+  if (!model) {
+    return { prompt: original, rewritten: false, model: "", note: "[skip] no Agent Plan-compatible rewrite model configured" };
   }
   if (!original) {
     return { prompt: original, rewritten: false, model: "", note: "[skip] empty original prompt" };
@@ -855,7 +871,7 @@ export async function rewritePromptWithReviewFeedback(input: RewritePromptInput)
   ];
 
   try {
-    const apiBase = reviewApiBase();
+    const apiBase = credential.apiBase;
     const response = await fetchWithRetry(`${apiBase}/responses`, {
       method: "POST",
       timeoutMs: 60_000,
@@ -880,17 +896,17 @@ export async function rewritePromptWithReviewFeedback(input: RewritePromptInput)
       return { prompt: original, rewritten: false, model, note: `[skip] API ${response.status}` };
     }
     const body = text ? safeJson(text) : undefined;
+    const tokenUsage = tokenUsageFromRaw(body);
     const rawText = (extractResponseText(body) || "").trim();
     // Strip any accidental markdown fences the rewriter might still emit despite the system prompt.
     const cleaned = rawText.replace(/^```(?:[a-z]+)?\s*/i, "").replace(/\s*```$/i, "").trim();
     if (!cleaned || cleaned === original) {
-      return { prompt: original, rewritten: false, model, note: "[skip] rewriter returned empty or identical" };
+      return { prompt: original, rewritten: false, model, note: "[skip] rewriter returned empty or identical", tokenUsage };
     }
-    return { prompt: cleaned, rewritten: true, model };
+    return { prompt: cleaned, rewritten: true, model, tokenUsage };
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     console.warn(`[prompt-rewrite] threw: ${message.slice(0, 300)}`);
     return { prompt: original, rewritten: false, model, note: `[skip] ${message.slice(0, 200)}` };
   }
 }
-

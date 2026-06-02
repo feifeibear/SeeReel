@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { Download, RotateCcw, RotateCw } from "lucide-react";
+import { useI18n } from "../i18n";
 
 interface ToastEntry {
   id: number;
@@ -17,12 +18,13 @@ const TOAST_TTL_MS = 2400;
  * the confirmation. See `emitDownloadToast` (nodes.tsx) and `useUndoStack.emit` for senders.
  */
 export function DownloadToast() {
+  const { t } = useI18n();
   const [entries, setEntries] = useState<ToastEntry[]>([]);
 
   useEffect(() => {
     const onDownload = (event: Event) => {
       const detail = (event as CustomEvent<string>).detail;
-      const filename = typeof detail === "string" ? detail : "已开始下载";
+      const filename = typeof detail === "string" ? detail : t.toast.downloadStarted;
       const id = Date.now() + Math.random();
       setEntries((prev) => [...prev, { id, text: filename, kind: "download" }]);
       window.setTimeout(() => setEntries((prev) => prev.filter((e) => e.id !== id)), TOAST_TTL_MS);
@@ -31,7 +33,7 @@ export function DownloadToast() {
       const detail = (event as CustomEvent<{ kind: "undo" | "redo"; description: string }>).detail;
       const id = Date.now() + Math.random();
       const kind = detail?.kind === "redo" ? "redo" : "undo";
-      const text = detail?.description || (kind === "undo" ? "已撤销" : "已恢复");
+      const text = detail?.description || (kind === "undo" ? t.toast.undone : t.toast.redone);
       setEntries((prev) => [...prev, { id, text, kind }]);
       window.setTimeout(() => setEntries((prev) => prev.filter((e) => e.id !== id)), TOAST_TTL_MS);
     };
@@ -41,7 +43,7 @@ export function DownloadToast() {
       window.removeEventListener("flow-download", onDownload);
       window.removeEventListener("flow-undo-toast", onUndoRedo);
     };
-  }, []);
+  }, [t.toast.downloadStarted, t.toast.redone, t.toast.undone]);
 
   if (!entries.length) return null;
   return (
@@ -52,7 +54,7 @@ export function DownloadToast() {
           {entry.kind === "undo" && <RotateCcw size={13} />}
           {entry.kind === "redo" && <RotateCw size={13} />}
           <span>
-            {entry.kind === "download" ? "已开始下载" : entry.kind === "undo" ? "已撤销" : "已恢复"}
+            {entry.kind === "download" ? t.toast.downloadStarted : entry.kind === "undo" ? t.toast.undone : t.toast.redone}
           </span>
           <strong>{entry.text}</strong>
         </div>

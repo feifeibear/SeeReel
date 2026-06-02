@@ -59,6 +59,7 @@ NODE_ENV=production PORT=5174 npm run start
 - The app stores and displays scripts, beats, shots, prompts, assets, sketches, renders, stitch state, and final videos.
 - The user can take over in the web UI at any point. Treat manual UI edits as source of truth.
 - Keep generated intermediate results visible in the app; avoid private scratch artifacts unless they are imported afterward.
+- Prefer ReelyAI APIs and persisted canvas state over manual filesystem work. If an existing endpoint can create, import, publish, generate, poll, stitch, cache, or wire an artifact, use it. Manual downloads, `ffmpeg`, or file patches are recovery steps only; immediately write the result back through ReelyAI APIs/state so graph edges, Inspector data, `stitchShotIds`, `referenceVideoFromShotId`, `firstFrameAssetId`, `assetIds`, renders, and `finalVideoUrl` stay auditable in the UI.
 
 ## Critical Media Rule
 

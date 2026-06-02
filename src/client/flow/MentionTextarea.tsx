@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type ChangeEvent, type KeyboardEvent } from "react";
+import { useI18n } from "../i18n";
 
 export interface MentionOption {
   /** Stable id, used as React key. */
@@ -36,6 +37,7 @@ interface MentionTextareaProps {
  * user picks is exactly what the server will recognize.
  */
 export function MentionTextarea({ value, onChange, options, rows = 10, placeholder, onCommit }: MentionTextareaProps) {
+  const { t } = useI18n();
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   // Index inside `value` of the `@` that started the active mention. -1 when not active.
   const [mentionStart, setMentionStart] = useState(-1);
@@ -156,7 +158,7 @@ export function MentionTextarea({ value, onChange, options, rows = 10, placehold
         placeholder={placeholder}
       />
       {open && filtered.length > 0 && (
-        <div className="mention-popup" role="listbox" aria-label="@-mention suggestions">
+        <div className="mention-popup" role="listbox" aria-label={t.mention.aria}>
           {filtered.map((option, idx) => (
             <button
               key={option.id}
@@ -174,14 +176,14 @@ export function MentionTextarea({ value, onChange, options, rows = 10, placehold
             >
               <span className="mention-option-handle">@{option.handle}</span>
               <span className="mention-option-label">{option.label}</span>
-              <small className="mention-option-tag">{option.tag}{option.wired ? " · 已连" : ""}</small>
+              <small className="mention-option-tag">{option.tag}{option.wired ? ` · ${t.mention.wired}` : ""}</small>
             </button>
           ))}
         </div>
       )}
       {open && filtered.length === 0 && (
         <div className="mention-popup mention-popup-empty">
-          没有匹配的资产 — 按 Esc 关闭，或先连一个进来
+          {t.mention.empty}
         </div>
       )}
     </div>

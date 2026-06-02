@@ -3,22 +3,17 @@ import path from "node:path";
 import type { ParsedShotEntry, SessionLanguage } from "../shared/types";
 import { MEDIA_DIR, probeMediaDurationSec, runFfmpegCommand } from "./generators";
 import { fetchWithRetry } from "./fetchWithRetry";
+import { arkMissingKeyMessage, resolveArkCredential } from "./arkCredentials";
 
 const BYTEPLUS_SEEDANCE_BASE = "https://ark.ap-southeast.bytepluses.com/api/v3";
+const VISION_KEY_ENVS = ["VISION_REVIEW_API_KEY", "SEED_PROMPT_API_KEY", "BP_ARK_API_KEY", "ARK_API_KEY"];
 
-const apiBase = () =>
-  (
-    process.env.VISION_REVIEW_API_BASE ||
-    process.env.SEED_PROMPT_API_BASE ||
-    process.env.SEEDANCE_API_BASE ||
-    BYTEPLUS_SEEDANCE_BASE
-  ).replace(/\/$/, "");
-
-const apiKey = () =>
-  process.env.VISION_REVIEW_API_KEY ||
-  process.env.SEED_PROMPT_API_KEY ||
-  process.env.BP_ARK_API_KEY ||
-  process.env.ARK_API_KEY;
+const credential = () =>
+  resolveArkCredential({
+    keyEnvNames: VISION_KEY_ENVS,
+    baseEnvNames: ["VISION_REVIEW_API_BASE", "SEED_PROMPT_API_BASE", "SEEDANCE_API_BASE"],
+    defaultBase: BYTEPLUS_SEEDANCE_BASE
+  });
 
 const visionModel = () => process.env.VIDEO_ANALYZE_MODEL || process.env.VISION_REVIEW_MODEL || "seed-2-0-pro-260328";
 
@@ -190,8 +185,8 @@ function parseShotsResponse(rawText: string): ParsedShotEntry[] {
  * for cleaning up temp frame files via the returned cleanup paths if it cares about disk usage.
  */
 export async function analyzeReferenceVideo(opts: AnalyzeVideoOpts): Promise<AnalyzeVideoResult> {
-  const key = apiKey();
-  if (!key) throw new Error("Missing API key for video analyze (BP_ARK_API_KEY / ARK_API_KEY).");
+  const ark = credential();
+  if (!ark.apiKey) throw new Error(arkMissingKeyMessage("video analyze", VISION_KEY_ENVS));
 
   // Resolve local file path: either a /media/X mapping or a real fs path.
   const localPath = opts.videoPath.startsWith("/media/")
@@ -227,14 +222,14 @@ export async function analyzeReferenceVideo(opts: AnalyzeVideoOpts): Promise<Ana
     userContent.push({ type: "input_image", image_url: frame.dataUrl });
   }
 
-  const response = await fetchWithRetry(`${apiBase()}/responses`, {
+  const response = await fetchWithRetry(`${ark.apiBase}/responses`, {
     method: "POST",
     timeoutMs: 120_000,
     tag: "ark:video-analyze",
     headers: {
       "Content-Type": "application/json",
       Accept: "application/json",
-      Authorization: `Bearer ${key}`
+      Authorization: `Bearer ${ark.apiKey}`
     },
     body: JSON.stringify({
       model,

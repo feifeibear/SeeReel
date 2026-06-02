@@ -12,6 +12,7 @@ Treat ReelyAI as an Agent-native short-drama production workstation, not just a 
 - The agent is the creative producer and operator: discuss story, cast characters, plan scenes, generate assets, import references, publish media, submit Seedance tasks, retry failures, and stitch the final cut.
 - The web app is the review and human takeover surface: it displays scripts, beats, shots, prompts, assets, sketches, renders, status, and final videos; the user can edit or run any step manually.
 - Intermediate artifacts must stay inspectable in the app. Prefer saving state through the local API over one-off files that the UI cannot see.
+- API-first rule: when ReelyAI has an endpoint or persisted state field for a step, use it instead of private shell/file operations. Do not bypass graph semantics by manually stitching, patching final files, or writing hidden local artifacts unless recovering from a failure; if recovery is unavoidable, immediately bring the artifact back through ReelyAI API/state (for example `shot.videoUrl`, `renders`, `session.stitchShotIds`, `stitchJobs[].shotIds`, `referenceVideoFromShotId`, `firstFrameAssetId`, `assetIds`, and `finalVideoUrl`) so the human can inspect and take over.
 
 ## Standard flow
 
@@ -42,6 +43,7 @@ Treat ReelyAI as an Agent-native short-drama production workstation, not just a 
    - Preserve "参考上一个分镜" semantics: use the full previous shot by default unless the user overrides duration; cap to the previous shot duration.
 8. Stitch after every required shot is `ready`.
    - Use `POST /api/sessions/:sessionId/stitch`.
+   - Preserve stitch wiring through `session.stitchShotIds` or stitch-job `shotIds`; final videos should be produced by `/stitch` whenever possible, not by manual `ffmpeg` outside the app.
    - If stitching fails while downloading remote video, retry stitch before regenerating shots.
 9. Return the local final video path and browser URL.
 
@@ -97,12 +99,14 @@ Verification quick-check after a render lands: pull the render record from `/api
 - `POST /api/sessions/:sessionId/storyboard`
 - `POST /api/sessions/:sessionId/storyboards/publish-tos`
 - `POST /api/assets/upload-video` ← raw video bytes; auto-publishes to TOS for `referenceVideoAssetId` use
-- `PATCH /api/shots/:shotId` ← whitelist includes `referenceVideoAssetId`
+- `PATCH /api/shots/:shotId` ← whitelist includes graph/audit fields such as `referenceVideoAssetId`, `referenceVideoFromShotId`, `firstFrameAssetId`, `assetIds`, and previous-shot continuity controls
 - `POST /api/shots/:shotId/sketches/import`
 - `POST /api/shots/:shotId/storyboard-ref` ← per-shot 2×2 plot-beat reference, VLM-iterated, attached as `reference_image`
 - `POST /api/shots/:shotId/generate`
 - `POST /api/shots/:shotId/poll`
 - `POST /api/sessions/:sessionId/stitch`
+- `POST /api/sessions/:sessionId/stitch-jobs`
+- `PATCH /api/sessions/:sessionId/stitch-jobs/:jobId`
 - `POST /api/sessions/:sessionId/stitch/poll`
 
 ## Failure handling

@@ -1,6 +1,6 @@
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import path from "node:path";
-import type { Asset, CreateSessionPayload, Session, Shot, ShotRender, StitchJob, StoreSnapshot } from "../shared/types";
+import type { Asset, CreateSessionPayload, Session, Shot, ShotRender, StitchJob, StoreSnapshot, TokenUsageEvent } from "../shared/types";
 
 const DATA_DIR = path.resolve(process.cwd(), "data");
 const STORE_FILE = path.join(DATA_DIR, "cinema-store.json");
@@ -58,6 +58,7 @@ export class CinemaStore {
       style: payload.style?.trim() || "cinematic, emotionally grounded, coherent visual continuity",
       language: payload.language === "en" ? "en" : "zh",
       targetDurationSec,
+      tokenUsageEvents: [],
       createdAt: ts,
       updatedAt: ts
     };
@@ -171,6 +172,43 @@ export class CinemaStore {
     const session = this.data.sessions.find((item) => item.id === sessionId);
     if (!session) return undefined;
     session.stitchJobs = (session.stitchJobs || []).filter((item) => item.id !== jobId);
+    session.updatedAt = now();
+    await this.save();
+    return this.getSession(session.id);
+  }
+
+  async addTokenUsage(sessionId: string, event: Omit<TokenUsageEvent, "id" | "sessionId" | "createdAt"> & Partial<Pick<TokenUsageEvent, "id" | "createdAt">>) {
+    const session = this.data.sessions.find((item) => item.id === sessionId);
+    if (!session) return undefined;
+    if (!Number.isFinite(event.totalTokens) || event.totalTokens <= 0) return this.getSession(session.id);
+    const ts = now();
+    const row: TokenUsageEvent = {
+      id: event.id || id("tok"),
+      sessionId,
+      nodeId: event.nodeId,
+      nodeType: event.nodeType,
+      nodeLabel: event.nodeLabel,
+      operation: event.operation,
+      provider: event.provider,
+      model: event.model,
+      modelFamily: event.modelFamily,
+      note: event.note,
+      inputTokens: event.inputTokens,
+      outputTokens: event.outputTokens,
+      totalTokens: Math.max(0, Math.round(event.totalTokens)),
+      rawUsage: event.rawUsage,
+      createdAt: event.createdAt || ts
+    };
+    session.tokenUsageEvents = [...(session.tokenUsageEvents || []), row];
+    session.updatedAt = ts;
+    await this.save();
+    return this.getSession(session.id);
+  }
+
+  async clearSessionTokenUsage(sessionId: string) {
+    const session = this.data.sessions.find((item) => item.id === sessionId);
+    if (!session) return undefined;
+    session.tokenUsageEvents = [];
     session.updatedAt = now();
     await this.save();
     return this.getSession(session.id);
@@ -336,6 +374,8 @@ export class CinemaStore {
       referenceAssetIds: source.referenceAssetIds ? [...source.referenceAssetIds] : undefined,
       referenceImageUrls: source.referenceImageUrls ? [...source.referenceImageUrls] : undefined,
       generationModel: source.generationModel,
+      generationModelActual: source.generationModelActual,
+      generationCredentialSource: source.generationCredentialSource,
       ownerSessionId: sessionId
     });
   }
@@ -384,6 +424,34 @@ export class CinemaStore {
     const deletedAssetIds = new Set(
       this.data.assets.filter((asset) => asset.ownerShotId === shotId).map((asset) => asset.id)
     );
+    const ownerSession = this.data.sessions.find((session) => session.id === shot.sessionId);
+    if (ownerSession) {
+      let sessionTouched = false;
+      if (ownerSession.stitchShotIds?.includes(shotId)) {
+        ownerSession.stitchShotIds = ownerSession.stitchShotIds.filter((id) => id !== shotId);
+        ownerSession.stitchStatus = "idle";
+        ownerSession.stitchError = undefined;
+        ownerSession.stitchProgress = "";
+        ownerSession.stitchRunningSignature = undefined;
+        sessionTouched = true;
+      }
+      if (ownerSession.stitchJobs?.length) {
+        ownerSession.stitchJobs = ownerSession.stitchJobs.map((job) => {
+          if (!job.shotIds?.includes(shotId)) return job;
+          sessionTouched = true;
+          return {
+            ...job,
+            shotIds: job.shotIds.filter((id) => id !== shotId),
+            status: "idle",
+            error: undefined,
+            progress: "",
+            runningSignature: undefined,
+            updatedAt: now()
+          };
+        });
+      }
+      if (sessionTouched) ownerSession.updatedAt = now();
+    }
     this.data.shots = this.data.shots.filter((item) => item.id !== shotId);
     this.data.assets = this.data.assets.filter((asset) => asset.ownerShotId !== shotId);
     this.data.shots.forEach((survivor) => {
@@ -404,6 +472,8 @@ export class CinemaStore {
         survivor.referenceVideoAssetId = undefined;
         survivor.referenceClipUrl = null;
         survivor.referenceAudioUrl = null;
+        survivor.referenceClipPreviewUrl = null;
+        survivor.referenceAudioPreviewUrl = null;
       }
       if (survivor.firstFrameAssetId && deletedAssetIds.has(survivor.firstFrameAssetId)) survivor.firstFrameAssetId = undefined;
       if (survivor.lastFrameAssetId && deletedAssetIds.has(survivor.lastFrameAssetId)) survivor.lastFrameAssetId = undefined;

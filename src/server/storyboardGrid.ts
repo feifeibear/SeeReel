@@ -1,17 +1,25 @@
 import type { Asset, Shot } from "../shared/types";
 import { fetchWithRetry } from "./fetchWithRetry";
+import { arkMissingKeyMessage, resolveArkCredential } from "./arkCredentials";
+import { seedreamWebSearchPayload } from "./seedreamOptions";
 
 const BYTEPLUS_SEEDANCE_BASE = "https://ark.ap-southeast.bytepluses.com/api/v3";
 const SEEDREAM_DEFAULT_MODEL = "seedream-4-5-251128";
+const AGENT_PLAN_SEEDREAM_MODEL = "doubao-seedream-5.0-lite";
 
-const apiBase = () =>
-  (process.env.SEEDREAM_API_BASE || process.env.SEEDANCE_API_BASE || BYTEPLUS_SEEDANCE_BASE).replace(/\/$/, "");
+const SEEDREAM_KEY_ENVS = ["SEEDREAM_API_KEY", "BP_ARK_API_KEY", "ARK_API_KEY"];
 
-const apiKey = () =>
-  process.env.SEEDREAM_API_KEY || process.env.BP_ARK_API_KEY || process.env.ARK_API_KEY;
+const credential = () =>
+  resolveArkCredential({
+    keyEnvNames: SEEDREAM_KEY_ENVS,
+    baseEnvNames: ["SEEDREAM_API_BASE", "SEEDANCE_API_BASE"],
+    defaultBase: BYTEPLUS_SEEDANCE_BASE
+  });
 
-const resolveModel = () =>
-  process.env.SEEDREAM_45_MODEL || process.env.SEEDREAM_4_5_MODEL || process.env.SEEDREAM_MODEL || SEEDREAM_DEFAULT_MODEL;
+const resolveModel = (usesAgentPlan = false) =>
+  usesAgentPlan
+    ? process.env.SEEDREAM_AGENT_PLAN_MODEL || AGENT_PLAN_SEEDREAM_MODEL
+    : process.env.SEEDREAM_45_MODEL || process.env.SEEDREAM_4_5_MODEL || process.env.SEEDREAM_MODEL || SEEDREAM_DEFAULT_MODEL;
 
 export interface GenerateStoryboardGridOpts {
   prompt: string;
@@ -40,21 +48,21 @@ export interface StoryboardGridResult {
  * lighting / palette consistency comes for free, and we don't need to wire up an IP-Adapter.
  */
 export async function generateStoryboardGrid(opts: GenerateStoryboardGridOpts): Promise<StoryboardGridResult> {
-  const key = apiKey();
-  if (!key) throw new Error("Missing Seedream API key (SEEDREAM_API_KEY / BP_ARK_API_KEY / ARK_API_KEY)");
+  const ark = credential();
+  if (!ark.apiKey) throw new Error(arkMissingKeyMessage("Seedream", SEEDREAM_KEY_ENVS));
 
   const panelCount = Math.max(2, Math.min(10, Math.floor(opts.panelCount)));
-  const model = resolveModel();
+  const model = resolveModel(ark.source === "agent-plan");
   const size = opts.size || process.env.SEEDREAM_SIZE || "4K";
 
-  const response = await fetchWithRetry(`${apiBase()}/images/generations`, {
+  const response = await fetchWithRetry(`${ark.apiBase}/images/generations`, {
     method: "POST",
     timeoutMs: 240_000,
     tag: "seedream:storyboard-grid",
     headers: {
       "Content-Type": "application/json",
       Accept: "application/json",
-      Authorization: `Bearer ${key}`
+      Authorization: `Bearer ${ark.apiKey}`
     },
     body: JSON.stringify({
       model,
@@ -65,6 +73,7 @@ export async function generateStoryboardGrid(opts: GenerateStoryboardGridOpts): 
       size,
       stream: false,
       watermark: false,
+      ...seedreamWebSearchPayload(),
       ...(opts.referenceImageUrls && opts.referenceImageUrls.length > 0
         ? { image: opts.referenceImageUrls.filter((url) => /^(https?|data):/i.test(url)) }
         : {})

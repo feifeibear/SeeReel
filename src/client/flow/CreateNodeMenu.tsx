@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, type ReactElement } from "react";
 import { Film, Globe, Image as ImageIcon, Mountain, Plus, Scissors, Upload, User } from "lucide-react";
+import { useI18n } from "../i18n";
 
 export type CreateMenuOption = "character" | "scene" | "shot" | "stitch" | "uploadCharacter" | "uploadScene" | "uploadVideo";
 
@@ -26,6 +27,7 @@ interface CreateNodeMenuProps {
  * in a row → 2 anchors created" bug.
  */
 export function CreateNodeMenu({ x, y, onPick, onClose }: CreateNodeMenuProps) {
+  const { t } = useI18n();
   const ref = useRef<HTMLDivElement | null>(null);
   const pickedRef = useRef(false);
 
@@ -78,13 +80,13 @@ export function CreateNodeMenu({ x, y, onPick, onClose }: CreateNodeMenuProps) {
   const top = Math.min(y, window.innerHeight - 320);
 
   const items: Array<{ key: CreateMenuOption; icon: ReactElement; label: string; hint: string; tag: string }> = [
-    { key: "character", icon: <User size={14} />, label: "角色锚", hint: "跨分镜复用同一张脸，C", tag: "C" },
-    { key: "scene", icon: <Mountain size={14} />, label: "场景锚", hint: "跨分镜复用同一个场景，S", tag: "S" },
-    { key: "shot", icon: <Plus size={14} />, label: "分镜镜头", hint: "新增一镜，自动派生分镜板 + 视频，N", tag: "N" },
-    { key: "stitch", icon: <Scissors size={14} />, label: "拼接节点", hint: "手动放置完整视频拼接入口，J", tag: "J" },
-    { key: "uploadCharacter", icon: <Upload size={14} />, label: "上传图 → 角色", hint: "本地图片作为角色锚，U", tag: "U" },
-    { key: "uploadScene", icon: <ImageIcon size={14} />, label: "上传图 → 场景", hint: "本地图片作为场景锚，V", tag: "V" },
-    { key: "uploadVideo", icon: <Film size={14} />, label: "上传参考视频", hint: "本地视频，拖到 shot 上做参考视频，R", tag: "R" }
+    { key: "character", icon: <User size={14} />, label: t.menu.character, hint: t.menu.characterHint, tag: "C" },
+    { key: "scene", icon: <Mountain size={14} />, label: t.menu.scene, hint: t.menu.sceneHint, tag: "S" },
+    { key: "shot", icon: <Plus size={14} />, label: t.menu.shot, hint: t.menu.shotHint, tag: "N" },
+    { key: "stitch", icon: <Scissors size={14} />, label: t.menu.stitch, hint: t.menu.stitchHint, tag: "J" },
+    { key: "uploadCharacter", icon: <Upload size={14} />, label: t.menu.uploadCharacter, hint: t.menu.uploadCharacterHint, tag: "U" },
+    { key: "uploadScene", icon: <ImageIcon size={14} />, label: t.menu.uploadScene, hint: t.menu.uploadSceneHint, tag: "V" },
+    { key: "uploadVideo", icon: <Film size={14} />, label: t.menu.uploadVideo, hint: t.menu.uploadVideoHint, tag: "R" }
   ];
 
   return (
@@ -93,13 +95,13 @@ export function CreateNodeMenu({ x, y, onPick, onClose }: CreateNodeMenuProps) {
       className="create-node-menu"
       style={{ left, top }}
       role="menu"
-      aria-label="新建节点"
+      aria-label={t.menu.aria}
       onClick={(e) => e.stopPropagation()}
     >
       <header>
         <Globe size={13} />
-        <span>新建节点</span>
-        <small>右键空白处呼出</small>
+        <span>{t.menu.title}</span>
+        <small>{t.menu.hint}</small>
       </header>
       {items.map((item) => (
         <button

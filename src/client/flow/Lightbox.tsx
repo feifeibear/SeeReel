@@ -1,5 +1,6 @@
 import { useEffect } from "react";
 import { Download, X } from "lucide-react";
+import { useI18n } from "../i18n";
 
 interface LightboxProps {
   url: string;
@@ -26,6 +27,7 @@ interface LightboxProps {
  * preview-buttons. Independent of xyflow.
  */
 export function Lightbox({ url, mediaKind, title, downloadUrl, downloadFilename, startTimeSec, onClose }: LightboxProps) {
+  const { t } = useI18n();
   useEffect(() => {
     const previousOverflow = document.body.style.overflow;
     document.body.style.overflow = "hidden";
@@ -42,23 +44,23 @@ export function Lightbox({ url, mediaKind, title, downloadUrl, downloadFilename,
   const kind = mediaKind || (/\.(mp4|webm|mov|m4v)(?:[?#].*)?$/i.test(url) ? "video" : "image");
 
   return (
-    <div className="lightbox-backdrop" onClick={onClose} role="dialog" aria-modal="true" aria-label={title || "预览"}>
+    <div className="lightbox-backdrop" onClick={onClose} role="dialog" aria-modal="true" aria-label={title || t.lightbox.preview}>
       <div className="lightbox-panel" onClick={(e) => e.stopPropagation()}>
         <header className="lightbox-head">
-          <strong title={title}>{title || "预览"}</strong>
+          <strong title={title}>{title || t.lightbox.preview}</strong>
           <div className="lightbox-actions">
             {downloadUrl && (
               <a
                 className="lightbox-btn"
                 href={downloadUrl}
                 download={downloadFilename}
-                title="下载原文件"
+                title={t.lightbox.downloadOriginal}
               >
-                <Download size={14} /> 下载
+                <Download size={14} /> {t.lightbox.download}
               </a>
             )}
-            <button type="button" className="lightbox-btn" onClick={onClose} aria-label="关闭">
-              <X size={14} /> 关闭
+            <button type="button" className="lightbox-btn" onClick={onClose} aria-label={t.lightbox.close}>
+              <X size={14} /> {t.lightbox.close}
             </button>
           </div>
         </header>
@@ -91,9 +93,9 @@ export function Lightbox({ url, mediaKind, title, downloadUrl, downloadFilename,
           )}
           {kind === "video" && (
             <div className="lightbox-error" style={{ display: "none" }}>
-              <p>视频在浏览器内无法直接播放。</p>
-              <a href={url} target="_blank" rel="noreferrer">在新标签页打开</a>
-              {downloadUrl && <a href={downloadUrl} download={downloadFilename}>下载到本地</a>}
+              <p>{t.lightbox.videoFailed}</p>
+              <a href={url} target="_blank" rel="noreferrer">{t.lightbox.openNewTab}</a>
+              {downloadUrl && <a href={downloadUrl} download={downloadFilename}>{t.lightbox.downloadLocal}</a>}
             </div>
           )}
         </div>

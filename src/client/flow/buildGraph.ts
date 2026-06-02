@@ -1,11 +1,12 @@
 import type { Edge, Node } from "@xyflow/react";
-import type { Asset, Shot, SessionWithShots, StitchJob, StoreSnapshot } from "../../shared/types";
+import type { Asset, AssetImageModel, Shot, SessionWithShots, StitchJob, StoreSnapshot } from "../../shared/types";
 
 export type AssetNodeKind = "character" | "scene" | "prop" | "style" | "other";
 
 export interface AssetNodeData extends Record<string, unknown> {
   kind: "asset";
   asset: Asset;
+  defaultImageModel?: AssetImageModel;
 }
 
 export interface StoryboardNodeData extends Record<string, unknown> {
@@ -13,6 +14,7 @@ export interface StoryboardNodeData extends Record<string, unknown> {
   shot: Shot;
   /** The sub-storyboard grid asset bound to this shot (if generated yet). */
   asset?: Asset;
+  defaultImageModel?: AssetImageModel;
 }
 
 export interface ShotNodeData extends Record<string, unknown> {
@@ -92,6 +94,7 @@ const ROW_HEIGHT = 240;
 export function buildSessionGraph(snapshot: StoreSnapshot, session: SessionWithShots): BuildGraphResult {
   const nodes: Node<FlowNodeData>[] = [];
   const edges: Edge[] = [];
+  const defaultImageModel = snapshot.runtime?.seedreamDefaultModel;
 
   const sessionAssets = snapshot.assets.filter((asset) => {
     if (asset.ownerShotId) return false; // shot-scoped (sketches / sub-storyboards) handled separately
@@ -131,7 +134,7 @@ export function buildSessionGraph(snapshot: StoreSnapshot, session: SessionWithS
       id: `asset-${asset.id}`,
       type: "assetNode",
       position: { x: COLUMN_X.asset, y: 60 + index * ROW_HEIGHT },
-      data: { kind: "asset", asset } satisfies AssetNodeData
+      data: { kind: "asset", asset, defaultImageModel } satisfies AssetNodeData
     });
   });
   // Stack reference-video nodes below the anchor list. They have no edges by default — they live
@@ -259,7 +262,7 @@ export function buildSessionGraph(snapshot: StoreSnapshot, session: SessionWithS
         id: storyboardNodeId,
         type: "storyboardNode",
         position: { x: COLUMN_X.storyboard, y: 60 + index * ROW_HEIGHT },
-        data: { kind: "storyboard", shot, asset: storyboardAsset } satisfies StoryboardNodeData,
+        data: { kind: "storyboard", shot, asset: storyboardAsset, defaultImageModel } satisfies StoryboardNodeData,
         deletable: true
       });
     }

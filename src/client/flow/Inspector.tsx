@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import type { Asset, Shot, SessionWithShots, StitchJob, PromptComposition, ImageReviewVerdict, VideoReviewVerdict } from "../../shared/types";
+import type { Asset, AssetImageModel, Shot, SessionWithShots, StitchJob, PromptComposition, ImageReviewVerdict, VideoReviewVerdict } from "../../shared/types";
 import { api } from "../api";
 import type { FlowNodeData } from "./buildGraph";
 import { emitDownloadToast } from "./nodes";
@@ -77,6 +77,119 @@ function formatMediaTime(value?: string) {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return undefined;
   return date.toLocaleString();
+}
+
+function formatActualImageModel(asset?: { generationModelActual?: string; generationCredentialSource?: string }) {
+  const actual = asset?.generationModelActual;
+  if (!actual) return undefined;
+  const source = asset.generationCredentialSource === "agent-plan" ? " / Agent Plan" : "";
+  if (actual.includes("seedream-5.0-lite") || actual.includes("seedream-5-lite")) return `Seedream 5 Lite${source} (${actual})`;
+  if (actual.includes("seedream-4-5")) return `Seedream 4.5 (${actual})`;
+  if (actual.includes("seedream-4-0") || actual.includes("seedream-4")) return `Seedream 4 (${actual})`;
+  return actual;
+}
+
+function effectiveAssetGenerateModel(asset: Asset, fallback?: AssetImageModel): AssetImageModel {
+  const actual = asset.generationModelActual;
+  if (actual?.includes("seedream-5.0-lite") || actual?.includes("seedream-5-lite")) return "seedream-5-lite";
+  if (actual?.includes("seedream-4-5")) return "seedream-4-5";
+  if (actual?.includes("seedream-4-0") || actual?.includes("seedream-4")) return "seedream-4";
+  return asset.generationModel || fallback || "seedream-4-5";
+}
+
+type ReviewSummarySource = {
+  verdict?: VideoReviewVerdict | ImageReviewVerdict;
+  status?: string;
+  error?: string;
+  reviewNote?: string;
+  label: string;
+};
+
+function latestReviewNoteReasons(reviewNote?: string) {
+  if (!reviewNote) return [];
+  const attempts = reviewNote
+    .split("\n")
+    .map((line) => line.match(/^attempt\s+(\d+):\s*(.*)$/i))
+    .filter((match): match is RegExpMatchArray => Boolean(match))
+    .map((match) => ({
+      attempt: Number(match[1]),
+      reasons: match[2].split(";").map((item) => item.trim()).filter(Boolean)
+    }))
+    .filter((item) => Number.isFinite(item.attempt) && item.reasons.length);
+  return attempts.sort((a, b) => b.attempt - a.attempt)[0]?.reasons || [];
+}
+
+function ReviewSummaryCard({ verdict, status, error, reviewNote, label }: ReviewSummarySource) {
+  const noteReasons = latestReviewNoteReasons(reviewNote);
+  if (status === "running") {
+    return (
+      <div className="inspector-review-summary is-running">
+        <div className="inspector-review-summary-head">
+          <strong>{label}</strong>
+          <span>审片中</span>
+        </div>
+        <p>VLM 正在检查画面与 prompt / 参考资产的一致性。</p>
+      </div>
+    );
+  }
+  if (status === "error") {
+    return (
+      <div className="inspector-review-summary is-fail">
+        <div className="inspector-review-summary-head">
+          <strong>{label}</strong>
+          <span>审核失败</span>
+        </div>
+        <p>{error || "未知错误"}</p>
+      </div>
+    );
+  }
+  if (!verdict && noteReasons.length === 0) return null;
+
+  const pass = verdict?.ok;
+  const reasons = verdict
+    ? [...verdict.fatalIssues, ...verdict.reasons].filter(Boolean).slice(0, 3)
+    : noteReasons.slice(0, 3);
+  const fixes = verdict?.fixes.map((fix) => [
+    fix.shot ? `镜头 ${fix.shot}` : "",
+    fix.frame ? `帧 ${fix.frame}` : "",
+    fix.action
+  ].filter(Boolean).join("：")).filter(Boolean).slice(0, 3) || [];
+  const reviewedAt = verdict?.reviewedAt ? formatMediaTime(verdict.reviewedAt) : undefined;
+
+  return (
+    <div className={`inspector-review-summary ${pass ? "is-pass" : "is-fail"}`}>
+      <div className="inspector-review-summary-head">
+        <strong>{label}</strong>
+        <span>{verdict ? `${pass ? "通过" : "需修"} · ${Math.round(verdict.score)}` : "自审发现瑕疵"}</span>
+      </div>
+      {verdict?.summary ? <p>{verdict.summary}</p> : <p>最近一次自审发现生成结果仍有瑕疵，可以按下面原因调整 prompt 或参考图后重生。</p>}
+      {reasons.length > 0 && (
+        <div>
+          <small>主要问题</small>
+          <ul>{reasons.map((item, i) => <li key={i}>{item}</li>)}</ul>
+        </div>
+      )}
+      {fixes.length > 0 ? (
+        <div>
+          <small>建议怎么改</small>
+          <ul>{fixes.map((item, i) => <li key={i}>{item}</li>)}</ul>
+        </div>
+      ) : !pass && reasons.length > 0 ? (
+        <div>
+          <small>建议怎么改</small>
+          <ul>
+            <li>把上述问题写进「场景描述 / prompt」的正向约束里。</li>
+            <li>如果是人物或场景不一致，补充或重新连接更明确的参考资产。</li>
+          </ul>
+        </div>
+      ) : null}
+      {(verdict?.model || reviewedAt) && (
+        <div className="inspector-review-summary-meta">
+          {verdict?.model}{verdict?.model && reviewedAt ? " · " : ""}{reviewedAt}
+        </div>
+      )}
+    </div>
+  );
 }
 
 function VideoReviewCard({ verdict, status, error, stale }: {
@@ -206,16 +319,17 @@ interface InspectorProps {
   session: SessionWithShots | undefined;
   allAssets: Asset[];
   visionReviewEnabled: boolean;
+  defaultImageModel?: AssetImageModel;
   onMutated: () => Promise<void> | void;
   onDeleteCanvasAsset?: (asset: Asset) => Promise<boolean> | boolean;
   onDeleteCanvasShot?: (shot: Shot) => Promise<boolean> | boolean;
   onClose: () => void;
 }
 
-export function Inspector({ selected, session, allAssets, visionReviewEnabled, onMutated, onDeleteCanvasAsset, onDeleteCanvasShot, onClose }: InspectorProps) {
+export function Inspector({ selected, session, allAssets, visionReviewEnabled, defaultImageModel, onMutated, onDeleteCanvasAsset, onDeleteCanvasShot, onClose }: InspectorProps) {
   if (!selected) return null;
   if (selected.kind === "asset") {
-    return <AssetInspector asset={selected.asset} session={session} allAssets={allAssets} onMutated={onMutated} onDeleteCanvasAsset={onDeleteCanvasAsset} onClose={onClose} visionReviewEnabled={visionReviewEnabled} />;
+    return <AssetInspector asset={selected.asset} session={session} allAssets={allAssets} onMutated={onMutated} onDeleteCanvasAsset={onDeleteCanvasAsset} onClose={onClose} visionReviewEnabled={visionReviewEnabled} defaultImageModel={defaultImageModel} />;
   }
   if (selected.kind === "storyboard") {
     return <StoryboardInspector shot={selected.shot} asset={selected.asset} session={session} allAssets={allAssets} onMutated={onMutated} onClose={onClose} visionReviewEnabled={visionReviewEnabled} />;
@@ -233,7 +347,7 @@ export function Inspector({ selected, session, allAssets, visionReviewEnabled, o
     return <VideoProcessorInspector asset={selected.asset} sourceAsset={selected.sourceAsset} session={session} onMutated={onMutated} onDeleteCanvasAsset={onDeleteCanvasAsset} onClose={onClose} />;
   }
   if (selected.kind === "tailframe") {
-    return <AssetInspector asset={selected.asset} session={session} allAssets={allAssets} onMutated={onMutated} onDeleteCanvasAsset={onDeleteCanvasAsset} onClose={onClose} visionReviewEnabled={visionReviewEnabled} />;
+    return <AssetInspector asset={selected.asset} session={session} allAssets={allAssets} onMutated={onMutated} onDeleteCanvasAsset={onDeleteCanvasAsset} onClose={onClose} visionReviewEnabled={visionReviewEnabled} defaultImageModel={defaultImageModel} />;
   }
   return null;
 }
@@ -242,7 +356,7 @@ export function Inspector({ selected, session, allAssets, visionReviewEnabled, o
 // Asset inspector
 // ============================================================================
 
-function AssetInspector({ asset, onMutated, onDeleteCanvasAsset, onClose, visionReviewEnabled }: {
+function AssetInspector({ asset, onMutated, onDeleteCanvasAsset, onClose, visionReviewEnabled, defaultImageModel }: {
   asset: Asset;
   session?: SessionWithShots;
   allAssets: Asset[];
@@ -250,6 +364,7 @@ function AssetInspector({ asset, onMutated, onDeleteCanvasAsset, onClose, vision
   onMutated: () => Promise<void> | void;
   onDeleteCanvasAsset?: (asset: Asset) => Promise<boolean> | boolean;
   onClose: () => void;
+  defaultImageModel?: AssetImageModel;
 }) {
   const [name, setName] = useState(asset.name);
   const [prompt, setPrompt] = useState(asset.prompt || "");
@@ -406,7 +521,7 @@ function AssetInspector({ asset, onMutated, onDeleteCanvasAsset, onClose, vision
     setBusy("");
     void pending.run(asset.id, async () => {
       try {
-        await api.generateAsset(asset.id, asset.generationModel || "seedream-4-5", {
+        await api.generateAsset(asset.id, effectiveAssetGenerateModel(asset, defaultImageModel), {
           visionReview: visionReviewEnabled && asset.vlmReviewEnabled !== false,
           composedPrompt: composedDraft || undefined
         });
@@ -571,6 +686,13 @@ function AssetInspector({ asset, onMutated, onDeleteCanvasAsset, onClose, vision
       )}
       <details className="inspector-fold" open>
         <summary>VLM 图片评分</summary>
+        <ReviewSummaryCard
+          label="最近一次 VLM 审图"
+          verdict={asset.imageReview}
+          status={asset.imageReviewStatus}
+          error={asset.imageReviewError}
+          reviewNote={asset.reviewNote}
+        />
         <ImageReviewCard
           verdict={asset.imageReview}
           status={asset.imageReviewStatus}
@@ -579,6 +701,9 @@ function AssetInspector({ asset, onMutated, onDeleteCanvasAsset, onClose, vision
       </details>
       <details className="inspector-fold">
         <summary>更多元数据 / 备注</summary>
+        {formatActualImageModel(asset) && (
+          <div className="inspector-hint">实际执行模型：{formatActualImageModel(asset)}</div>
+        )}
         <label>原始备注（可选；不送给 AI，仅供 asset 列表查看）
           <textarea rows={3} value={description} onChange={(e) => setDescription(e.target.value)} />
         </label>
@@ -914,7 +1039,7 @@ function StoryboardInspector({ shot, asset, session, allAssets, visionReviewEnab
 
       {asset?.composedPrompt && (
         <details className="inspector-fold">
-          <summary>上次实际送出的 prompt（审计）</summary>
+          <summary>上次实际送出的 prompt（审计）{formatActualImageModel(asset) ? ` · ${formatActualImageModel(asset)}` : ""}</summary>
           <pre className="inspector-pre">{asset.composedPrompt}</pre>
         </details>
       )}
@@ -1307,6 +1432,11 @@ function ShotInspector({ shot, session, allAssets, visionReviewEnabled, onMutate
     generating
   );
   const currentVideoReady = Boolean(shot.videoUrl) && !generating;
+  const latestRenderForReview = (shot.renders || []).find((r) => r.videoUrl === shot.videoUrl || r.remoteVideoUrl === shot.videoUrl);
+  const latestVideoReview = latestRenderForReview?.videoReview || shot.videoReview;
+  const latestVideoReviewStatus = latestRenderForReview?.videoReviewStatus || shot.videoReviewStatus;
+  const latestVideoReviewError = latestRenderForReview?.videoReviewError || shot.videoReviewError;
+  const latestReviewNote = latestRenderForReview?.reviewNote;
 
   return (
     <aside className="inspector">
@@ -1347,7 +1477,11 @@ function ShotInspector({ shot, session, allAssets, visionReviewEnabled, onMutate
           onChange={setRawPrompt}
           rows={10}
           options={buildShotMentionOptions(shot, allAssets, session)}
-          placeholder="@-mention 资产 / 参考视频 / 分镜板，输入 @ 弹出补全"
+          placeholder={[
+            "写这一镜的动作 prompt。",
+            "提示: 连到 Shot 的图片资产会自动作为 Seedance 参考图; 参考视频需要在 prompt 里 @ 它才会作为 reference_video 传入。",
+            "启用首尾帧或分镜板模式时,普通参考图会被覆盖。输入 @ 可选择资产 / 参考视频 / 分镜板。"
+          ].join("\n")}
         />
       </label>
       {/* Compact reminder of which references are wired in. The autocomplete (typing @ inside the
@@ -1418,6 +1552,13 @@ function ShotInspector({ shot, session, allAssets, visionReviewEnabled, onMutate
         />
         VLM 审核此节点
       </label>
+      <ReviewSummaryCard
+        label="最近一次 VLM 审片"
+        verdict={latestVideoReview}
+        status={latestVideoReviewStatus}
+        error={latestVideoReviewError}
+        reviewNote={latestReviewNote}
+      />
       <details className="inspector-fold" open={Boolean(composedDraft) || composedDraftStale}>
         <summary>
           送给 Seedance 的最终 prompt（草稿，可改）
@@ -1594,14 +1735,13 @@ function ShotInspector({ shot, session, allAssets, visionReviewEnabled, onMutate
         </details>
       ) : null}
       {currentVideoReady && (() => {
-        const latestRender = (shot.renders || []).find((r) => r.videoUrl === shot.videoUrl || r.remoteVideoUrl === shot.videoUrl);
         return (
           <details className="inspector-fold" open>
             <summary>VLM 审片结果</summary>
             <VideoReviewCard
-              verdict={latestRender?.videoReview || shot.videoReview}
-              status={latestRender?.videoReviewStatus || shot.videoReviewStatus}
-              error={latestRender?.videoReviewError || shot.videoReviewError}
+              verdict={latestVideoReview}
+              status={latestVideoReviewStatus}
+              error={latestVideoReviewError}
             />
           </details>
         );
@@ -1751,13 +1891,15 @@ function StitchInspector({ session, job, legacy, onMutated, onClose }: {
   const [error, setError] = useState<string>("");
 
   const orderedShots = (session.shots || []).slice().sort((a, b) => a.index - b.index);
+  const shotById = new Map(orderedShots.map((shot) => [shot.id, shot]));
   const explicitIds = job.shotIds || [];
   const explicitMode = explicitIds.length > 0;
+  const missingShotIds = explicitMode ? explicitIds.filter((id) => !shotById.has(id)) : [];
   const stitchShots = explicitMode
-    ? explicitIds.map((id) => orderedShots.find((s) => s.id === id)).filter((s): s is Shot => Boolean(s))
+    ? explicitIds.map((id) => shotById.get(id)).filter((s): s is Shot => Boolean(s))
     : orderedShots;
   const defaultReady = orderedShots.length > 0 && orderedShots.every((s) => s.videoUrl);
-  const explicitReady = explicitMode && stitchShots.length > 0 && stitchShots.every((s) => s.videoUrl);
+  const explicitReady = explicitMode && !missingShotIds.length && stitchShots.length > 0 && stitchShots.every((s) => s.videoUrl);
   const canStitch = explicitMode ? explicitReady : defaultReady;
   const isStitching = job.status === "running";
   const finalCacheKey = job.finalVideoGeneratedAt || job.finalVideoUrl || job.finalVideoSignature || job.updatedAt;
@@ -1839,6 +1981,19 @@ function StitchInspector({ session, job, legacy, onMutated, onClose }: {
         {!explicitMode ? (
           <>
             <div className="inspector-hint">拖拽视频节点连接到这个拼接节点即可自定义顺序。多个拼接节点互不影响。</div>
+            {missingShotIds.length > 0 && (
+              <div className="inspector-error">
+                存在 {missingShotIds.length} 个失效镜头引用：{missingShotIds.join(", ")}
+                <button
+                  type="button"
+                  className="ghost-action"
+                  onClick={() => saveOrder(explicitIds.filter((id) => !missingShotIds.includes(id)))}
+                  disabled={Boolean(busy)}
+                >
+                  移除失效引用
+                </button>
+              </div>
+            )}
             <button
               type="button"
               className="ghost-action"
@@ -1850,9 +2005,41 @@ function StitchInspector({ session, job, legacy, onMutated, onClose }: {
           </>
         ) : (
           <div className="inspector-history-list">
+            {missingShotIds.length > 0 && (
+              <div className="inspector-error">
+                存在 {missingShotIds.length} 个失效镜头引用：{missingShotIds.join(", ")}
+                <button
+                  type="button"
+                  className="ghost-action"
+                  onClick={() => saveOrder(explicitIds.filter((id) => !missingShotIds.includes(id)))}
+                  disabled={Boolean(busy)}
+                >
+                  移除失效引用
+                </button>
+              </div>
+            )}
             {explicitIds.map((shotId, index) => {
-              const shot = orderedShots.find((s) => s.id === shotId);
-              if (!shot) return null;
+              const shot = shotById.get(shotId);
+              if (!shot) {
+                return (
+                  <div key={`${shotId}-${index}`} className="inspector-history-item">
+                    <div className="inspector-history-meta">
+                      <strong>{index + 1}. 失效镜头引用：{shotId}</strong>
+                      <span className="inspector-history-status">已删除/已替换</span>
+                    </div>
+                    <div className="inspector-history-actions">
+                      <button
+                        type="button"
+                        className="ghost-action"
+                        onClick={() => saveOrder(explicitIds.filter((_, i) => i !== index))}
+                        disabled={Boolean(busy)}
+                      >
+                        移除
+                      </button>
+                    </div>
+                  </div>
+                );
+              }
               return (
                 <div key={`${shotId}-${index}`} className="inspector-history-item">
                   <div className="inspector-history-meta">
@@ -1898,7 +2085,9 @@ function StitchInspector({ session, job, legacy, onMutated, onClose }: {
       </div>
       {!canStitch && (
         <div className="inspector-hint">
-          {explicitMode ? "已连接的视频中还有未生成的镜头。" : "还有分镜没生成视频。"}
+          {missingShotIds.length > 0
+            ? "拼接顺序里有已删除/已替换的镜头引用，请先移除失效引用。"
+            : explicitMode ? "已连接的视频中还有未生成的镜头。" : "还有分镜没生成视频。"}
         </div>
       )}
       {job.finalVideoUrl && !isStitching && (
@@ -1926,6 +2115,14 @@ function StitchInspector({ session, job, legacy, onMutated, onClose }: {
             fallbackLabel="最近拼接更新时间"
           />
         </details>
+      )}
+      {job.finalVideoUrl && !isStitching && (
+        <ReviewSummaryCard
+          label="最近一次 VLM 终审"
+          verdict={job.finalVideoReview}
+          status={job.finalVideoReviewStatus}
+          error={job.finalVideoReviewError}
+        />
       )}
       {job.finalVideoUrl && !isStitching && (
         <details className="inspector-fold" open>

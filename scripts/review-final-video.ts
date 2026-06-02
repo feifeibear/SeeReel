@@ -1,16 +1,23 @@
 import "dotenv/config";
 import { mkdir, readFile, unlink, writeFile } from "node:fs/promises";
 import path from "node:path";
+import { arkMissingKeyMessage, resolveArkCredential } from "../src/server/arkCredentials";
 import { runFfmpegCommand } from "../src/server/generators";
 
 const videoPath = process.argv[2];
 const promptPath = process.argv[3];
 if (!videoPath) throw new Error("Usage: tsx scripts/review-final-video.ts <videoPath> [promptPath]");
 
-const apiBase = (process.env.VISION_REVIEW_API_BASE || process.env.SEED_PROMPT_API_BASE || process.env.SEEDANCE_API_BASE || "https://ark.ap-southeast.bytepluses.com/api/v3").replace(/\/$/, "");
-const apiKey = process.env.VISION_REVIEW_API_KEY || process.env.SEED_PROMPT_API_KEY || process.env.BP_ARK_API_KEY || process.env.ARK_API_KEY;
+const VISION_KEY_ENVS = ["VISION_REVIEW_API_KEY", "SEED_PROMPT_API_KEY", "BP_ARK_API_KEY", "ARK_API_KEY"];
+const credential = resolveArkCredential({
+  keyEnvNames: VISION_KEY_ENVS,
+  baseEnvNames: ["VISION_REVIEW_API_BASE", "SEED_PROMPT_API_BASE", "SEEDANCE_API_BASE"],
+  defaultBase: "https://ark.ap-southeast.bytepluses.com/api/v3"
+});
+const apiBase = credential.apiBase;
+const apiKey = credential.apiKey;
 const model = process.env.VISION_REVIEW_MODEL || "seed-2-0-pro-260328";
-if (!apiKey) throw new Error("Missing VISION_REVIEW_API_KEY / BP_ARK_API_KEY / ARK_API_KEY");
+if (!apiKey) throw new Error(arkMissingKeyMessage("vision review", VISION_KEY_ENVS));
 
 const prompt = promptPath
   ? await readFile(promptPath, "utf8")

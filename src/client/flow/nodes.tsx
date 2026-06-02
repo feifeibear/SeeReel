@@ -4,6 +4,7 @@ import { Handle, Position, type Node, type NodeProps } from "@xyflow/react";
 import { api } from "../api";
 import { Lightbox } from "./Lightbox";
 import { usePendingGeneration } from "./PendingGenerations";
+import { useI18n, type Dictionary } from "../i18n";
 import type { AssetImageModel, SeedanceVariant, SubStoryboardModel } from "../../shared/types";
 import type {
   AssetNodeData,
@@ -27,6 +28,7 @@ function NodeModelPicker<T extends string>({ value, options, onChange, title }: 
   onChange: (value: T) => Promise<void> | void;
   title?: string;
 }) {
+  const { t } = useI18n();
   return (
     <select
       className="flow-node-model"
@@ -38,7 +40,7 @@ function NodeModelPicker<T extends string>({ value, options, onChange, title }: 
       onClick={(e) => e.stopPropagation()}
       onMouseDown={(e) => e.stopPropagation()}
       onPointerDown={(e) => e.stopPropagation()}
-      title={title || "选择模型版本"}
+      title={title || t.nodes.modelPickerTitle}
     >
       {options.map((o) => (
         <option key={o.value} value={o.value}>{o.label}</option>
@@ -49,17 +51,35 @@ function NodeModelPicker<T extends string>({ value, options, onChange, title }: 
 
 const ASSET_MODEL_OPTIONS: Array<{ value: AssetImageModel; label: string }> = [
   { value: "seedream-4-5", label: "Seedream 4.5" },
+  { value: "seedream-5-lite", label: "Seedream 5 Lite (Agent Plan)" },
   { value: "seedream-4", label: "Seedream 4" },
   { value: "gpt-image-2", label: "GPT-Image-2" }
 ];
 const STORYBOARD_MODEL_OPTIONS: Array<{ value: SubStoryboardModel; label: string }> = [
   { value: "seedream-4-5", label: "Seedream 4.5" },
+  { value: "seedream-5-lite", label: "Seedream 5 Lite (Agent Plan)" },
   { value: "seedream-4", label: "Seedream 4" }
 ];
 const SEEDANCE_OPTIONS: Array<{ value: SeedanceVariant; label: string }> = [
   { value: "standard", label: "Seedance 2.0" },
   { value: "fast", label: "Seedance 2.0 Fast" }
 ];
+
+function effectiveAssetImageModel(asset: { generationModel?: AssetImageModel; generationModelActual?: string }, fallback?: AssetImageModel): AssetImageModel | undefined {
+  const actual = asset?.generationModelActual;
+  if (actual?.includes("seedream-5.0-lite") || actual?.includes("seedream-5-lite")) return "seedream-5-lite";
+  if (actual?.includes("seedream-4-5")) return "seedream-4-5";
+  if (actual?.includes("seedream-4-0") || actual?.includes("seedream-4")) return "seedream-4";
+  return asset.generationModel || fallback;
+}
+
+function effectiveSubStoryboardModel(asset: { generationModel?: string; generationModelActual?: string } | undefined, shotModel?: SubStoryboardModel, fallback?: AssetImageModel): SubStoryboardModel | undefined {
+  const actual = asset?.generationModelActual;
+  if (actual?.includes("seedream-5.0-lite") || actual?.includes("seedream-5-lite")) return "seedream-5-lite";
+  if (actual?.includes("seedream-4-5")) return "seedream-4-5";
+  if (actual?.includes("seedream-4-0") || actual?.includes("seedream-4")) return "seedream-4";
+  return shotModel || (fallback === "seedream-5-lite" ? "seedream-5-lite" : undefined);
+}
 
 type AssetFlowNode = Node<AssetNodeData, "assetNode">;
 type StoryboardFlowNode = Node<StoryboardNodeData, "storyboardNode">;
@@ -108,12 +128,13 @@ export function emitFlowMutated() {
  * would also work but the browser ignores `download=` on cross-origin resources.
  */
 function DownloadButton({ href, filename, title, onTriggered }: { href: string; filename?: string; title?: string; onTriggered?: () => void }) {
+  const { t } = useI18n();
   return (
     <a
       className="flow-node-download"
       href={href}
       download={filename}
-      title={title || "下载"}
+      title={title || t.nodes.download}
       onClick={(e) => {
         e.stopPropagation();
         onTriggered?.();
@@ -250,20 +271,20 @@ function RobustVideoThumb({ streamSrc, posterSrc, downloadUrl, downloadFilename,
   );
 }
 
-function statusBadge(status: string | undefined, phase?: string) {
-  if (!status || status === "draft") return { color: "#6b7280", label: "草稿" };
-  if (status === "scripted") return { color: "#fbbf24", label: "已写脚本" };
+function statusBadge(status: string | undefined, phase: string | undefined, t: Dictionary) {
+  if (!status || status === "draft") return { color: "#6b7280", label: t.nodes.statusDraft };
+  if (status === "scripted") return { color: "#fbbf24", label: t.nodes.statusScripted };
   if (status === "generating") {
     // Sub-phase tells the user whether the Seedance task is still queued at BytePlus (idle, can
     // sit for many minutes during peak hours) vs. actively rendering on a GPU. Surfaced because
     // queued time is not the user's fault and not something a re-submit fixes.
-    if (phase === "queued") return { color: "#fbbf24", label: "Seedance 排队中" };
-    if (phase === "running") return { color: "#60a5fa", label: "Seedance 渲染中" };
-    return { color: "#60a5fa", label: "生成中" };
+    if (phase === "queued") return { color: "#fbbf24", label: t.nodes.statusQueued };
+    if (phase === "running") return { color: "#60a5fa", label: t.nodes.statusRunning };
+    return { color: "#60a5fa", label: t.nodes.statusGenerating };
   }
-  if (status === "ready") return { color: "#34d399", label: "已完成" };
-  if (status === "error") return { color: "#f87171", label: "出错" };
-  if (status === "cancelled") return { color: "#9ca3af", label: "已取消" };
+  if (status === "ready") return { color: "#34d399", label: t.nodes.statusReady };
+  if (status === "error") return { color: "#f87171", label: t.nodes.statusError };
+  if (status === "cancelled") return { color: "#9ca3af", label: t.nodes.statusCancelled };
   return { color: "#6b7280", label: status };
 }
 
@@ -271,16 +292,16 @@ function selectedShotRender(shot: ShotNodeData["shot"]) {
   return (shot.renders || []).find((render) => render.videoUrl === shot.videoUrl || render.remoteVideoUrl === shot.videoUrl);
 }
 
-function reviewBadge(status?: string, score?: number, stale?: boolean) {
-  if (stale) return { color: "#fbbf24", label: "VLM 已过期" };
-  if (status === "running") return { color: "#60a5fa", label: "VLM 审核中" };
-  if (status === "error") return { color: "#f87171", label: "VLM 失败" };
+function reviewBadge(t: Dictionary, status?: string, score?: number, stale?: boolean) {
+  if (stale) return { color: "#fbbf24", label: t.nodes.reviewStale };
+  if (status === "running") return { color: "#60a5fa", label: t.nodes.reviewRunning };
+  if (status === "error") return { color: "#f87171", label: t.nodes.reviewError };
   if (typeof score === "number") {
     return score >= 80
-      ? { color: "#34d399", label: `VLM ${Math.round(score)} ✓` }
-      : { color: "#f87171", label: `VLM ${Math.round(score)} 需修` };
+      ? { color: "#34d399", label: t.nodes.reviewPass(score) }
+      : { color: "#f87171", label: t.nodes.reviewNeedsFix(score) };
   }
-  return { color: "#9ca3af", label: "VLM 未审" };
+  return { color: "#9ca3af", label: t.nodes.reviewNotRun };
 }
 
 function ReviewButton({ label, title, onClick }: { label: string; title: string; onClick: () => Promise<void> }) {
@@ -338,15 +359,10 @@ function AssetNodeImpl({ data, selected }: NodeProps<AssetFlowNode>) {
   const { asset } = data;
   const thumb = assetThumbUrl(asset);
   const { active: isGenerating, elapsed: pendingElapsed } = usePendingGeneration(asset.id);
-  const typeLabel: Record<string, string> = {
-    character: "角色",
-    scene: "场景",
-    prop: "道具",
-    style: "风格",
-    other: "其它"
-  };
+  const { t } = useI18n();
+  const typeLabel = t.nodes.assetTypes as Record<string, string>;
   const tag = typeLabel[asset.type] ?? asset.type;
-  const reviewInfo = reviewBadge(asset.imageReviewStatus, asset.imageReview?.score);
+  const reviewInfo = reviewBadge(t, asset.imageReviewStatus, asset.imageReview?.score);
   const showReviewBadge = asset.imageReviewStatus === "running" || asset.imageReviewStatus === "error" || Boolean(asset.imageReview);
   return (
     <div className={`flow-node asset-node ${selected ? "selected" : ""} ${isGenerating ? "generating" : ""}`} style={{ width: NODE_WIDTH }}>
@@ -354,14 +370,14 @@ function AssetNodeImpl({ data, selected }: NodeProps<AssetFlowNode>) {
         <span className={`flow-tag tag-${asset.type}`}>{tag}</span>
         <strong className="flow-node-title" title={asset.name}>{asset.name}</strong>
         {isGenerating && (
-          <span className="flow-node-pending-badge" title="自审重试 + Seedream 单轮 ≈ 30-40s，最多 5 轮">
-            生成中{pendingElapsed ? ` · ${pendingElapsed}` : "…"}
+          <span className="flow-node-pending-badge" title={t.nodes.pendingAssetTitle}>
+            {t.nodes.generating}{pendingElapsed ? ` · ${pendingElapsed}` : "…"}
           </span>
         )}
         {thumb && (
           <ReviewButton
             label="VLM"
-            title="对当前图片做 VLM 评分"
+            title={t.nodes.reviewImageTitle}
             onClick={async () => {
               await api.reviewAssetImage(asset.id);
               emitFlowMutated();
@@ -372,36 +388,36 @@ function AssetNodeImpl({ data, selected }: NodeProps<AssetFlowNode>) {
           <DownloadButton
             href={api.downloadAssetUrl(asset.id)}
             filename={`${asset.name}.png`}
-            title={`下载 ${asset.name} 原图`}
+            title={t.nodes.downloadOriginalImage(asset.name)}
             onTriggered={() => emitDownloadToast(`${asset.name}.png`)}
           />
         )}
       </div>
       <div className="flow-node-thumb fit-contain">
-        {thumb ? <img src={thumb} alt={asset.name} loading="lazy" decoding="async" /> : <div className="flow-empty">未生成</div>}
+        {thumb ? <img src={thumb} alt={asset.name} loading="lazy" decoding="async" /> : <div className="flow-empty">{t.nodes.notGenerated}</div>}
         {isGenerating && (
           <div className="flow-node-pending-overlay">
             <span className="flow-empty-spinner" aria-hidden />
-            生成中{pendingElapsed ? ` · ${pendingElapsed}` : "…"}
-            <small style={{ opacity: 0.65, marginTop: 4 }}>Seedream + 自审重试，最长 ~3 分钟</small>
+            {t.nodes.generating}{pendingElapsed ? ` · ${pendingElapsed}` : "…"}
+            <small style={{ opacity: 0.65, marginTop: 4 }}>{t.nodes.seedreamReviewHint}</small>
           </div>
         )}
       </div>
       <div className="flow-node-foot">
         <NodeModelPicker<AssetImageModel>
-          value={asset.generationModel}
+          value={effectiveAssetImageModel(asset, data.defaultImageModel)}
           options={ASSET_MODEL_OPTIONS}
           onChange={async (model) => {
             await api.saveAsset({ id: asset.id, generationModel: model });
             emitFlowMutated();
           }}
-          title="该资产下次「重新出图」使用的模型"
+          title={t.nodes.nextAssetModelTitle}
         />
         {showReviewBadge && (
           <small className="flow-review-badge" style={{ color: reviewInfo.color }}>{reviewInfo.label}</small>
         )}
         {asset.reviewAttempts && asset.reviewAttempts > 0 ? (
-          <small className="flow-node-warn">自审重试 {asset.reviewAttempts}</small>
+          <small className="flow-node-warn">{t.nodes.reviewAttempts(asset.reviewAttempts)}</small>
         ) : null}
       </div>
       <Handle type="source" position={Position.Right} id="out" />
@@ -418,22 +434,23 @@ function StoryboardNodeImpl({ data, selected }: NodeProps<StoryboardFlowNode>) {
   const thumb = asset ? assetThumbUrl(asset) : undefined;
   const panelCount = shot.subShotPanelCount ?? 9;
   const { active: isGenerating, elapsed: pendingElapsed } = usePendingGeneration(shot.id);
+  const { t } = useI18n();
   return (
     <div className={`flow-node storyboard-node ${selected ? "selected" : ""} ${isGenerating ? "generating" : ""}`} style={{ width: NODE_WIDTH }}>
       <Handle type="target" position={Position.Left} id="in" />
       <div className="flow-node-head">
-        <span className="flow-tag tag-storyboard">分镜板</span>
+        <span className="flow-tag tag-storyboard">{t.nodes.storyboard}</span>
         <strong className="flow-node-title" title={shot.title}>{shot.title || `Shot ${shot.index}`}</strong>
         {isGenerating && (
-          <span className="flow-node-pending-badge" title="Seedream 生成分镜板 + 自审，可能 30s-2min">
-            生成中{pendingElapsed ? ` · ${pendingElapsed}` : "…"}
+          <span className="flow-node-pending-badge" title={t.nodes.storyboardPendingTitle}>
+            {t.nodes.generating}{pendingElapsed ? ` · ${pendingElapsed}` : "…"}
           </span>
         )}
         {thumb && asset && (
           <DownloadButton
             href={api.downloadAssetUrl(asset.id)}
             filename={`storyboard-${shot.title || `shot-${shot.index}`}.png`}
-            title="下载分镜板原图"
+            title={t.nodes.downloadStoryboard}
             onTriggered={() => emitDownloadToast(`storyboard-${shot.title || `shot-${shot.index}`}.png`)}
           />
         )}
@@ -442,29 +459,29 @@ function StoryboardNodeImpl({ data, selected }: NodeProps<StoryboardFlowNode>) {
         {thumb ? (
           <img src={thumb} alt={`storyboard ${shot.index}`} loading="lazy" decoding="async" />
         ) : (
-          <div className="flow-empty">未生成 · 点开右侧编辑</div>
+          <div className="flow-empty">{t.nodes.storyboardEmpty}</div>
         )}
         {isGenerating && (
           <div className="flow-node-pending-overlay">
             <span className="flow-empty-spinner" aria-hidden />
-            生成中{pendingElapsed ? ` · ${pendingElapsed}` : "…"}
-            <small style={{ opacity: 0.65, marginTop: 4 }}>Seedream 分镜板，最长 ~2 分钟</small>
+            {t.nodes.generating}{pendingElapsed ? ` · ${pendingElapsed}` : "…"}
+            <small style={{ opacity: 0.65, marginTop: 4 }}>{t.nodes.storyboardHint}</small>
           </div>
         )}
       </div>
       <div className="flow-node-foot">
         <NodeModelPicker<SubStoryboardModel>
-          value={shot.subStoryboardModel}
+          value={effectiveSubStoryboardModel(asset, shot.subStoryboardModel, data.defaultImageModel)}
           options={STORYBOARD_MODEL_OPTIONS}
           onChange={async (model) => {
             await api.updateShot(shot.id, { subStoryboardModel: model });
             emitFlowMutated();
           }}
-          title="该分镜板下次「重新出图」使用的 Seedream 版本"
+          title={t.nodes.nextStoryboardModelTitle}
         />
-        <small>{panelCount} 面板</small>
+        <small>{t.nodes.panelCount(panelCount)}</small>
         {asset?.referenceImageUrls?.length ? (
-          <small className="flow-node-info">参考图 {asset.referenceImageUrls.length}</small>
+          <small className="flow-node-info">{t.nodes.refImageCount(asset.referenceImageUrls.length)}</small>
         ) : null}
       </div>
       <Handle type="source" position={Position.Right} id="out" />
@@ -477,8 +494,9 @@ function StoryboardNodeImpl({ data, selected }: NodeProps<StoryboardFlowNode>) {
 // ============================================================================
 
 function ShotNodeImpl({ data, selected }: NodeProps<ShotFlowNode>) {
+  const { t } = useI18n();
   const { shot } = data;
-  const status = statusBadge(shot.status, shot.seedancePhase);
+  const status = statusBadge(shot.status, shot.seedancePhase, t);
   // While a generation is in flight (status === "generating") the previous successful video
   // would visually "pretend" the new render is already done. Hide the old preview during the
   // generation window so the user sees a clear "renewing" state.
@@ -494,19 +512,19 @@ function ShotNodeImpl({ data, selected }: NodeProps<ShotFlowNode>) {
   const videoCacheKey = selectedRender?.id || videoUrl;
   const review = selectedRender?.videoReview || shot.videoReview;
   const reviewStatus = selectedRender?.videoReviewStatus || shot.videoReviewStatus;
-  const reviewInfo = reviewBadge(reviewStatus, review?.score);
+  const reviewInfo = reviewBadge(t, reviewStatus, review?.score);
   const startedAt = pendingRender?.generationStartedAt || shot.generationStartedAt || undefined;
   const elapsed = useElapsedLabel(startedAt, isGenerating);
   return (
     <div className={`flow-node shot-node ${selected ? "selected" : ""}`} style={{ width: NODE_WIDTH }}>
       <Handle type="target" position={Position.Left} id="in" />
       <div className="flow-node-head">
-        <span className="flow-tag tag-shot">视频</span>
+        <span className="flow-tag tag-shot">{t.nodes.video}</span>
         <strong className="flow-node-title" title={shot.title}>{shot.title || `Shot ${shot.index}`}</strong>
         {videoUrl && (
           <ReviewButton
             label="VLM"
-            title="用多帧 VLM 标准审核这一镜"
+            title={t.nodes.reviewShotTitle}
             onClick={async () => {
               await api.reviewShotVideo(shot.id);
               emitFlowMutated();
@@ -517,14 +535,14 @@ function ShotNodeImpl({ data, selected }: NodeProps<ShotFlowNode>) {
           <DownloadButton
             href={api.downloadShotUrl(shot.id)}
             filename={`${shot.title || `shot-${shot.index}`}.mp4`}
-            title="下载这一镜的 mp4"
+            title={t.nodes.downloadShot}
             onTriggered={() => emitDownloadToast(`${shot.title || `shot-${shot.index}`}.mp4`)}
           />
         )}
         {videoUrl && (
           <ReviewButton
-            label="尾帧"
-            title="从当前视频抽取尾帧，在画布上生成可连接的尾帧节点"
+            label={t.nodes.tailframe}
+            title={t.nodes.tailframeTitle}
             onClick={async () => {
               await api.createShotTailFrame(shot.id, { publishToTos: true, canvasNode: true });
               emitFlowMutated();
@@ -535,8 +553,8 @@ function ShotNodeImpl({ data, selected }: NodeProps<ShotFlowNode>) {
       <div className="flow-node-thumb fit-contain">
         {isGenerating ? (
           <div className="flow-empty flow-empty-generating">
-            <span className="flow-empty-spinner" aria-hidden /> 生成中…
-            {elapsed && <small className="flow-elapsed">已用时 {elapsed}</small>}
+            <span className="flow-empty-spinner" aria-hidden /> {t.nodes.generating}…
+            {elapsed && <small className="flow-elapsed">{t.nodes.elapsed(elapsed)}</small>}
           </div>
         ) : videoUrl ? (
           <RobustVideoThumb
@@ -547,7 +565,7 @@ function ShotNodeImpl({ data, selected }: NodeProps<ShotFlowNode>) {
             title={shot.title || `Shot ${shot.index}`}
           />
         ) : (
-          <div className="flow-empty">未生成</div>
+          <div className="flow-empty">{t.nodes.notGenerated}</div>
         )}
       </div>
       <div className="flow-node-foot">
@@ -558,7 +576,7 @@ function ShotNodeImpl({ data, selected }: NodeProps<ShotFlowNode>) {
             await api.updateShot(shot.id, { seedanceVariant: variant });
             emitFlowMutated();
           }}
-          title="该镜头下次「生成视频」使用的 Seedance 版本"
+          title={t.nodes.nextSeedanceModelTitle}
         />
         <span className="flow-status" style={{ color: status.color }}>
           ● {status.label}{isGenerating && elapsed ? ` · ${elapsed}` : ""}
@@ -576,31 +594,32 @@ function ShotNodeImpl({ data, selected }: NodeProps<ShotFlowNode>) {
 // ============================================================================
 
 function StitchNodeImpl({ data, selected }: NodeProps<StitchFlowNode>) {
+  const { t } = useI18n();
   const { session, job, legacy } = data;
   const status = job.status;
   // Same reasoning as ShotNode: while a stitch is running we hide the previous final so the
   // user doesn't think the old version is the new one.
   const isStitching = status === "running";
   const final = isStitching ? undefined : job.finalVideoUrl;
-  const label = status === "ready" ? "已拼接" : status === "running" ? "拼接中" : status === "error" ? "出错" : "未拼接";
+  const label = status === "ready" ? t.nodes.stitched : status === "running" ? t.nodes.stitching : status === "error" ? t.nodes.stitchError : t.nodes.notStitched;
   const color = status === "ready" ? "#34d399" : status === "running" ? "#60a5fa" : status === "error" ? "#f87171" : "#6b7280";
   const reviewStale = Boolean(job.finalVideoReviewBuiltForSignature && job.finalVideoSignature && job.finalVideoReviewBuiltForSignature !== job.finalVideoSignature);
-  const finalReviewInfo = reviewBadge(job.finalVideoReviewStatus, job.finalVideoReview?.score, reviewStale);
+  const finalReviewInfo = reviewBadge(t, job.finalVideoReviewStatus, job.finalVideoReview?.score, reviewStale);
   const finalCacheKey = job.finalVideoGeneratedAt || job.finalVideoUrl || job.finalVideoSignature || job.updatedAt;
   const stitchCount = job.shotIds?.length || 0;
-  const stitchHint = stitchCount > 0 ? `已连接 ${stitchCount} 段，点开按顺序拼接` : "连接视频到这里，或点开按分镜顺序拼接";
+  const stitchHint = stitchCount > 0 ? t.nodes.connectedSegmentsHint(stitchCount) : t.nodes.stitchEmptyHint;
   const jobId = legacy ? undefined : job.id;
-  const title = job.name || "完整视频";
+  const title = job.name || t.nodes.fullVideo;
   return (
     <div className={`flow-node stitch-node ${selected ? "selected" : ""}`} style={{ width: NODE_WIDTH }}>
       <Handle type="target" position={Position.Left} id="in" />
       <div className="flow-node-head">
-        <span className="flow-tag tag-stitch">拼接</span>
+        <span className="flow-tag tag-stitch">{t.nodes.stitch}</span>
         <strong className="flow-node-title">{title}</strong>
         {final && (
           <ReviewButton
-            label="终审"
-            title="用多帧 VLM 标准审核完整片"
+            label={t.nodes.finalReview}
+            title={t.nodes.finalReviewTitle}
             onClick={async () => {
               await api.reviewFinalVideo(session.id, jobId);
               emitFlowMutated();
@@ -611,7 +630,7 @@ function StitchNodeImpl({ data, selected }: NodeProps<StitchFlowNode>) {
           <DownloadButton
             href={api.downloadSessionUrl(session.id, jobId)}
             filename={`${session.title || session.id}-${title}.mp4`}
-            title="下载完整片"
+            title={t.nodes.downloadFinal}
             onTriggered={() => emitDownloadToast(`${session.title || session.id}-${title}.mp4`)}
           />
         )}
@@ -619,7 +638,7 @@ function StitchNodeImpl({ data, selected }: NodeProps<StitchFlowNode>) {
       <div className="flow-node-thumb fit-contain">
         {isStitching ? (
           <div className="flow-empty flow-empty-generating">
-            <span className="flow-empty-spinner" aria-hidden /> 拼接中…
+            <span className="flow-empty-spinner" aria-hidden /> {t.nodes.stitching}…
           </div>
         ) : final ? (
           <RobustVideoThumb
@@ -636,7 +655,7 @@ function StitchNodeImpl({ data, selected }: NodeProps<StitchFlowNode>) {
       <div className="flow-node-foot">
         <span className="flow-status" style={{ color }}>● {label}</span>
         {final && <small className="flow-review-badge" style={{ color: finalReviewInfo.color }}>{finalReviewInfo.label}</small>}
-        <small>{session.targetDurationSec}s 目标</small>
+        <small>{t.nodes.targetDuration(session.targetDurationSec)}</small>
       </div>
     </div>
   );
@@ -650,6 +669,7 @@ function StitchNodeImpl({ data, selected }: NodeProps<StitchFlowNode>) {
 // ============================================================================
 
 function ReferenceVideoNodeImpl({ data, selected }: NodeProps<ReferenceVideoFlowNode>) {
+  const { t } = useI18n();
   const { asset } = data;
   const videoUrl = asset.mediaUrl || asset.imageUrl;
   // Reuse the lazy poster route — it works for any /media/*.mp4, regardless of which route created
@@ -657,21 +677,21 @@ function ReferenceVideoNodeImpl({ data, selected }: NodeProps<ReferenceVideoFlow
   const posterHref = videoUrl ? api.assetPosterUrl(asset.id, asset.updatedAt || asset.id) : undefined;
   const status = asset.parseStatus || "idle";
   const { color, label } = (() => {
-    if (status === "parsing") return { color: "#60a5fa", label: "解析中" };
-    if (status === "ready") return { color: "#34d399", label: `已解析 ${asset.parsedShots?.length ?? 0} 镜` };
-    if (status === "error") return { color: "#f87171", label: "解析失败" };
-    return { color: "#9ca3af", label: "待解析" };
+    if (status === "parsing") return { color: "#60a5fa", label: t.nodes.parsing };
+    if (status === "ready") return { color: "#34d399", label: t.nodes.parsedShots(asset.parsedShots?.length ?? 0) };
+    if (status === "error") return { color: "#f87171", label: t.nodes.parseFailed };
+    return { color: "#9ca3af", label: t.nodes.parsePending };
   })();
   return (
     <div className={`flow-node refvideo-node ${selected ? "selected" : ""}`} style={{ width: NODE_WIDTH }}>
       <div className="flow-node-head">
-        <span className="flow-tag tag-refvideo">参考视频</span>
+        <span className="flow-tag tag-refvideo">{t.nodes.referenceVideo}</span>
         <strong className="flow-node-title" title={asset.name}>{asset.name}</strong>
         {videoUrl && (
           <DownloadButton
             href={api.downloadAssetUrl(asset.id)}
             filename={`${asset.name}.mp4`}
-            title="下载参考视频"
+            title={t.nodes.downloadReferenceVideo}
             onTriggered={() => emitDownloadToast(`${asset.name}.mp4`)}
           />
         )}
@@ -686,12 +706,12 @@ function ReferenceVideoNodeImpl({ data, selected }: NodeProps<ReferenceVideoFlow
             title={asset.name}
           />
         ) : (
-          <div className="flow-empty">未上传</div>
+          <div className="flow-empty">{t.nodes.notUploaded}</div>
         )}
       </div>
       <div className="flow-node-foot">
         <span className="flow-status" style={{ color }}>● {label}</span>
-        <small>从这里把镜头分析"应用到"右侧某条 shot</small>
+        <small>{t.nodes.applyParsedHint}</small>
       </div>
       <Handle type="source" position={Position.Right} id="out" />
     </div>
@@ -707,13 +727,14 @@ function ReferenceVideoNodeImpl({ data, selected }: NodeProps<ReferenceVideoFlow
 // ============================================================================
 
 function VideoProcessorNodeImpl({ data, selected }: NodeProps<VideoProcessorFlowNode>) {
+  const { t } = useI18n();
   const { asset, sourceAsset } = data;
   const videoUrl = asset.mediaUrl || asset.imageUrl;
   const posterHref = videoUrl ? api.assetPosterUrl(asset.id, asset.updatedAt || asset.id) : undefined;
-  const strategyLabel = asset.clipStrategy === "trim" ? "截前 15s"
-    : asset.clipStrategy === "speedup" ? "整体加速"
-    : asset.clipStrategy === "sample-concat" ? "多段拼接"
-    : "未裁剪";
+  const strategyLabel = asset.clipStrategy === "trim" ? t.nodes.trim15
+    : asset.clipStrategy === "speedup" ? t.nodes.speedup
+    : asset.clipStrategy === "sample-concat" ? t.nodes.sampleConcat
+    : t.nodes.unclipped;
   const durationLabel = asset.originalDurationSec !== undefined && asset.clipDurationSec !== undefined
     ? `${asset.originalDurationSec.toFixed(1)}s → ${asset.clipDurationSec.toFixed(1)}s`
     : asset.clipDurationSec !== undefined
@@ -723,13 +744,13 @@ function VideoProcessorNodeImpl({ data, selected }: NodeProps<VideoProcessorFlow
     <div className={`flow-node videoproc-node ${selected ? "selected" : ""}`} style={{ width: NODE_WIDTH }}>
       <Handle type="target" position={Position.Left} id="in" />
       <div className="flow-node-head">
-        <span className="flow-tag tag-videoproc">视频处理</span>
+        <span className="flow-tag tag-videoproc">{t.nodes.videoProcessor}</span>
         <strong className="flow-node-title" title={asset.name}>{asset.name}</strong>
         {videoUrl && (
           <DownloadButton
             href={api.downloadAssetUrl(asset.id)}
             filename={`${asset.name}.mp4`}
-            title="下载裁剪结果"
+            title={t.nodes.downloadClip}
             onTriggered={() => emitDownloadToast(`${asset.name}.mp4`)}
           />
         )}
@@ -744,13 +765,13 @@ function VideoProcessorNodeImpl({ data, selected }: NodeProps<VideoProcessorFlow
             title={asset.name}
           />
         ) : (
-          <div className="flow-empty">未生成</div>
+          <div className="flow-empty">{t.nodes.notGenerated}</div>
         )}
       </div>
       <div className="flow-node-foot">
         <span className="flow-status" style={{ color: "#60a5fa" }}>● {strategyLabel}</span>
         {durationLabel && <small>{durationLabel}</small>}
-        {sourceAsset && <small style={{ opacity: 0.7 }}>源：{sourceAsset.name}</small>}
+        {sourceAsset && <small style={{ opacity: 0.7 }}>{t.nodes.source(sourceAsset.name)}</small>}
       </div>
       <Handle type="source" position={Position.Right} id="out" />
     </div>
@@ -762,32 +783,33 @@ function VideoProcessorNodeImpl({ data, selected }: NodeProps<VideoProcessorFlow
 // ============================================================================
 
 function TailframeNodeImpl({ data, selected }: NodeProps<TailframeFlowNode>) {
+  const { t } = useI18n();
   const { asset, sourceShot, targetShots } = data;
   const thumb = assetThumbUrl(asset);
   const targetLabel = targetShots.length
-    ? `用于 ${targetShots.map((shot) => shot.title || `Shot ${shot.index}`).join("、")}`
-    : "拖到视频节点作为首帧";
+    ? t.nodes.usedBy(targetShots.map((shot) => shot.title || `Shot ${shot.index}`).join("、"))
+    : t.nodes.dragToVideo;
   return (
     <div className={`flow-node asset-node ${selected ? "selected" : ""}`} style={{ width: NODE_WIDTH }}>
       <Handle type="target" position={Position.Left} id="in" />
       <div className="flow-node-head">
-        <span className="flow-tag tag-scene">尾帧</span>
+        <span className="flow-tag tag-scene">{t.nodes.tailframe}</span>
         <strong className="flow-node-title" title={asset.name}>{asset.name}</strong>
         {thumb && (
           <DownloadButton
             href={api.downloadAssetUrl(asset.id)}
             filename={`${asset.name}.png`}
-            title="下载尾帧"
+            title={t.nodes.downloadOriginalImage(asset.name)}
             onTriggered={() => emitDownloadToast(`${asset.name}.png`)}
           />
         )}
       </div>
       <div className="flow-node-thumb fit-contain">
-        {thumb ? <img src={thumb} alt={asset.name} loading="lazy" decoding="async" /> : <div className="flow-empty">未抽取</div>}
+        {thumb ? <img src={thumb} alt={asset.name} loading="lazy" decoding="async" /> : <div className="flow-empty">{t.nodes.notExtracted}</div>}
       </div>
       <div className="flow-node-foot">
-        <span className="flow-status" style={{ color: "#38bdf8" }}>● 帧锚点</span>
-        {sourceShot && <small>来自 {sourceShot.title || `Shot ${sourceShot.index}`}</small>}
+        <span className="flow-status" style={{ color: "#38bdf8" }}>● {t.nodes.frameAnchor}</span>
+        {sourceShot && <small>{t.nodes.fromShot(sourceShot.title || `Shot ${sourceShot.index}`)}</small>}
         <small>{targetLabel}</small>
       </div>
       <Handle type="source" position={Position.Right} id="out" />

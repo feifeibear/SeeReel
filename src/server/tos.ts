@@ -2,6 +2,7 @@ import path from "node:path";
 import { stat } from "node:fs/promises";
 import { TosClient } from "@volcengine/tos-sdk";
 import type { Asset, Shot } from "../shared/types";
+import { hasAgentPlanKey } from "./arkCredentials";
 
 const mediaDir = path.resolve(process.cwd(), "data", "media");
 const mediaUrlPrefix = "/media/";
@@ -168,7 +169,10 @@ function getTosConfig(throwOnMissing: boolean): TosConfig | undefined {
 
   if (missing.length) {
     if (!throwOnMissing) return undefined;
-    throw new Error(`TOS upload is not configured. 请设置 ${missing.join(", ")}；TOS_ENDPOINT 可选但推荐配置。`);
+    const agentPlanNote = hasAgentPlanKey()
+      ? " ARK_AGENT_PLAN_KEY 不能替代 TOS AK/SK；如需上传本地参考图/视频，仍需 TOS_* 或 PUBLIC_MEDIA_BASE_URL。"
+      : "";
+    throw new Error(`TOS upload is not configured. 请设置 ${missing.join(", ")}；TOS_ENDPOINT 可选但推荐配置。${agentPlanNote}`);
   }
   if (!accessKeyId || !accessKeySecret || !region || !bucket) return undefined;
 

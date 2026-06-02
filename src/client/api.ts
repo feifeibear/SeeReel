@@ -9,8 +9,10 @@ import type {
   Shot,
   StoryPlan,
   StoreSnapshot,
-  SubStoryboardModel
+  SubStoryboardModel,
+  WorkflowExecutionPlan
 } from "../shared/types";
+import { networkDownMessage } from "./i18n";
 
 /**
  * Wrapper around fetch with three resilience features:
@@ -57,7 +59,7 @@ async function request<T>(url: string, options?: RequestInit): Promise<T> {
           await new Promise((r) => setTimeout(r, 600));
           continue;
         }
-        throw new Error("网络中断 / 服务端可能挂了 — 检查终端是否还在跑 dev server，必要时重启后重试");
+        throw new Error(networkDownMessage());
       }
       throw err;
     }
@@ -71,6 +73,8 @@ export const api = {
     request<SessionWithShots>("/api/sessions", { method: "POST", body: JSON.stringify(payload) }),
   updateSession: (sessionId: string, patch: Partial<SessionWithShots>) =>
     request<SessionWithShots>(`/api/sessions/${sessionId}`, { method: "PATCH", body: JSON.stringify(patch) }),
+  clearTokenUsage: (sessionId: string) =>
+    request<SessionWithShots>(`/api/sessions/${sessionId}/token-usage`, { method: "DELETE" }),
   createStitchJob: (sessionId: string, job?: Partial<import("../shared/types").StitchJob>) =>
     request<SessionWithShots>(`/api/sessions/${sessionId}/stitch-jobs`, {
       method: "POST",
@@ -207,6 +211,11 @@ export const api = {
     request<{ ok: true; shot: Shot }>(`/api/shots/${shotId}/sketches/${assetId}`, { method: "DELETE" }),
   storyboard: (sessionId: string) =>
     request<{ session: SessionWithShots; shots: Shot[] }>(`/api/sessions/${sessionId}/storyboard`, { method: "POST" }),
+  planWorkflow: (sessionId: string, opts?: { mode?: "missing" | "all"; maxParallelShots?: number }) =>
+    request<WorkflowExecutionPlan>(`/api/sessions/${sessionId}/workflow/plan`, {
+      method: "POST",
+      body: JSON.stringify(opts || {})
+    }),
   generateShot: (
     shotId: string,
     opts?: { visionReview?: boolean; composedPrompt?: string }
@@ -231,7 +240,7 @@ export const api = {
       size?: string;
       referenceAssetIds?: string[];
       composedPrompt?: string;
-      /** Optional Seedream variant: "seedream-4" or "seedream-4-5". Defaults to the shot's saved variant. */
+      /** Optional Seedream variant: "seedream-4", "seedream-4-5", or "seedream-5-lite". Defaults to the shot's saved variant. */
       model?: SubStoryboardModel;
       /**
        * `composite` (default) — one Seedream group call returns ONE composite image with N

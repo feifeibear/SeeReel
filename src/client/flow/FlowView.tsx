@@ -15,16 +15,18 @@ import {
   applyNodeChanges,
   applyEdgeChanges
 } from "@xyflow/react";
+import { Zap } from "lucide-react";
 import "@xyflow/react/dist/style.css";
 
 import { api } from "../api";
-import type { Asset, AssetType, SessionWithShots, Shot, StoreSnapshot } from "../../shared/types";
+import type { Asset, AssetImageModel, AssetType, SessionWithShots, Shot, StoreSnapshot, WorkflowShotPlanItem } from "../../shared/types";
 import { buildSessionGraph, type FlowNodeData } from "./buildGraph";
 import { AssetNode, ReferenceVideoNode, VideoProcessorNode, StoryboardNode, ShotNode, StitchNode, TailframeNode } from "./nodes";
 import { Inspector } from "./Inspector";
 import { DownloadToast } from "./DownloadToast";
 import { CreateNodeMenu, type CreateMenuOption } from "./CreateNodeMenu";
 import type { UndoableAction } from "./useUndoStack";
+import { useI18n, type UiLanguage } from "../i18n";
 
 type AnchorKind = Extract<AssetType, "character" | "scene" | "prop" | "style">;
 
@@ -42,6 +44,7 @@ export interface FlowViewProps {
   snapshot: StoreSnapshot;
   session: SessionWithShots | undefined;
   visionReviewEnabled: boolean;
+  defaultImageModel?: AssetImageModel;
   onMutated: () => Promise<void> | void;
   onCreateAnchorAsset: (kind: AnchorKind) => Promise<Asset | undefined> | Asset | undefined;
   onCreateShot: () => Promise<{ id: string } | undefined> | { id: string } | undefined;
@@ -61,7 +64,8 @@ export interface FlowViewProps {
   redoDescription?: string;
 }
 
-export function FlowView({ snapshot, session, visionReviewEnabled, onMutated, onCreateAnchorAsset, onCreateShot, onDeleteCanvasAsset, onDeleteCanvasShot, onUploadImageAsset, onUploadReferenceVideo, onPushUndo, onStitch, undo, redo, canUndo, canRedo, undoDescription, redoDescription }: FlowViewProps) {
+export function FlowView({ snapshot, session, visionReviewEnabled, defaultImageModel, onMutated, onCreateAnchorAsset, onCreateShot, onDeleteCanvasAsset, onDeleteCanvasShot, onUploadImageAsset, onUploadReferenceVideo, onPushUndo, onStitch, undo, redo, canUndo, canRedo, undoDescription, redoDescription }: FlowViewProps) {
+  const { lang, t } = useI18n();
   const allAssets = snapshot.assets;
   const { nodes: derivedNodes, edges: derivedEdges } = useMemo(() => {
     if (!session) return { nodes: [] as Node<FlowNodeData>[], edges: [] as Edge[] };
@@ -81,6 +85,8 @@ export function FlowView({ snapshot, session, visionReviewEnabled, onMutated, on
   // Single in-flight guard for the create-node toolbar + menu. Prevents spam-clicks (which would
   // each fire an independent api.saveAsset / api.appendShot) from creating duplicate nodes.
   const [creating, setCreating] = useState<"" | "character" | "scene" | "prop" | "style" | "shot" | "stitch" | "video">("");
+  const [workflowBusy, setWorkflowBusy] = useState(false);
+  const [workflowStatus, setWorkflowStatus] = useState("");
   const guardCreate = useCallback(<K extends typeof creating>(kind: Exclude<K, "">, fn: () => unknown | Promise<unknown>) => {
     if (creating) return;
     setCreating(kind);
@@ -1024,6 +1030,91 @@ export function FlowView({ snapshot, session, visionReviewEnabled, onMutated, on
     }
   }, [centerNodeAt, flowPositionFromClient, onUploadImageAsset, onUploadReferenceVideo]);
 
+  const notifyWorkflow = useCallback((message: string) => {
+    window.dispatchEvent(new CustomEvent<string>("flow-download", { detail: message }));
+  }, []);
+
+  const runWorkflowShot = useCallback(async (
+    item: WorkflowShotPlanItem,
+    tailframePromises: Map<string, Promise<string>>
+  ) => {
+    for (const preflight of item.preflights) {
+      if (preflight.kind !== "fresh_tailframe") continue;
+      const cacheKey = preflight.sourceShotId;
+      let promise = tailframePromises.get(cacheKey);
+      if (!promise) {
+        promise = api.createShotTailFrame(preflight.sourceShotId, { publishToTos: true, canvasNode: true })
+          .then((result) => result.asset.id);
+        tailframePromises.set(cacheKey, promise);
+      }
+      const firstFrameAssetId = await promise;
+      await api.updateShot(item.shotId, {
+        firstFrameAssetId,
+        referenceVideoAssetId: "",
+        referenceVideoFromShotId: "",
+        referenceClipUrl: null,
+        referenceAudioUrl: null,
+        usePreviousShotClip: false
+      });
+    }
+
+    let current = item.action === "generate"
+      ? await api.generateShot(item.shotId, { visionReview: visionReviewEnabled })
+      : await api.pollShot(item.shotId);
+
+    for (;;) {
+      if (current.status === "ready") return current;
+      if (current.status === "error" || current.status === "cancelled") {
+        throw new Error(`${item.title} ${current.status === "cancelled" ? "已取消" : "生成失败"}：${current.error || "未知错误"}`);
+      }
+      await new Promise((resolve) => setTimeout(resolve, 5000));
+      current = await api.pollShot(item.shotId);
+      void onMutated();
+    }
+  }, [onMutated, visionReviewEnabled]);
+
+  const executeWorkflowFast = useCallback(async () => {
+    if (!session || workflowBusy) return;
+    setWorkflowBusy(true);
+    setWorkflowStatus("规划执行顺序...");
+    const tailframePromises = new Map<string, Promise<string>>();
+    try {
+      const plan = await api.planWorkflow(session.id, { mode: "missing", maxParallelShots: 3 });
+      notifyWorkflow(`执行计划：${plan.summary}`);
+      if (plan.warnings.length) notifyWorkflow(`计划提醒：${plan.warnings.slice(0, 2).join("；")}`);
+
+      for (let i = 0; i < plan.layers.length; i += 1) {
+        const layer = plan.layers[i];
+        const names = layer.map((item) => item.title || `Shot ${item.index}`).join("、");
+        setWorkflowStatus(`第 ${i + 1}/${plan.layers.length} 批并发执行：${names}`);
+        notifyWorkflow(`第 ${i + 1}/${plan.layers.length} 批：${names}`);
+        const results = await Promise.allSettled(layer.map((item) => runWorkflowShot(item, tailframePromises)));
+        await onMutated();
+        const failed = results.find((result): result is PromiseRejectedResult => result.status === "rejected");
+        if (failed) throw failed.reason;
+      }
+
+      if (plan.stitchTargets.length) {
+        setWorkflowStatus(`拼接 ${plan.stitchTargets.length} 个输出节点...`);
+        await Promise.all(plan.stitchTargets.map((target) =>
+          api.stitch(session.id, { force: true, jobId: target.jobId })
+        ));
+        notifyWorkflow(`已完成 ${plan.stitchTargets.length} 个拼接输出`);
+      }
+
+      setWorkflowStatus("workflow 执行完成");
+      notifyWorkflow("workflow 执行完成");
+      await onMutated();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "workflow 执行失败";
+      setWorkflowStatus(message);
+      window.dispatchEvent(new CustomEvent<string>("flow-download", { detail: `❌ ${message}` }));
+    } finally {
+      setWorkflowBusy(false);
+      setTimeout(() => setWorkflowStatus(""), 8000);
+    }
+  }, [notifyWorkflow, onMutated, runWorkflowShot, session, workflowBusy]);
+
   const toolbarStitchReady = session
     ? (session.stitchShotIds && session.stitchShotIds.length > 0
         ? session.stitchShotIds
@@ -1037,8 +1128,8 @@ export function FlowView({ snapshot, session, visionReviewEnabled, onMutated, on
     return (
       <div className="flow-empty-state">
         <div style={{ display: "grid", gap: 8, placeItems: "center", padding: 32 }}>
-          <p style={{ fontSize: 16, opacity: 0.85, margin: 0 }}>这里是节点画布</p>
-          <p style={{ fontSize: 13, opacity: 0.6, margin: 0 }}>← 左侧侧栏点「新建 Session」或选一个已有 session</p>
+          <p style={{ fontSize: 16, opacity: 0.85, margin: 0 }}>{t.flow.emptyTitle}</p>
+          <p style={{ fontSize: 13, opacity: 0.6, margin: 0 }}>{t.flow.emptyHint}</p>
         </div>
       </div>
     );
@@ -1049,7 +1140,7 @@ export function FlowView({ snapshot, session, visionReviewEnabled, onMutated, on
       <header className="flow-toolbar">
         <div className="flow-toolbar-section">
           <strong>{session.title}</strong>
-          <small>{(session.shots || []).length} 个分镜 · 目标 {session.targetDurationSec}s · 语言 {session.language || "zh"} · <em>右键空白处可新建节点</em></small>
+          <small>{t.flow.summary((session.shots || []).length, session.targetDurationSec, (session.language || lang) as UiLanguage)}<em>{t.flow.createNodeHint}</em></small>
         </div>
         <div className="flow-toolbar-actions">
           {undo && (
@@ -1057,9 +1148,9 @@ export function FlowView({ snapshot, session, visionReviewEnabled, onMutated, on
               className="flow-toolbar-undo"
               onClick={() => undo()}
               disabled={!canUndo}
-              title={canUndo ? `撤销「${undoDescription}」(⌘Z)` : "没有可撤销的操作"}
+              title={canUndo ? t.flow.undoTitle(undoDescription) : t.flow.undoTitle()}
             >
-              ↶ 撤销
+              {t.flow.undo}
             </button>
           )}
           {redo && (
@@ -1067,45 +1158,55 @@ export function FlowView({ snapshot, session, visionReviewEnabled, onMutated, on
               className="flow-toolbar-undo"
               onClick={() => redo()}
               disabled={!canRedo}
-              title={canRedo ? `恢复「${redoDescription}」(⇧⌘Z)` : "没有可恢复的操作"}
+              title={canRedo ? t.flow.redoTitle(redoDescription) : t.flow.redoTitle()}
             >
-              ↷ 恢复
+              {t.flow.redo}
             </button>
           )}
           <button
             onClick={() => guardCreate("character", () => onCreateAnchorAsset("character"))}
             disabled={Boolean(creating)}
-            title="新建一个角色资产做跨分镜的身份锚"
+            title={t.flow.createCharacterTitle}
           >
-            {creating === "character" ? "..." : "+ 角色"}
+            {creating === "character" ? "..." : t.flow.createCharacter}
           </button>
           <button
             onClick={() => guardCreate("scene", () => onCreateAnchorAsset("scene"))}
             disabled={Boolean(creating)}
-            title="新建一个场景资产做跨分镜的环境锚"
+            title={t.flow.createSceneTitle}
           >
-            {creating === "scene" ? "..." : "+ 场景"}
+            {creating === "scene" ? "..." : t.flow.createScene}
           </button>
           <button
             onClick={() => guardCreate("shot", () => onCreateShot())}
             disabled={Boolean(creating)}
-            title="新增一个分镜（同时派生分镜板 + 视频节点）"
+            title={t.flow.createShotTitle}
           >
-            {creating === "shot" ? "..." : "+ 分镜"}
+            {creating === "shot" ? "..." : t.flow.createShot}
           </button>
           <button
             onClick={() => {
               pendingFilePositionRef.current = undefined;
               videoInputRef.current?.click();
             }}
-            title="上传一段视频文件作为参考。会自动 AI 拆分镜表；也可拖到 Shot 上做 Seedance reference_video。"
+            title={t.flow.uploadVideoTitle}
           >
-            + 上传视频
+            {t.flow.uploadVideo}
+          </button>
+          <button
+            onClick={() => { void executeWorkflowFast(); }}
+            className="workflow-run-button"
+            disabled={workflowBusy || Boolean(creating)}
+            title={t.flow.executeFastTitle}
+          >
+            <Zap size={14} />
+            {workflowBusy ? t.flow.executing : t.flow.executeFast}
           </button>
           <button onClick={() => onStitch({ force: Boolean(session.stitchShotIds?.length) })} className="primary" disabled={!toolbarStitchReady}>
-            {session.stitchShotIds?.length ? "按连接顺序拼接" : "拼接全片"}
+            {session.stitchShotIds?.length ? t.flow.stitchByConnections : t.flow.stitchAll}
           </button>
         </div>
+        {workflowStatus && <div className="flow-workflow-status">{workflowStatus}</div>}
       </header>
       <div className="flow-canvas-row">
         <div
@@ -1162,7 +1263,7 @@ export function FlowView({ snapshot, session, visionReviewEnabled, onMutated, on
               showInteractive={false}
               showZoom
               showFitView
-              aria-label="画布缩放控制"
+              aria-label={t.flow.zoomControlsAria}
             />
             {/*
              * Minimap UX: the default xyflow minimap is tiny and the viewport rectangle is barely
@@ -1178,7 +1279,7 @@ export function FlowView({ snapshot, session, visionReviewEnabled, onMutated, on
               pannable
               zoomable
               position="bottom-left"
-              ariaLabel="画布缩略图"
+              ariaLabel={t.flow.minimapTitle}
               maskColor="rgba(15, 23, 42, 0.78)"
               maskStrokeColor="#fbbf24"
               maskStrokeWidth={3}
@@ -1199,20 +1300,20 @@ export function FlowView({ snapshot, session, visionReviewEnabled, onMutated, on
             />
           </ReactFlow>
           <div className="flow-minimap-caption" aria-hidden="true">
-            <strong>画布缩略图</strong>
+            <strong>{t.flow.minimapTitle}</strong>
             <small>
-              <span className="legend-dot" style={{ background: "#fbbf24" }} />角色/场景
-              <span className="legend-dot" style={{ background: "#a78bfa" }} />分镜板
-              <span className="legend-dot" style={{ background: "#60a5fa" }} />视频
-              <span className="legend-dot" style={{ background: "#34d399" }} />成片
+              <span className="legend-dot" style={{ background: "#fbbf24" }} />{t.flow.legendAssets}
+              <span className="legend-dot" style={{ background: "#a78bfa" }} />{t.flow.legendStoryboard}
+              <span className="legend-dot" style={{ background: "#60a5fa" }} />{t.flow.legendVideo}
+              <span className="legend-dot" style={{ background: "#34d399" }} />{t.flow.legendFinal}
             </small>
             <small className="flow-minimap-hint">
-              <span className="viewport-swatch" />= 你看到的范围 · 拖动它移动画布
+              <span className="viewport-swatch" />{t.flow.minimapHint}
             </small>
           </div>
           <div className="flow-controls-caption" aria-hidden="true">
-            <strong>缩放</strong>
-            <small>＋ 放大 · − 缩小 · ⤢ 全景</small>
+            <strong>{t.flow.zoom}</strong>
+            <small>{t.flow.zoomHint}</small>
           </div>
           {/*
            * Double-click on the empty pane = fit-view to the whole workflow. This is the
@@ -1235,7 +1336,7 @@ export function FlowView({ snapshot, session, visionReviewEnabled, onMutated, on
           />
           {/* Discoverability hint pinned bottom-center, faint, never blocks clicks. */}
           <div className="flow-canvas-hint" aria-hidden="true">
-            双击空白 = 回到全景 · 右键空白 = 新建节点 · 滚轮缩放 0.1–4×
+            {t.flow.canvasHint}
           </div>
         </div>
         {selectedData && (
@@ -1244,6 +1345,7 @@ export function FlowView({ snapshot, session, visionReviewEnabled, onMutated, on
             session={session}
             allAssets={allAssets}
             visionReviewEnabled={visionReviewEnabled}
+            defaultImageModel={defaultImageModel}
             onMutated={onMutated}
             onDeleteCanvasAsset={onDeleteCanvasAsset}
             onDeleteCanvasShot={onDeleteCanvasShot}

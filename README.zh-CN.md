@@ -12,6 +12,70 @@
 
 ---
 
+## 人类用户：开通 Agent Plan 与 TOS
+
+真实运行 ReelyAI 至少需要两类服务：
+
+- **Agent Plan / Ark 模型 API**：让本地 Node 调 Seedream / Seedance / VLM。
+- **TOS 对象存储**：把本地参考图、Codex 故事板发布成远端可访问的 `https://` URL；Seedance worker 不能读取本机 `/media/...` 或 localhost。
+
+### 1. 开通 Agent Plan
+
+1. 访问 [火山方舟 Agent Plan](https://www.volcengine.com/activity/agentplan)，登录火山引擎账号；新账号先完成实名认证/企业认证。
+2. 在 Agent Plan 页面选择并开通套餐。它是模型 API 套餐，不会自动替你开通 TOS。
+3. 进入 [火山方舟控制台](https://console.volcengine.com/ark)，在 **API 密钥管理** 创建并复制 Agent Plan 专属 API Key。
+4. 写入项目根目录 `.env`：
+
+```bash
+ARK_AGENT_PLAN_KEY=<你的 Agent Plan key>
+REELYAI_USE_AGENT_PLAN=1
+ARK_AGENT_PLAN_BASE=https://ark.cn-beijing.volces.com/api/plan/v3
+SEEDREAM_AGENT_PLAN_MODEL=doubao-seedream-5.0-lite
+# 可选：除非 Agent Plan 文档明确给出兼容的文本模型，否则留空；ReelyAI 会用本地模板扩写，
+# 避免把 seed-2-0-pro-260328 这类标准文本模型发到 /plan 后 404。
+SEED_PROMPT_AGENT_PLAN_MODEL=
+PROMPT_REWRITE_AGENT_PLAN_MODEL=
+AGENT_PLAN_TEXT_MODEL=
+SEEDANCE_AGENT_PLAN_MODEL=doubao-seedance-2-0-260128
+SEEDANCE_AGENT_PLAN_FAST_MODEL=doubao-seedance-2-0-fast-260128
+```
+
+如果 Agent Plan 暂时不可用，删除 `REELYAI_USE_AGENT_PLAN`，改用普通 Ark key：`BP_ARK_API_KEY` / `ARK_API_KEY`，并保持 `SEEDANCE_API_BASE`、`SEEDREAM_API_BASE` 与 key 所在区域一致。
+
+### 2. 开通 TOS
+
+1. 访问 [火山引擎 TOS 控制台](https://console.volcengine.com/tos)，首次进入按提示开通对象存储服务。
+2. 在 **桶列表** 创建 Bucket：选择地域（例如 `cn-beijing`），桶名全局唯一；推荐先用 **私有** 桶。
+3. 在火山引擎 **访问控制 / 访问密钥** 创建 AK/SK；生产环境建议用 IAM 子用户并授予该桶的 `PutObject`、`GetObject`、`ListBucket` 等最小权限。
+4. 写入 `.env`：
+
+```bash
+TOS_ACCESS_KEY_ID=<AK>
+TOS_SECRET_ACCESS_KEY=<SK>
+TOS_REGION=cn-beijing
+TOS_ENDPOINT=tos-cn-beijing.volces.com
+TOS_BUCKET=<bucket>
+TOS_KEY_PREFIX=cinema-agent/storyboards
+TOS_PRESIGN_EXPIRES_SEC=604800
+```
+
+私有桶可不填 `TOS_PUBLIC_BASE_URL`，应用会生成预签名 URL。若你配置了公共读桶或 CDN，可填：
+
+```bash
+TOS_PUBLIC_BASE_URL=https://<你的 bucket 或 CDN 域名>
+```
+
+完成后运行：
+
+```bash
+npm run dev
+curl -sS http://localhost:5173/api/state | head -c 200
+```
+
+之后在 Web 里点「故事板 TOS」，或让 Agent 调 `POST /api/sessions/:sessionId/storyboards/publish-tos` 验证上传。
+
+---
+
 ## Agent 操作手册
 
 > **本节读者**：Codex、Claude Code、Cursor Agent。  
@@ -47,11 +111,13 @@ BASE_URL="${REELYAI_AGENT_BASE_URL:-${CINEMA_AGENT_BASE_URL:-http://localhost:51
 
 | 能力 | `.env` 变量 | 未配置时 |
 | --- | --- | --- |
-| 分镜视频 Seedance | `BP_ARK_API_KEY` 或 `ARK_API_KEY` / `SEEDANCE_API_KEY` | 仅 mock 视频；**不得**声称已真实生成 |
+| 分镜视频 Seedance | `BP_ARK_API_KEY` 或 `ARK_API_KEY` / `SEEDANCE_API_KEY`，或 opt-in `ARK_AGENT_PLAN_KEY` + `REELYAI_USE_AGENT_PLAN=1` | 仅 mock 视频；**不得**声称已真实生成 |
 | Codex/本地参考图进 Seedance | `TOS_*` **或** 非 localhost 的 `PUBLIC_MEDIA_BASE_URL` | 参考图不进 Seedance payload |
-| 资产库 Seedream 生图 | `SEEDREAM_API_KEY` 或复用 Ark key | 资产图 mock；可用 Codex `imagegen` + `sketches/import` 替代 |
+| 资产库 Seedream 生图 | `SEEDREAM_API_KEY`、复用 Ark key，或 opt-in `ARK_AGENT_PLAN_KEY` | 资产图 mock；可用 Codex `imagegen` + `sketches/import` 替代 |
 
 可选：`OPENAI_API_KEY`（剧本 `script/generate`）、`VOLC_TTS_*`（解说）、`SEEDANCE_API_URL`（自定义 endpoint）。
+
+Agent Plan 走专属 `https://ark.cn-beijing.volces.com/api/plan/v3` base URL 和专属 key。默认不覆盖现有 key；设置 `REELYAI_USE_AGENT_PLAN=1` 才优先使用 `ARK_AGENT_PLAN_KEY`，取消该开关即可回到原来的 `.env` 体系。Agent Plan 模式下默认 Seedream 模型改用 `doubao-seedream-5.0-lite`，避免旧的 `seedream-4-5-251128` 被套餐拒绝。注意：`ARK_AGENT_PLAN_KEY` 不能替代 TOS AK/SK，也不能替代 OpenSpeech TTS 的 `VOLC_TTS_APPID` / `VOLC_TTS_TOKEN`。
 
 无 key 时可跑通 UI/mock 流程做联调，但要在对话里标明 **mock 模式**。
 
@@ -69,6 +135,7 @@ BASE_URL="${REELYAI_AGENT_BASE_URL:-${CINEMA_AGENT_BASE_URL:-http://localhost:51
 - 操作：创建 **API Key**，写入本机项目根目录 `.env`：
   - `BP_ARK_API_KEY=<你的 key>`（推荐）
   - 或 `ARK_API_KEY=<你的 key>`
+- Agent Plan 试用路径：也可设置 `ARK_AGENT_PLAN_KEY=<你的 Agent Plan 专属 key>` 与 `REELYAI_USE_AGENT_PLAN=1`，应用会改走 `https://ark.cn-beijing.volces.com/api/plan/v3`；不成功时删除 `REELYAI_USE_AGENT_PLAN` 即回退到上述普通 Ark key。
 - 确认账号已开通 **Seedance 2.0** 视频生成（默认模型 id：`dreamina-seedance-2-0-260128`，fast：`dreamina-seedance-2-0-fast-260128`）。
 - 国内方舟 base 常为 `https://ark.cn-beijing.volces.com/api/v3`；BytePlus 东南亚示例见 `.env.example` 的 `https://ark.ap-southeast.bytepluses.com/api/v3`。区域必须与 key 匹配。
 

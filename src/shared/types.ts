@@ -1,8 +1,8 @@
 export type AssetType = "character" | "scene" | "prop" | "style" | "other";
 export type AssetMediaKind = "image" | "video" | "none";
-export type AssetImageModel = "gpt-image-2" | "seedream-4" | "seedream-4-5";
-/** Subset of AssetImageModel that the sub-storyboard endpoint actually supports (no gpt-image-2). */
-export type SubStoryboardModel = "seedream-4" | "seedream-4-5";
+export type AssetImageModel = "gpt-image-2" | "seedream-4" | "seedream-4-5" | "seedream-5-lite";
+/** Seedream-only subset of AssetImageModel that the sub-storyboard endpoint supports (no gpt-image-2). */
+export type SubStoryboardModel = "seedream-4" | "seedream-4-5" | "seedream-5-lite";
 
 export type SessionLanguage = "zh" | "en";
 
@@ -56,6 +56,7 @@ export interface VideoReviewVerdict {
   frameCount: number;
   durationSec?: number;
   videoSignature?: string;
+  tokenUsage?: TokenUsageBreakdown;
 }
 
 export interface ImageReviewVerdict {
@@ -71,6 +72,31 @@ export interface ImageReviewVerdict {
   rawText?: string;
   reviewedAt: string;
   imageSignature?: string;
+  tokenUsage?: TokenUsageBreakdown;
+}
+
+export interface TokenUsageBreakdown {
+  inputTokens?: number;
+  outputTokens?: number;
+  totalTokens: number;
+}
+
+export type TokenUsageNodeType = "session" | "asset" | "shot" | "stitch" | "review" | "other";
+export type TokenUsageModelFamily = "seedream-4" | "seedream-4-5" | "seedream-5-lite" | "seedance-2-0" | "seedance-2-0-fast" | "other";
+
+export interface TokenUsageEvent extends TokenUsageBreakdown {
+  id: string;
+  sessionId: string;
+  nodeId: string;
+  nodeType: TokenUsageNodeType;
+  nodeLabel?: string;
+  operation: string;
+  provider?: string;
+  model?: string;
+  modelFamily?: TokenUsageModelFamily;
+  note?: string;
+  rawUsage?: unknown;
+  createdAt: string;
 }
 
 export interface VideoReviewRepairTarget {
@@ -187,6 +213,10 @@ export interface Asset {
   referenceImageUrls?: string[];
   /** Debug metadata for generated images/storyboards: image model selected by the caller. */
   generationModel?: AssetImageModel;
+  /** Debug metadata for generated images/storyboards: concrete provider model id that actually ran. */
+  generationModelActual?: string;
+  /** Debug metadata for generated images/storyboards: credential route used for the last generation. */
+  generationCredentialSource?: "standard" | "agent-plan" | "missing";
   /**
    * Reference-video analysis result. When this asset is a video the user uploaded as a reference,
    * the server runs ffmpeg + vision LLM to break it down
@@ -456,6 +486,55 @@ export interface StitchJob {
   createdAt: string;
 }
 
+export type WorkflowRunMode = "missing" | "all";
+export type WorkflowShotAction = "skip" | "generate" | "poll";
+export type WorkflowDependencyKind = "tailframe" | "reference_video" | "previous_clip";
+
+export interface WorkflowShotDependency {
+  kind: WorkflowDependencyKind;
+  sourceShotId: string;
+  targetShotId: string;
+  label: string;
+  reason: string;
+}
+
+export interface WorkflowShotPreflight {
+  kind: "fresh_tailframe";
+  sourceShotId: string;
+  targetShotId: string;
+  reason: string;
+}
+
+export interface WorkflowShotPlanItem {
+  shotId: string;
+  index: number;
+  title: string;
+  status: ShotStatus;
+  hasVideo: boolean;
+  action: WorkflowShotAction;
+  dependencies: WorkflowShotDependency[];
+  preflights: WorkflowShotPreflight[];
+  estimatedDurationSec?: number;
+}
+
+export interface WorkflowStitchTarget {
+  jobId?: string;
+  name: string;
+  shotIds: string[];
+  ready: boolean;
+}
+
+export interface WorkflowExecutionPlan {
+  sessionId: string;
+  mode: WorkflowRunMode;
+  maxParallelShots: number;
+  layers: WorkflowShotPlanItem[][];
+  skipped: WorkflowShotPlanItem[];
+  stitchTargets: WorkflowStitchTarget[];
+  warnings: string[];
+  summary: string;
+}
+
 export type NarrationStatus = "idle" | "running" | "ready" | "error";
 export type NarrationStrategy = "natural";
 
@@ -554,16 +633,26 @@ export interface Session {
   vlmReviewEnabled?: boolean;
   finalVideoReviewRepairPlan?: VideoReviewRepairPlan;
 
+  /** Per-session model token usage events, grouped by canvas/node id in the UI. */
+  tokenUsageEvents?: TokenUsageEvent[];
+
   updatedAt: string;
   createdAt: string;
 }
 
 export interface StoreSnapshot {
-  assets: Asset[];
+  /** Normalized session rows as returned by /api/state; join with top-level `shots` by `sessionId`. */
   sessions: Session[];
+  assets: Asset[];
+  /** Top-level shot rows keyed by `sessionId`; sessions do not embed these in StoreSnapshot. */
   shots: Shot[];
+  runtime?: {
+    seedreamCredentialSource?: "standard" | "agent-plan" | "missing";
+    seedreamDefaultModel?: AssetImageModel;
+  };
 }
 
+/** Joined session shape returned by session-specific mutation/poll endpoints and built client-side for the canvas. */
 export interface SessionWithShots extends Session {
   shots: Shot[];
 }

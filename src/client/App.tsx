@@ -1,12 +1,252 @@
-import { Archive, Loader2, Plus, RefreshCw, Trash2 } from "lucide-react";
+import { Archive, BarChart3, Loader2, Plus, RefreshCw, Trash2 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { api } from "./api";
-import type { Asset, AssetType, CreateSessionPayload, Session, Shot, StoreSnapshot } from "../shared/types";
+import type { Asset, AssetType, CreateSessionPayload, Session, Shot, StitchJob, StoreSnapshot, TokenUsageEvent, TokenUsageModelFamily } from "../shared/types";
 import { FlowView } from "./flow/FlowView";
 import { PendingGenerationsProvider } from "./flow/PendingGenerations";
 import { useUndoKeyboardShortcut, useUndoStack } from "./flow/useUndoStack";
+import { useI18n } from "./i18n";
 
 type AnchorKind = Extract<AssetType, "character" | "scene" | "prop" | "style">;
+
+type TokenUsageNodeSummary = {
+  nodeId: string;
+  nodeType: TokenUsageEvent["nodeType"];
+  nodeLabel: string;
+  totalTokens: number;
+  inputTokens: number;
+  outputTokens: number;
+  events: TokenUsageEvent[];
+};
+
+type TrackedTokenUsageModelFamily = Extract<TokenUsageModelFamily, "seedream-4" | "seedream-4-5" | "seedream-5-lite" | "seedance-2-0" | "seedance-2-0-fast">;
+
+type TokenUsageFamilyTotal = {
+  totalTokens: number;
+  inputTokens: number;
+  outputTokens: number;
+  events: number;
+};
+
+const tokenUsageFamilies: Array<{ key: TrackedTokenUsageModelFamily; label: string }> = [
+  { key: "seedream-4", label: "Seedream 4" },
+  { key: "seedream-4-5", label: "Seedream 4.5" },
+  { key: "seedream-5-lite", label: "Seedream 5 Lite" },
+  { key: "seedance-2-0", label: "Seedance 2.0" },
+  { key: "seedance-2-0-fast", label: "Seedance 2.0 Fast" }
+];
+
+type CapturedStitchRefs = {
+  legacy?: string[];
+  jobs: Array<{ id: string; shotIds: string[] }>;
+};
+
+function captureStitchRefs(session: Session | undefined, shotId: string): CapturedStitchRefs {
+  return {
+    legacy: session?.stitchShotIds?.includes(shotId) ? [...session.stitchShotIds] : undefined,
+    jobs: (session?.stitchJobs || [])
+      .filter((job) => job.shotIds?.includes(shotId))
+      .map((job) => ({ id: job.id, shotIds: [...job.shotIds] }))
+  };
+}
+
+async function restoreStitchRefs(sessionId: string, refs: CapturedStitchRefs) {
+  const updates: Promise<unknown>[] = [];
+  if (refs.legacy) {
+    updates.push(api.updateSession(sessionId, {
+      stitchShotIds: refs.legacy,
+      stitchStatus: "idle",
+      stitchError: "",
+      stitchProgress: ""
+    }));
+  }
+  refs.jobs.forEach((job) => {
+    updates.push(api.updateStitchJob(sessionId, job.id, {
+      shotIds: job.shotIds,
+      status: "idle",
+      error: "",
+      progress: ""
+    } as Partial<StitchJob>));
+  });
+  await Promise.all(updates);
+}
+
+function formatMTokens(tokens: number) {
+  const value = tokens / 1_000_000;
+  if (value === 0) return "0.000 M";
+  if (value < 0.001) return "<0.001 M";
+  return `${value.toFixed(value >= 1 ? 2 : 3)} M`;
+}
+
+function summarizeTokenUsage(events: TokenUsageEvent[] | undefined): TokenUsageNodeSummary[] {
+  const map = new Map<string, TokenUsageNodeSummary>();
+  (events || []).forEach((event) => {
+    const key = `${event.nodeType}:${event.nodeId}`;
+    const existing = map.get(key) || {
+      nodeId: event.nodeId,
+      nodeType: event.nodeType,
+      nodeLabel: event.nodeLabel || event.nodeId,
+      totalTokens: 0,
+      inputTokens: 0,
+      outputTokens: 0,
+      events: []
+    };
+    existing.totalTokens += event.totalTokens || 0;
+    existing.inputTokens += event.inputTokens || 0;
+    existing.outputTokens += event.outputTokens || 0;
+    existing.events.push(event);
+    map.set(key, existing);
+  });
+  return [...map.values()].sort((a, b) => b.totalTokens - a.totalTokens);
+}
+
+function emptyTokenUsageFamilyTotals() {
+  return Object.fromEntries(tokenUsageFamilies.map((family) => [
+    family.key,
+    { totalTokens: 0, inputTokens: 0, outputTokens: 0, events: 0 }
+  ])) as Record<TrackedTokenUsageModelFamily, TokenUsageFamilyTotal>;
+}
+
+function inferTokenUsageFamily(event: TokenUsageEvent): TokenUsageModelFamily {
+  if (event.modelFamily) return event.modelFamily;
+  const model = (event.model || "").toLowerCase();
+  const provider = (event.provider || "").toLowerCase();
+  if (
+    model.includes("seedream-5-lite") ||
+    model.includes("seedream_5_lite") ||
+    model.includes("seedream-5.0-lite") ||
+    model.includes("seedream5lite") ||
+    model.includes("doubao-seedream-5.0-lite")
+  ) return "seedream-5-lite";
+  if (model.includes("seedream-4-5") || model.includes("seedream_4_5") || model.includes("seedream4.5")) return "seedream-4-5";
+  if (model.includes("seedream-4") || model.includes("seedream_4") || model.includes("seedream4") || provider === "seedream") return "seedream-4";
+  if (model.includes("fast") && (model.includes("seedance") || provider === "seedance")) return "seedance-2-0-fast";
+  if (model.includes("seedance") || provider === "seedance") return "seedance-2-0";
+  return "other";
+}
+
+function summarizeTokenUsageFamilies(events: TokenUsageEvent[] | undefined) {
+  const totals = emptyTokenUsageFamilyTotals();
+  (events || []).forEach((event) => {
+    const family = inferTokenUsageFamily(event);
+    if (!tokenUsageFamilies.some((item) => item.key === family)) return;
+    const item = totals[family as TrackedTokenUsageModelFamily];
+    item.totalTokens += event.totalTokens || 0;
+    item.inputTokens += event.inputTokens || 0;
+    item.outputTokens += event.outputTokens || 0;
+    item.events += 1;
+  });
+  return totals;
+}
+
+function trackedTokenTotal(events: TokenUsageEvent[] | undefined) {
+  const totals = summarizeTokenUsageFamilies(events);
+  return tokenUsageFamilies.reduce((sum, family) => sum + totals[family.key].totalTokens, 0);
+}
+
+function TokenUsagePanel({
+  events,
+  sessions,
+  selectedSessionId,
+  onClear,
+  busy
+}: {
+  events?: TokenUsageEvent[];
+  sessions: Session[];
+  selectedSessionId?: string;
+  onClear: () => void;
+  busy: boolean;
+}) {
+  const { t } = useI18n();
+  const summaries = summarizeTokenUsage(events);
+  const familyTotals = summarizeTokenUsageFamilies(events);
+  const trackedInput = tokenUsageFamilies.reduce((sum, family) => sum + familyTotals[family.key].inputTokens, 0);
+  const trackedOutput = tokenUsageFamilies.reduce((sum, family) => sum + familyTotals[family.key].outputTokens, 0);
+  const trackedEvents = tokenUsageFamilies.reduce((sum, family) => sum + familyTotals[family.key].events, 0);
+  const sessionRows = sessions
+    .map((session) => ({
+      session,
+      families: summarizeTokenUsageFamilies(session.tokenUsageEvents),
+      totalTokens: trackedTokenTotal(session.tokenUsageEvents)
+    }))
+    .filter((row) => row.totalTokens > 0 || row.session.id === selectedSessionId)
+    .sort((a, b) => Number(b.session.id === selectedSessionId) - Number(a.session.id === selectedSessionId) || b.totalTokens - a.totalTokens);
+  return (
+    <div className="token-usage-panel">
+      <div className="token-usage-head">
+        <div>
+          <strong>{formatMTokens(trackedTokenTotal(events))} tracked tokens</strong>
+          <small>{t.token.summary(formatMTokens(trackedInput), formatMTokens(trackedOutput), trackedEvents)}</small>
+        </div>
+        <button
+          type="button"
+          className="danger"
+          onClick={onClear}
+          disabled={busy || !events?.length}
+          title={t.token.clearTitle}
+        >
+          {t.token.clear}
+        </button>
+      </div>
+      <div className="token-family-grid">
+        {tokenUsageFamilies.map((family) => {
+          const item = familyTotals[family.key];
+          return (
+            <div className="token-family-card" key={family.key}>
+              <small>{family.label}</small>
+              <strong>{formatMTokens(item.totalTokens)}</strong>
+              <span>{t.token.calls(item.events)}</span>
+            </div>
+          );
+        })}
+      </div>
+      <div className="token-session-table-wrap">
+        <table className="token-session-table">
+          <thead>
+            <tr>
+              <th>Session</th>
+              {tokenUsageFamilies.map((family) => <th key={family.key}>{family.label}</th>)}
+              <th>{t.token.total}</th>
+            </tr>
+          </thead>
+          <tbody>
+            {sessionRows.length ? sessionRows.map((row) => (
+              <tr key={row.session.id} className={row.session.id === selectedSessionId ? "active" : ""}>
+                <td>{row.session.title || row.session.id}</td>
+                {tokenUsageFamilies.map((family) => (
+                  <td key={family.key}>{formatMTokens(row.families[family.key].totalTokens)}</td>
+                ))}
+                <td>{formatMTokens(row.totalTokens)}</td>
+              </tr>
+            )) : (
+              <tr>
+                <td colSpan={tokenUsageFamilies.length + 2}>{t.token.noTrackedFamilies}</td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+      {summaries.length ? (
+        <div className="token-usage-list">
+          {summaries.map((item) => {
+            const latest = item.events[item.events.length - 1];
+            return (
+              <div className="token-usage-row" key={`${item.nodeType}:${item.nodeId}`}>
+                <div>
+                  <strong>{item.nodeLabel}</strong>
+                  <small>{item.nodeType} · {t.token.recentOp(item.events.length, latest.operation)}{latest.model ? ` · ${latest.model}` : ""}</small>
+                </div>
+                <span>{formatMTokens(item.totalTokens)}</span>
+              </div>
+            );
+          })}
+        </div>
+      ) : (
+        <div className="token-usage-empty">{t.token.noUsage}</div>
+      )}
+    </div>
+  );
+}
 
 const initialSession: CreateSessionPayload = {
   title: "",
@@ -105,6 +345,7 @@ function writeSessionToHash(sessionId: string, replace: boolean) {
 }
 
 export function App() {
+  const { lang, toggleLang, t } = useI18n();
   const [state, setState] = useState<StoreSnapshot>({ assets: [], sessions: [], shots: [] });
   const stateRef = useRef(state);
   useEffect(() => { stateRef.current = state; }, [state]);
@@ -114,6 +355,7 @@ export function App() {
   const [selectedSessionId, setSelectedSessionId] = useState<string>(() => readSessionFromHash());
   const [sessionTitleDraft, setSessionTitleDraft] = useState("");
   const [showArchivedSessions, setShowArchivedSessions] = useState(false);
+  const [showTokenUsage, setShowTokenUsage] = useState(false);
   const [busy, setBusy] = useState<string>("");
   const [error, setError] = useState<string>("");
   // Network-status banner: flips to true when api.ts emits "api-network-down" (a fetch threw a
@@ -139,7 +381,11 @@ export function App() {
   }, [visionReviewEnabled]);
 
   // Canvas-level undo / redo for structural mutations. Cmd+Z / Cmd+Shift+Z are wired below.
-  const undoStack = useUndoStack();
+  const undoStack = useUndoStack({
+    undoFailed: t.toast.undoFailed,
+    redoFailed: t.toast.redoFailed,
+    unknownError: t.errors.unknown
+  });
   useUndoKeyboardShortcut(undoStack.undo, undoStack.redo);
 
   const refresh = async () => {
@@ -183,14 +429,40 @@ export function App() {
   const latestSession = sessions[0];
   const archivedSessions = sessions.slice(1);
   const selectedSession = sessions.find((session) => session.id === selectedSessionId);
-  const shots = useMemo(
+  // /api/state is normalized: session rows do not embed shots. Join the selected session's
+  // top-level shots explicitly before handing it to the canvas/inspector components.
+  const selectedSessionShots = useMemo(
     () => state.shots.filter((shot) => shot.sessionId === selectedSessionId).sort((a, b) => a.index - b.index),
     [state.shots, selectedSessionId]
+  );
+  const selectedSessionWithShots = useMemo(
+    () => selectedSession ? { ...selectedSession, shots: selectedSessionShots } : undefined,
+    [selectedSession, selectedSessionShots]
   );
 
   useEffect(() => {
     setSessionTitleDraft(selectedSession?.title || "");
   }, [selectedSession?.id, selectedSession?.title]);
+
+  const languageSyncRef = useRef("");
+  useEffect(() => {
+    if (!selectedSession) return;
+    if ((selectedSession.language || "zh") === lang) return;
+    const key = `${selectedSession.id}:${lang}`;
+    if (languageSyncRef.current === key) return;
+    languageSyncRef.current = key;
+    api.updateSession(selectedSession.id, { language: lang })
+      .then((updated) => {
+        setState((prev) => ({
+          ...prev,
+          sessions: prev.sessions.map((item) => (item.id === updated.id ? stripShots(updated) : item))
+        }));
+      })
+      .catch((err: Error) => setError(err.message || t.errors.operationFailed))
+      .finally(() => {
+        if (languageSyncRef.current === key) languageSyncRef.current = "";
+      });
+  }, [lang, selectedSession?.id, selectedSession?.language, t.errors.operationFailed]);
 
   const pollShotIdsRef = useRef<string[]>([]);
   const pollInflightRef = useRef<Set<string>>(new Set());
@@ -301,7 +573,7 @@ export function App() {
     try {
       await action();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "操作失败");
+      setError(err instanceof Error ? err.message : t.errors.operationFailed);
     } finally {
       setBusy("");
     }
@@ -309,7 +581,7 @@ export function App() {
 
   const createSession = () =>
     run("create-session", async () => {
-      const session = await api.createSession(initialSession);
+      const session = await api.createSession({ ...initialSession, language: lang });
       setState((prev) => ({
         ...prev,
         sessions: [stripShots(session), ...prev.sessions],
@@ -320,7 +592,7 @@ export function App() {
     });
 
   const deleteSession = (session: Session) => {
-    const confirmed = window.confirm(`删除 session「${session.title || session.id}」？此操作不可撤销。`);
+    const confirmed = window.confirm(t.app.deleteSessionConfirm(session.title || session.id));
     if (!confirmed) return;
     run(`delete-session-${session.id}`, async () => {
       await api.deleteSession(session.id);
@@ -346,6 +618,19 @@ export function App() {
     if (title === selectedSession.title) return;
     run(`rename-session-${selectedSession.id}`, async () => {
       const updated = await api.updateSession(selectedSession.id, { title });
+      setState((prev) => ({
+        ...prev,
+        sessions: prev.sessions.map((item) => (item.id === updated.id ? stripShots(updated) : item))
+      }));
+    });
+  };
+
+  const clearTokenUsage = () => {
+    if (!selectedSession) return;
+    const confirmed = window.confirm(t.app.clearTokenUsageConfirm(selectedSession.title || selectedSession.id));
+    if (!confirmed) return;
+    run(`clear-token-usage-${selectedSession.id}`, async () => {
+      const updated = await api.clearTokenUsage(selectedSession.id);
       setState((prev) => ({
         ...prev,
         sessions: prev.sessions.map((item) => (item.id === updated.id ? stripShots(updated) : item))
@@ -428,7 +713,7 @@ export function App() {
   const pushShotCreateUndo = (created: Shot) => {
     let currentShot = created;
     undoStack.push({
-      description: "新建分镜",
+      description: t.app.createShotUndo,
       undo: async () => {
         await api.deleteShot(currentShot.id);
         removeShotFromState(currentShot.id);
@@ -470,7 +755,7 @@ export function App() {
         } satisfies Partial<Shot>
       }));
     undoStack.push({
-      description: `删除${label}`,
+      description: t.app.deleteUndo(label),
       undo: async () => {
         deletedAsset = await api.restoreAsset(deletedAsset);
         upsertAssetInState(deletedAsset);
@@ -531,23 +816,25 @@ export function App() {
 
   const deleteCanvasShot = async (shot: Shot) => {
     if (shot.status === "generating") {
-      window.alert("该分镜正在生成中，完成或取消后再删除。");
+      window.alert(lang === "en" ? "This shot is currently generating. Delete it after it completes or is cancelled." : "该分镜正在生成中，完成或取消后再删除。");
       return false;
     }
     const label = shot.title || `Shot ${shot.index}`;
     const ownedAssets = state.assets.filter((asset) => asset.ownerShotId === shot.id);
+    const stitchRefs = captureStitchRefs(selectedSession, shot.id);
     await api.deleteShot(shot.id);
     removeShotFromState(shot.id);
     let deletedShot = shot;
     let deletedAssets = ownedAssets;
     undoStack.push({
-      description: `删除${label}`,
+      description: t.app.deleteUndo(label),
       undo: async () => {
         const restored = await api.restoreShot(deletedShot, deletedAssets);
         deletedShot = restored.shot;
         deletedAssets = restored.assets;
         upsertShotAndSessionInState(restored.shot, restored.session);
         upsertAssetsInState(restored.assets);
+        await restoreStitchRefs(restored.session.id, stitchRefs);
         await refresh();
       },
       redo: async () => {
@@ -574,10 +861,10 @@ export function App() {
     const now = new Date().toISOString();
     const placeholder: Asset = {
       id: tempId,
-      name: file.name.replace(/\.[^/.]+$/, "") || "上传中视频",
+      name: file.name.replace(/\.[^/.]+$/, "") || t.app.pendingVideoName,
       type: "other",
       mediaKind: "video",
-      description: "上传中…",
+      description: t.app.pendingUpload,
       prompt: "",
       mediaUrl: objectUrl,
       ownerSessionId: selectedSession.id,
@@ -602,15 +889,19 @@ export function App() {
         });
         if (!res.ok) {
           const message = await res.text();
-          setError(`上传失败：${message}`);
+          setError(t.app.uploadFailedWithMessage(message));
           return;
         }
         const asset = (await res.json()) as Asset;
         // Fire-and-forget analyze; UI shows parseStatus via refresh polling.
-        fetch(`/api/assets/${asset.id}/analyze-video`, { method: "POST" }).catch(() => undefined);
+        fetch(`/api/assets/${asset.id}/analyze-video`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ lang })
+        }).catch(() => undefined);
         await refresh();
       } catch (err) {
-        setError(err instanceof Error ? err.message : "上传失败");
+        setError(err instanceof Error ? err.message : t.app.uploadFailed);
       } finally {
         // Always drop the placeholder once we've awaited refresh — either the real asset is now in
         // state, or we've already shown the error and the user can retry. Object URL is revoked too
@@ -627,18 +918,18 @@ export function App() {
     <main className="app-shell">
       {serverDown && (
         <div className="server-down-banner" role="alert">
-          <strong>⚠ 服务端不可达</strong>
-          <span>后端 dev server 没响应。检查终端是否还在跑 <code>npm run dev</code>，必要时重启。这条会在后端恢复时自动消失。</span>
+          <strong>{t.app.serverDownTitle}</strong>
+          <span>{t.app.serverDownBody.includes("npm run dev") ? <>{t.app.serverDownBody.split("npm run dev")[0]}<code>npm run dev</code>{t.app.serverDownBody.split("npm run dev")[1]}</> : t.app.serverDownBody}</span>
         </div>
       )}
       <aside className="sidebar">
         <div className="brand">
           <strong>ReelyAI</strong>
-          <span>短剧 Agent 工坊</span>
+          <span>{t.app.brandSubtitle}</span>
         </div>
         <button className="primary" onClick={createSession} disabled={busy === "create-session"}>
           {busy === "create-session" ? <Loader2 size={16} className="spin" /> : <Plus size={16} />}
-          新建 Session
+          {t.app.newSession}
         </button>
         <div className="session-dock">
           <div className="session-list">
@@ -649,13 +940,13 @@ export function App() {
                   onClick={() => setSelectedSessionId(latestSession.id)}
                 >
                   <span>📽</span>
-                  <span>{latestSession.title || "未命名"}</span>
-                  <small>{state.shots.filter((s) => s.sessionId === latestSession.id).length} 镜</small>
+                  <span>{latestSession.title || t.app.unnamed}</span>
+                  <small>{t.app.shotCount(state.shots.filter((s) => s.sessionId === latestSession.id).length)}</small>
                 </button>
                 <button
                   className="session-delete danger"
                   onClick={() => deleteSession(latestSession)}
-                  title="删除 session（不可撤销）"
+                  title={t.app.deleteSessionTitle}
                 >
                   <Trash2 size={14} />
                 </button>
@@ -667,7 +958,7 @@ export function App() {
                 onClick={() => setShowArchivedSessions((v) => !v)}
               >
                 <Archive size={14} />
-                <span>历史 session</span>
+                <span>{t.app.archiveSessions}</span>
                 <small>{archivedSessions.length}</small>
               </button>
             )}
@@ -678,13 +969,13 @@ export function App() {
                   onClick={() => setSelectedSessionId(session.id)}
                 >
                   <span>📂</span>
-                  <span>{session.title || "未命名"}</span>
-                  <small>{state.shots.filter((s) => s.sessionId === session.id).length} 镜</small>
+                  <span>{session.title || t.app.unnamed}</span>
+                  <small>{t.app.shotCount(state.shots.filter((s) => s.sessionId === session.id).length)}</small>
                 </button>
                 <button
                   className="session-oneclick"
                   onClick={() => promoteSession(session)}
-                  title="置顶到当前"
+                  title={t.app.promoteSessionTitle}
                   disabled={busy === `promote-session-${session.id}`}
                 >
                   ↑
@@ -692,14 +983,14 @@ export function App() {
                 <button
                   className="session-delete danger"
                   onClick={() => deleteSession(session)}
-                  title="删除"
+                  title={t.app.delete}
                   disabled={busy === `delete-session-${session.id}`}
                 >
                   <Trash2 size={14} />
                 </button>
               </div>
             ))}
-            {sessions.length === 0 && <div className="empty-session">点上方「新建 Session」开工</div>}
+            {sessions.length === 0 && <div className="empty-session">{t.app.emptySession}</div>}
           </div>
         </div>
       </aside>
@@ -710,7 +1001,7 @@ export function App() {
             {selectedSession ? (
               <>
                 <input
-                  aria-label="Session 名称"
+                  aria-label={t.app.sessionNameAria}
                   className="session-title-input"
                   value={sessionTitleDraft}
                   onChange={(event) => setSessionTitleDraft(event.target.value)}
@@ -728,49 +1019,79 @@ export function App() {
                 <button
                   type="button"
                   className="session-share"
-                  title="复制本 session 的可分享链接"
+                  title={t.app.shareTitle}
                   onClick={async () => {
                     const url = `${window.location.origin}${window.location.pathname}#/s/${selectedSession.id}`;
                     try {
                       await navigator.clipboard.writeText(url);
                       setError("");
-                      window.dispatchEvent(new CustomEvent<string>("flow-download", { detail: `已复制链接：${url}` }));
+                      window.dispatchEvent(new CustomEvent<string>("flow-download", { detail: t.app.copiedLink(url) }));
                     } catch {
-                      window.prompt("复制下面的链接：", url);
+                      window.prompt(t.app.copyPrompt, url);
                     }
                   }}
                 >
-                  🔗 复制链接
+                  {t.app.copyLink}
                 </button>
               </>
             ) : (
-              <h1>创建一个短片项目</h1>
+              <h1>{t.app.createProjectTitle}</h1>
             )}
           </div>
           <div className="top-actions">
+            <button
+              type="button"
+              className="language-toggle"
+              onClick={toggleLang}
+              title={t.app.languageToggleTitle}
+              aria-label={t.app.languageToggleTitle}
+            >
+              <span className={lang === "zh" ? "active" : "muted"}>{t.app.zhLabel}</span>
+              <span>/</span>
+              <span className={lang === "en" ? "active" : "muted"}>{t.app.enLabel}</span>
+            </button>
             <label
               className="vision-review-toggle"
-              title="开启后：每张资产/分镜图、每条分镜视频生成完会用 vision 模型自审，违背 prompt/参考图就重生，最多 5 次。会消耗额外 token。"
+              title={t.app.visionReviewTitle}
             >
               <input
                 type="checkbox"
                 checked={visionReviewEnabled}
                 onChange={(event) => setVisionReviewEnabled(event.target.checked)}
               />
-              <span>自审重试</span>
+              <span>{t.app.visionReview}</span>
             </label>
-            <button onClick={() => refresh()} title="刷新">
+            <button onClick={() => refresh()} title={t.app.refresh}>
               <RefreshCw size={16} />
             </button>
+            {selectedSession && (
+              <button
+                onClick={() => setShowTokenUsage((value) => !value)}
+                title={t.app.usageTitle}
+              >
+                <BarChart3 size={16} />
+                {t.app.usage}
+              </button>
+            )}
           </div>
         </header>
 
         {error && <div className="error">{error}</div>}
+        {selectedSession && showTokenUsage && (
+          <TokenUsagePanel
+            events={selectedSession.tokenUsageEvents}
+            sessions={sessions}
+            selectedSessionId={selectedSession.id}
+            busy={busy === `clear-token-usage-${selectedSession.id}`}
+            onClear={clearTokenUsage}
+          />
+        )}
 
         <FlowView
           snapshot={pendingUploads.length ? { ...state, assets: [...state.assets, ...pendingUploads] } : state}
-          session={selectedSession ? { ...selectedSession, shots } : undefined}
+          session={selectedSessionWithShots}
           visionReviewEnabled={visionReviewEnabled}
+          defaultImageModel={state.runtime?.seedreamDefaultModel}
           onMutated={() => refresh()}
           undo={undoStack.undo}
           redo={undoStack.redo}
@@ -781,13 +1102,23 @@ export function App() {
           onPushUndo={undoStack.push}
           onCreateAnchorAsset={async (kind: AnchorKind) => {
             if (!selectedSession) return undefined;
-            const seedNames: Record<string, string> = {
+            const seedNames: Record<string, string> = lang === "en" ? {
+              character: "Untitled character",
+              scene: "Untitled scene",
+              prop: "Untitled prop",
+              style: "Untitled style"
+            } : {
               character: "未命名角色",
               scene: "未命名场景",
               prop: "未命名道具",
               style: "未命名风格"
             };
-            const seedDescriptions: Record<string, string> = {
+            const seedDescriptions: Record<string, string> = lang === "en" ? {
+              character: "Describe the character identity, appearance, and wardrobe in the Inspector; generate a reference image, then drag a canvas edge to the storyboard that should use it.",
+              scene: "Describe the scene elements, lighting, and set dressing in the Inspector; generate a reference image, then drag a canvas edge to the storyboard that should use it.",
+              prop: "Describe the prop shape, material, and key details in the Inspector; generate a baseline prop image, then drag a canvas edge to the storyboard that should use it.",
+              style: "Describe the visual style, color palette, brush/texture keywords in the Inspector; generate a style reference, then drag a canvas edge to the storyboard that should use it."
+            } : {
               character: "在右侧 Inspector 写清角色身份/外形/服装；先「重新出图」生成参考图，然后从画布拖一根线连到要用它的分镜板。",
               scene: "在右侧 Inspector 写清场景元素/光线/布景；先「重新出图」生成参考图，然后从画布拖一根线连到要用它的分镜板。",
               prop: "在右侧 Inspector 写清道具的造型/材质/关键细节；先「重新出图」生成道具基准图，然后从画布拖一根线连到要用它的分镜板。",
@@ -804,7 +1135,7 @@ export function App() {
             const asset = await api.saveAsset(payload);
             // No auto-attach: user (or AI) decides which shots reference this asset by dragging.
             upsertAssetInState(asset);
-            pushAssetCreateUndo(`新建${seedNames[kind].replace("未命名", "")}`, payload, asset);
+            pushAssetCreateUndo(lang === "en" ? `Create ${kind}` : `新建${seedNames[kind].replace("未命名", "")}`, payload, asset);
             return asset;
           }}
           onCreateShot={async () => {
@@ -818,24 +1149,27 @@ export function App() {
           onDeleteCanvasShot={deleteCanvasShot}
           onUploadImageAsset={async (file, kind) => {
             if (!selectedSession) return undefined;
-            const name = file.name.replace(/\.[^/.]+$/, "") || (kind === "character" ? "上传角色" : "上传场景");
+            const name = file.name.replace(/\.[^/.]+$/, "") || (kind === "character" ? (lang === "en" ? "Uploaded character" : "上传角色") : (lang === "en" ? "Uploaded scene" : "上传场景"));
             const tags = ["anchor", "uploaded", kind];
             const asset = await api.uploadImageAsset(file, {
               ownerSessionId: selectedSession.id,
               name,
               tags
             });
+            const uploadedDescription = lang === "en"
+              ? `Image imported from local disk and used as a ${kind === "character" ? "character" : "scene"} anchor`
+              : `从本地拖入的图片，作为${kind === "character" ? "角色" : "场景"}锚使用`;
             const patched = await api.saveAsset({
               id: asset.id,
               type: kind as AssetType,
-              description: `从本地拖入的图片，作为${kind === "character" ? "角色" : "场景"}锚使用`,
+              description: uploadedDescription,
               tags
             });
             upsertAssetInState(patched);
-            pushAssetCreateUndo(kind === "character" ? "上传角色图" : "上传场景图", {
+            pushAssetCreateUndo(kind === "character" ? (lang === "en" ? "Upload character image" : "上传角色图") : (lang === "en" ? "Upload scene image" : "上传场景图"), {
               name,
               type: kind as AssetType,
-              description: `从本地拖入的图片，作为${kind === "character" ? "角色" : "场景"}锚使用`,
+              description: uploadedDescription,
               prompt: "",
               mediaKind: "image",
               ownerSessionId: selectedSession.id,

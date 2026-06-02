@@ -4,22 +4,34 @@ import { fetchWithRetry } from "./fetchWithRetry";
 import { mkdir, writeFile, unlink } from "node:fs/promises";
 import path from "node:path";
 import { MEDIA_DIR, runFfmpegCommand } from "./generators";
+import { arkMissingKeyMessage, resolveArkCredential } from "./arkCredentials";
+import { seedreamWebSearchPayload } from "./seedreamOptions";
 
 const BYTEPLUS_SEEDANCE_BASE = "https://ark.ap-southeast.bytepluses.com/api/v3";
 const SEEDREAM_DEFAULT_MODEL = "seedream-4-5-251128";
 const SEEDREAM_4_DEFAULT_MODEL = "seedream-4-0-250828";
+const AGENT_PLAN_SEEDREAM_MODEL = "doubao-seedream-5.0-lite";
 
-const apiBase = () =>
-  (process.env.SEEDREAM_API_BASE || process.env.SEEDANCE_API_BASE || BYTEPLUS_SEEDANCE_BASE).replace(/\/$/, "");
+const SEEDREAM_KEY_ENVS = ["SEEDREAM_API_KEY", "BP_ARK_API_KEY", "ARK_API_KEY"];
 
-const apiKey = () =>
-  process.env.SEEDREAM_API_KEY || process.env.BP_ARK_API_KEY || process.env.ARK_API_KEY;
+const credential = () =>
+  resolveArkCredential({
+    keyEnvNames: SEEDREAM_KEY_ENVS,
+    baseEnvNames: ["SEEDREAM_API_BASE", "SEEDANCE_API_BASE"],
+    defaultBase: BYTEPLUS_SEEDANCE_BASE
+  });
 
 /**
  * Pick the actual model id for the requested variant. Allows ops to override per-variant via env
  * (SEEDREAM_45_MODEL / SEEDREAM_4_MODEL) without touching code.
  */
-const resolveModel = (variant: SubStoryboardModel = "seedream-4-5") => {
+const resolveModel = (variant: SubStoryboardModel = "seedream-4-5", usesAgentPlan = false) => {
+  if (usesAgentPlan) {
+    return process.env.SEEDREAM_AGENT_PLAN_MODEL || AGENT_PLAN_SEEDREAM_MODEL;
+  }
+  if (variant === "seedream-5-lite") {
+    return process.env.SEEDREAM_AGENT_PLAN_MODEL || AGENT_PLAN_SEEDREAM_MODEL;
+  }
   if (variant === "seedream-4") {
     return process.env.SEEDREAM_4_MODEL || process.env.SEEDREAM_MODEL || SEEDREAM_4_DEFAULT_MODEL;
   }
@@ -89,12 +101,12 @@ export interface SubStoryboardResult {
  * https://github.com/EvoLinkAI/GPT-Image-2-Seedance2-Workflow
  */
 export async function generateSubStoryboardGrid(opts: GenerateSubStoryboardOpts): Promise<SubStoryboardResult> {
-  const key = apiKey();
-  if (!key) throw new Error("Missing Seedream API key (SEEDREAM_API_KEY / BP_ARK_API_KEY / ARK_API_KEY)");
+  const ark = credential();
+  if (!ark.apiKey) throw new Error(arkMissingKeyMessage("Seedream", SEEDREAM_KEY_ENVS));
 
   const panelCount = Math.max(2, Math.min(16, Math.floor(opts.panelCount)));
   const layout = (opts.layout || pickLayout(panelCount)).trim();
-  const model = resolveModel(opts.modelVariant);
+  const model = resolveModel(opts.modelVariant, ark.source === "agent-plan");
   // Aspect-ratio-aware size: if the user is making vertical shots (9:16) the storyboard grid
   // panels should also be 9:16, so the composite size matches. We sniff a "vertical" signal from
   // the scene prompt; otherwise stick with the env-default 4K. Caller can still
@@ -127,14 +139,14 @@ export async function generateSubStoryboardGrid(opts: GenerateSubStoryboardOpts)
     ? opts.promptOverride
     : composeSeedreamSubStoryboardGrid(opts.scenePrompt, panelCount, layout, lang, refLabels).composedPrompt;
 
-  const response = await fetchWithRetry(`${apiBase()}/images/generations`, {
+  const response = await fetchWithRetry(`${ark.apiBase}/images/generations`, {
     method: "POST",
     timeoutMs: 90_000,
     tag: "seedream:sub-storyboard",
     headers: {
       "Content-Type": "application/json",
       Accept: "application/json",
-      Authorization: `Bearer ${key}`
+      Authorization: `Bearer ${ark.apiKey}`
     },
     body: JSON.stringify({
       model,
@@ -145,7 +157,8 @@ export async function generateSubStoryboardGrid(opts: GenerateSubStoryboardOpts)
       response_format: "url",
       size,
       stream: false,
-      watermark: false
+      watermark: false,
+      ...seedreamWebSearchPayload()
     })
   });
 
@@ -201,7 +214,9 @@ export function buildSubStoryboardAssetPayload(
     ownerShotId: shotId,
     mediaUrl: result.url,
     imageUrl: result.url,
-    generationModel: "seedream-4-5"
+    generationModel: result.model.includes("seedream-5.0-lite") ? "seedream-5-lite" : result.model.includes("seedream-4-0") ? "seedream-4" : "seedream-4-5",
+    generationModelActual: result.model,
+    generationCredentialSource: result.model.includes("seedream-5.0-lite") ? "agent-plan" : undefined
   };
 }
 
@@ -275,13 +290,13 @@ export interface SubStoryboardSequentialResult {
 export async function generateSubStoryboardSequential(
   opts: GenerateSubStoryboardSequentialOpts
 ): Promise<SubStoryboardSequentialResult> {
-  const key = apiKey();
-  if (!key) throw new Error("Missing Seedream API key (SEEDREAM_API_KEY / BP_ARK_API_KEY / ARK_API_KEY)");
+  const ark = credential();
+  if (!ark.apiKey) throw new Error(arkMissingKeyMessage("Seedream", SEEDREAM_KEY_ENVS));
   if (!opts.panels?.length) throw new Error("generateSubStoryboardSequential: panels required");
 
   const panelCount = opts.panels.length;
   const layout = (opts.layout || pickLayout(panelCount)).trim();
-  const model = resolveModel(opts.modelVariant);
+  const model = resolveModel(opts.modelVariant, ark.source === "agent-plan");
   // Sequential mode does ffmpeg-tiling, which needs an explicit WxH for each panel. The Seedream
   // size token ("1K"/"2K"/"4K") is fine for the Seedream call itself but ffmpeg can't parse it,
   // so any non-WxH value gets normalized to a vertical 9:16 4K default here.
@@ -314,14 +329,14 @@ export async function generateSubStoryboardSequential(
     }
     const refsCapped = refs.slice(0, 3);
 
-    const response = await fetchWithRetry(`${apiBase()}/images/generations`, {
+    const response = await fetchWithRetry(`${ark.apiBase}/images/generations`, {
       method: "POST",
       timeoutMs: 90_000,
       tag: `seedream:sub-storyboard-seq[${i + 1}/${panelCount}]`,
       headers: {
         "Content-Type": "application/json",
         Accept: "application/json",
-        Authorization: `Bearer ${key}`
+        Authorization: `Bearer ${ark.apiKey}`
       },
       body: JSON.stringify({
         model,
@@ -331,7 +346,8 @@ export async function generateSubStoryboardSequential(
         response_format: "url",
         size: panelSize,
         stream: false,
-        watermark: false
+        watermark: false,
+        ...seedreamWebSearchPayload()
       })
     });
     const text = await response.text();
