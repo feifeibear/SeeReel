@@ -176,15 +176,15 @@ function ReviewSummaryCard({ verdict, status, error, reviewNote, label }: Review
       )}
       {fixes.length > 0 ? (
         <div>
-          <small>建议怎么改</small>
+          <small>{t.inspector.suggestedFixes}</small>
           <ul>{fixes.map((item, i) => <li key={i}>{item}</li>)}</ul>
         </div>
       ) : !pass && reasons.length > 0 ? (
         <div>
-          <small>建议怎么改</small>
+          <small>{t.inspector.suggestedFixes}</small>
           <ul>
-            <li>把上述问题写进「场景描述 / prompt」的正向约束里。</li>
-            <li>如果是人物或场景不一致，补充或重新连接更明确的参考资产。</li>
+            <li>{t.inspector.addIssuesToPrompt}</li>
+            <li>{t.inspector.reconnectReferences}</li>
           </ul>
         </div>
       ) : null}
@@ -203,41 +203,42 @@ function VideoReviewCard({ verdict, status, error, stale }: {
   error?: string;
   stale?: boolean;
 }) {
-  if (status === "running") return <div className="inspector-review-card">VLM 审片中…正在按多帧标准检查人物、场景、节奏和伪影。</div>;
-  if (status === "error") return <div className="inspector-error">VLM 审核失败：{error || "未知错误"}</div>;
-  if (!verdict) return <div className="inspector-hint">尚未进行 VLM 审片。</div>;
+  const { t } = useI18n();
+  if (status === "running") return <div className="inspector-review-card">{t.inspector.videoReviewRunning}</div>;
+  if (status === "error") return <div className="inspector-error">{t.inspector.videoReviewFailed(error || t.errors.unknown)}</div>;
+  if (!verdict) return <div className="inspector-hint">{t.inspector.videoReviewEmpty}</div>;
   const pass = verdict.ok;
   return (
     <div className="inspector-review-card">
       <div className="inspector-review-head">
         <strong className={pass ? "review-score-pass" : "review-score-fail"}>
-          {pass ? "通过" : "需修"} · {Math.round(verdict.score)}
+          {pass ? t.inspector.pass : t.inspector.needsFix} · {Math.round(verdict.score)}
         </strong>
-        <span>{verdict.model} · {new Date(verdict.reviewedAt).toLocaleString()} · {verdict.frameCount} 帧</span>
+        <span>{verdict.model} · {new Date(verdict.reviewedAt).toLocaleString()} · {t.inspector.frameCount(verdict.frameCount)}</span>
       </div>
-      {stale && <div className="inspector-review-fatal">终审已过期：完整片已重新拼接，请重新 VLM 终审。</div>}
+      {stale && <div className="inspector-review-fatal">{t.inspector.finalReviewStale}</div>}
       {verdict.summary && <p>{verdict.summary}</p>}
       {verdict.fatalIssues.length > 0 && (
         <div className="inspector-review-fatal">
-          <strong>致命问题</strong>
+          <strong>{t.inspector.fatalIssues}</strong>
           <ul>{verdict.fatalIssues.map((item, i) => <li key={i}>{item}</li>)}</ul>
         </div>
       )}
       {verdict.reasons.length > 0 && (
         <details className="inspector-fold" open>
-          <summary>主要原因</summary>
+          <summary>{t.inspector.reasons}</summary>
           <ul>{verdict.reasons.map((item, i) => <li key={i}>{item}</li>)}</ul>
         </details>
       )}
       {verdict.fixes.length > 0 && (
         <details className="inspector-fold" open>
-          <summary>建议修复</summary>
-          <ul>{verdict.fixes.map((fix, i) => <li key={i}>{fix.shot ? `镜头 ${fix.shot}：` : ""}{fix.frame ? `帧 ${fix.frame}：` : ""}{fix.action}</li>)}</ul>
+          <summary>{t.inspector.fixes}</summary>
+          <ul>{verdict.fixes.map((fix, i) => <li key={i}>{fix.shot ? `${t.inspector.shotPrefix(fix.shot)}：` : ""}{fix.frame ? `${t.inspector.framePrefix(fix.frame)}：` : ""}{fix.action}</li>)}</ul>
         </details>
       )}
       {verdict.criteria.length > 0 && (
         <details className="inspector-fold">
-          <summary>评分维度</summary>
+          <summary>{t.inspector.criteria}</summary>
           <div className="inspector-review-criteria">
             {verdict.criteria.map((item) => (
               <div key={item.key}>
@@ -251,7 +252,7 @@ function VideoReviewCard({ verdict, status, error, stale }: {
       )}
       {verdict.rawText && (
         <details className="inspector-fold">
-          <summary>原始 VLM JSON</summary>
+          <summary>{t.inspector.rawVlmJson}</summary>
           <pre className="inspector-pre">{verdict.rawText}</pre>
         </details>
       )}
@@ -264,40 +265,41 @@ function ImageReviewCard({ verdict, status, error }: {
   status?: string;
   error?: string;
 }) {
-  if (status === "running") return <div className="inspector-review-card">VLM 审图中…正在检查画面质量、主体结构、prompt 对齐和参考图一致性。</div>;
-  if (status === "error") return <div className="inspector-error">VLM 审图失败：{error || "未知错误"}</div>;
-  if (!verdict) return <div className="inspector-hint">尚未进行 VLM 审图。点击「VLM 评分」可只审核当前图片，不会重新出图。</div>;
+  const { t } = useI18n();
+  if (status === "running") return <div className="inspector-review-card">{t.inspector.imageReviewRunning}</div>;
+  if (status === "error") return <div className="inspector-error">{t.inspector.imageReviewFailed(error || t.errors.unknown)}</div>;
+  if (!verdict) return <div className="inspector-hint">{t.inspector.imageReviewEmpty}</div>;
   const pass = verdict.ok;
   return (
     <div className="inspector-review-card">
       <div className="inspector-review-head">
         <strong className={pass ? "review-score-pass" : "review-score-fail"}>
-          {pass ? "通过" : "需修"} · {Math.round(verdict.score)}
+          {pass ? t.inspector.pass : t.inspector.needsFix} · {Math.round(verdict.score)}
         </strong>
         <span>{verdict.model} · {new Date(verdict.reviewedAt).toLocaleString()}</span>
       </div>
       {verdict.summary && <p>{verdict.summary}</p>}
       {verdict.fatalIssues.length > 0 && (
         <div className="inspector-review-fatal">
-          <strong>致命问题</strong>
+          <strong>{t.inspector.fatalIssues}</strong>
           <ul>{verdict.fatalIssues.map((item, i) => <li key={i}>{item}</li>)}</ul>
         </div>
       )}
       {verdict.reasons.length > 0 && (
         <details className="inspector-fold" open>
-          <summary>主要原因</summary>
+          <summary>{t.inspector.reasons}</summary>
           <ul>{verdict.reasons.map((item, i) => <li key={i}>{item}</li>)}</ul>
         </details>
       )}
       {verdict.fixes.length > 0 && (
         <details className="inspector-fold" open>
-          <summary>建议修复</summary>
+          <summary>{t.inspector.fixes}</summary>
           <ul>{verdict.fixes.map((fix, i) => <li key={i}>{fix.action}</li>)}</ul>
         </details>
       )}
       {verdict.criteria.length > 0 && (
         <details className="inspector-fold">
-          <summary>评分维度</summary>
+          <summary>{t.inspector.criteria}</summary>
           <div className="inspector-review-criteria">
             {verdict.criteria.map((item) => (
               <div key={item.key}>
@@ -311,7 +313,7 @@ function ImageReviewCard({ verdict, status, error }: {
       )}
       {verdict.rawText && (
         <details className="inspector-fold">
-          <summary>原始 VLM JSON</summary>
+          <summary>{t.inspector.rawVlmJson}</summary>
           <pre className="inspector-pre">{verdict.rawText}</pre>
         </details>
       )}
@@ -382,6 +384,7 @@ function AssetInspector({ asset, onMutated, onDeleteCanvasAsset, onClose, vision
   // having to click a button. Only renders to give signal — does not block any action.
   const [saveStatus, setSaveStatus] = useState<"saved" | "saving" | "dirty">("saved");
   const pending = usePendingGenerationActions();
+  const { t } = useI18n();
 
   // Re-sync local state when a different asset is selected. Reset the dirty flag too — switching
   // assets should NOT count as the user editing the new asset.
@@ -449,7 +452,7 @@ function AssetInspector({ asset, onMutated, onDeleteCanvasAsset, onClose, vision
       } catch (err) {
         if (cancelled) return;
         setSaveStatus("dirty");
-        setError(err instanceof Error ? err.message : "自动保存失败");
+        setError(err instanceof Error ? err.message : t.inspector.autoSaveFailed);
       } finally {
         resolveFlush();
       }
@@ -505,7 +508,7 @@ function AssetInspector({ asset, onMutated, onDeleteCanvasAsset, onClose, vision
       });
       setComposedDraft(result.prompt);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "预览失败");
+      setError(err instanceof Error ? err.message : t.inspector.previewFailed);
     } finally { setBusy(""); }
   };
 
@@ -516,7 +519,7 @@ function AssetInspector({ asset, onMutated, onDeleteCanvasAsset, onClose, vision
       await flushPendingSave();
     } catch (err) {
       setBusy("");
-      setError(err instanceof Error ? err.message : "保存失败");
+      setError(err instanceof Error ? err.message : t.inspector.saveFailed);
       return;
     }
     // Free the local Inspector busy state immediately so the user can navigate to other nodes /
@@ -534,9 +537,9 @@ function AssetInspector({ asset, onMutated, onDeleteCanvasAsset, onClose, vision
       } catch (err) {
         // Surface error via a window event so a transient banner can pick it up; the original
         // Inspector may already be unmounted by the time the request resolves.
-        const msg = err instanceof Error ? err.message : "生成失败";
+        const msg = err instanceof Error ? err.message : t.inspector.generateFailed;
         if (typeof window !== "undefined") {
-          window.dispatchEvent(new CustomEvent<string>("flow-download", { detail: `❌ ${asset.name || "资产"} 生成失败：${msg}` }));
+          window.dispatchEvent(new CustomEvent<string>("flow-download", { detail: t.inspector.assetGenerateFailedToast(asset.name, msg) }));
         }
       }
     });
@@ -549,7 +552,7 @@ function AssetInspector({ asset, onMutated, onDeleteCanvasAsset, onClose, vision
       await api.reviewAssetImage(asset.id);
       await onMutated();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "VLM 评分失败");
+      setError(err instanceof Error ? err.message : t.inspector.vlmScoreFailed);
       await onMutated();
     } finally { setBusy(""); }
   };
@@ -557,10 +560,10 @@ function AssetInspector({ asset, onMutated, onDeleteCanvasAsset, onClose, vision
   return (
     <aside className="inspector">
       <header>
-        <span className="inspector-tag">资产 · {asset.type}</span>
-        <button onClick={onClose} className="inspector-close">×</button>
+        <span className="inspector-tag">{t.inspector.assetTag(asset.type)}</span>
+        <button onClick={onClose} className="inspector-close" title={t.inspector.close}>×</button>
       </header>
-      <label>名称<input value={name} onChange={(e) => setName(e.target.value)} /></label>
+      <label>{t.inspector.name}<input value={name} onChange={(e) => setName(e.target.value)} /></label>
 
       {/*
        * Two-stage prompt model (intentionally two fields, not four):
@@ -577,41 +580,37 @@ function AssetInspector({ asset, onMutated, onDeleteCanvasAsset, onClose, vision
       <div className="inspector-stage">
         <div className="inspector-stage-head">
           <span className="inspector-stage-num">①</span>
-          <strong>我写的描述</strong>
-          <small>用自由文字描述你想要这个 {asset.type === "character" ? "角色" : asset.type === "scene" ? "场景" : "资产"} 长什么样</small>
+          <strong>{t.inspector.myDescription}</strong>
+          <small>{t.inspector.assetDescriptionHint(t.inspector.assetTypeName(asset.type))}</small>
         </div>
         <textarea
           rows={6}
           value={prompt}
           onChange={(e) => handlePromptChange(e.target.value)}
           placeholder={asset.type === "character"
-            ? "例：35 岁中年男性，黄仁勋本人，黑色皮夹克，温和坚定的眼神…"
-            : "例：硅谷晚间会议室，落地窗外灯火，桌上摆着 GPU 模型…"}
+            ? t.inspector.promptPlaceholderCharacter
+            : t.inspector.promptPlaceholderScene}
         />
       </div>
 
       <div className="inspector-stage">
         <div className="inspector-stage-head">
           <span className="inspector-stage-num">②</span>
-          <strong>AI 扩写后的 prompt</strong>
-          <small>
-            ① 经 AI + 系统模板（画幅 / 光影 / 胶片质感 / 禁字幕 …）扩写后的最终版，<em>送给 Seedream 用的就是这个</em>。可以改。
-          </small>
+          <strong>{t.inspector.promptExpanded}</strong>
+          <small>{t.inspector.promptExpandedHint}</small>
         </div>
         <textarea
           rows={10}
           value={composedDraft}
           onChange={(e) => setComposedDraft(e.target.value)}
-          placeholder="点下方「AI 扩写」从 ① 生成；非空时下次出图就用这一份原样提交"
+          placeholder={t.inspector.composedPlaceholder}
         />
         <div className="inspector-stage-hint">
-          {composedDraft
-            ? <>✅ 已有扩写稿，下次出图就用这份。要改请直接编辑；想重做点「AI 扩写」覆盖。</>
-            : <>⚠ 还没扩写。可以直接在 ① 写完点「出图」走默认扩写，或先点「AI 扩写」预览后再改。</>}
+          {composedDraft ? t.inspector.composedReady : t.inspector.composedMissing}
         </div>
       </div>
 
-      <label className="vision-review-toggle" title="勾选后，出图时启用 VLM 审核；审核失败可按反馈修资产 prompt。">
+      <label className="vision-review-toggle" title={t.inspector.vlmImageToggleTitle}>
         <input
           type="checkbox"
           checked={asset.vlmReviewEnabled !== false}
@@ -620,22 +619,22 @@ function AssetInspector({ asset, onMutated, onDeleteCanvasAsset, onClose, vision
             await onMutated();
           }}
         />
-        VLM 审核此图片节点
+        {t.inspector.vlmImageToggle}
       </label>
 
       <div className="inspector-actions">
-        <button onClick={previewSeedreamPrompt} disabled={Boolean(busy)} title="用 ① 跑一遍 AI 扩写，结果填到 ② 里给你看">
-          {busy === "preview" ? "..." : "AI 扩写 →②"}
+        <button onClick={previewSeedreamPrompt} disabled={Boolean(busy)} title={t.inspector.expandPromptTitle}>
+          {busy === "preview" ? "..." : t.inspector.expandPrompt}
         </button>
-        <button onClick={regenerate} disabled={Boolean(busy)} className="primary" title="② 非空就用②原样提交；② 为空就 ① 走默认扩写后提交。点击前会自动保存当前编辑。">
-          {busy === "generate" ? "..." : "出图"}
+        <button onClick={regenerate} disabled={Boolean(busy)} className="primary" title={t.inspector.generateImageTitle}>
+          {busy === "generate" ? "..." : t.inspector.generateImage}
         </button>
-        <button onClick={reviewAssetImage} disabled={Boolean(busy) || !assetPreviewUrl(asset)} title="只对当前图片做 VLM 打分，不会重新出图">
-          {busy === "review" ? "..." : "VLM 评分"}
+        <button onClick={reviewAssetImage} disabled={Boolean(busy) || !assetPreviewUrl(asset)} title={t.inspector.vlmScoreTitle}>
+          {busy === "review" ? "..." : t.inspector.vlmScore}
         </button>
         <button
           onClick={async () => {
-            if (!window.confirm(`删除资产「${asset.name || asset.id}」？删除后可在画布顶部「↶ 撤销」恢复。`)) return;
+            if (!window.confirm(t.inspector.deleteAssetConfirm(asset.name || asset.id))) return;
             setBusy("delete"); setError("");
             try {
               if (onDeleteCanvasAsset) {
@@ -648,19 +647,19 @@ function AssetInspector({ asset, onMutated, onDeleteCanvasAsset, onClose, vision
               }
               onClose();
             } catch (err) {
-              setError(err instanceof Error ? err.message : "删除失败");
+              setError(err instanceof Error ? err.message : t.inspector.deleteFailed);
             } finally { setBusy(""); }
           }}
           disabled={Boolean(busy)}
           className="danger"
-          title="删除这个资产节点（可撤销）"
+          title={t.inspector.deleteAssetTitle}
         >
-          {busy === "delete" ? "..." : "删除"}
+          {busy === "delete" ? "..." : t.inspector.delete}
         </button>
         <span className="inspector-save-status" data-status={saveStatus}>
-          {saveStatus === "saved" && "✓ 已保存"}
-          {saveStatus === "saving" && "保存中…"}
-          {saveStatus === "dirty" && "● 未保存（即将自动保存）"}
+          {saveStatus === "saved" && t.inspector.saved}
+          {saveStatus === "saving" && t.inspector.saving}
+          {saveStatus === "dirty" && t.inspector.dirty}
         </span>
       </div>
       {assetPreviewUrl(asset) && (
@@ -670,12 +669,12 @@ function AssetInspector({ asset, onMutated, onDeleteCanvasAsset, onClose, vision
           download={`${asset.name}.png`}
           onClick={() => emitDownloadToast(`${asset.name}.png`)}
         >
-          ⬇ 下载原图
+          {t.inspector.downloadOriginalImage}
         </a>
       )}
       {assetPreviewUrl(asset) && (
         <details className="inspector-fold" open>
-          <summary>当前图片预览（点开看大图）</summary>
+          <summary>{t.inspector.currentImagePreview}</summary>
           <ZoomablePreview
             url={assetPreviewUrl(asset) as string}
             mediaKind="image"
@@ -683,16 +682,16 @@ function AssetInspector({ asset, onMutated, onDeleteCanvasAsset, onClose, vision
             downloadUrl={api.downloadAssetUrl(asset.id)}
             downloadFilename={`${asset.name}.png`}
             generatedAt={asset.generatedAt}
-            generatedLabel="图片生成时间"
+            generatedLabel={t.inspector.imageGeneratedAt}
             fallbackAt={asset.createdAt}
-            fallbackLabel="创建时间"
+            fallbackLabel={t.inspector.createdAt}
           />
         </details>
       )}
       <details className="inspector-fold" open>
-        <summary>VLM 图片评分</summary>
+        <summary>{t.inspector.vlmImageScore}</summary>
         <ReviewSummaryCard
-          label="最近一次 VLM 审图"
+          label={t.inspector.latestImageReview}
           verdict={asset.imageReview}
           status={asset.imageReviewStatus}
           error={asset.imageReviewError}
@@ -705,23 +704,23 @@ function AssetInspector({ asset, onMutated, onDeleteCanvasAsset, onClose, vision
         />
       </details>
       <details className="inspector-fold">
-        <summary>更多元数据 / 备注</summary>
+        <summary>{t.inspector.moreMetadata}</summary>
         {formatActualImageModel(asset) && (
-          <div className="inspector-hint">实际执行模型：{formatActualImageModel(asset)}</div>
+          <div className="inspector-hint">{t.inspector.actualModel(formatActualImageModel(asset) as string)}</div>
         )}
-        <label>原始备注（可选；不送给 AI，仅供 asset 列表查看）
+        <label>{t.inspector.rawNote}
           <textarea rows={3} value={description} onChange={(e) => setDescription(e.target.value)} />
         </label>
       </details>
       {asset.composedPrompt && (
         <details className="inspector-fold">
-          <summary>上次实际送出的 prompt（审计）</summary>
+          <summary>{t.inspector.lastPromptAudit}</summary>
           <pre className="inspector-pre">{asset.composedPrompt}</pre>
         </details>
       )}
       {asset.reviewNote && (
         <details className="inspector-fold">
-          <summary>自审重试记录（重试 {asset.reviewAttempts ?? 0} 次）</summary>
+          <summary>{t.inspector.retryLog(asset.reviewAttempts ?? 0)}</summary>
           <pre className="inspector-pre">{asset.reviewNote}</pre>
         </details>
       )}
@@ -866,6 +865,7 @@ function StoryboardInspector({ shot, asset, session, allAssets, visionReviewEnab
   const [sequentialMode, setSequentialMode] = useState<boolean>(false);
   const [busy, setBusy] = useState<"" | "preview" | "generate">("");
   const pending = usePendingGenerationActions();
+  const { t } = useI18n();
   const [error, setError] = useState<string>("");
   const panelCount = inferStoryboardPanelCount(scenePrompt, shot.subShotPanelCount ?? 9);
   const layout = inferStoryboardLayout(panelCount);
@@ -890,7 +890,7 @@ function StoryboardInspector({ shot, asset, session, allAssets, visionReviewEnab
       });
       setComposedDraft(result.composedPrompt);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "预览失败");
+      setError(err instanceof Error ? err.message : t.inspector.previewFailed);
     } finally { setBusy(""); }
   };
 
@@ -925,9 +925,9 @@ function StoryboardInspector({ shot, asset, session, allAssets, visionReviewEnab
         });
         await onMutated();
       } catch (err) {
-        const msg = err instanceof Error ? err.message : "出图失败";
+        const msg = err instanceof Error ? err.message : t.inspector.imageGenerateFailed;
         if (typeof window !== "undefined") {
-          window.dispatchEvent(new CustomEvent<string>("flow-download", { detail: `❌ Shot ${shot.index} 分镜板生成失败：${msg}` }));
+          window.dispatchEvent(new CustomEvent<string>("flow-download", { detail: t.inspector.storyboardGenerateFailed(shot.index, msg) }));
         }
       }
     });
@@ -944,20 +944,20 @@ function StoryboardInspector({ shot, asset, session, allAssets, visionReviewEnab
   return (
     <aside className="inspector">
       <header>
-        <span className="inspector-tag">分镜板 · Shot {shot.index}</span>
-        <button onClick={onClose} className="inspector-close">×</button>
+        <span className="inspector-tag">{t.inspector.storyboardTag(shot.index)}</span>
+        <button onClick={onClose} className="inspector-close" title={t.inspector.close}>×</button>
       </header>
-      <label>场景描述（支持 @ 角色/资产；会喂给 Seedream 的故事板组合 prompt）
+      <label>{t.inspector.storyboardSceneLabel}
         <MentionTextarea
           rows={8}
           value={scenePrompt}
           onChange={setScenePrompt}
           options={buildStoryboardMentionOptions(shot, allAssets, session)}
-          placeholder="输入 @ 选择角色 / 场景 / 道具 / 风格资产；被 @ 的公开图片会作为 Seedream 4.5 参考图"
+          placeholder={t.inspector.storyboardScenePlaceholder}
         />
       </label>
       <div className="inspector-hint">
-        自动推算：{panelCount} 个面板 · {layout.replace("x", "×")} 布局。可在描述里用 `Beat 1:` / `Beat 2:` / `Frame 3:` 标出节拍，系统会按最大编号自动决定面板数。
+        {t.inspector.storyboardAutoLayout(panelCount, layout.replace("x", "×"))}
       </div>
 
       <label className="inspector-row" style={{ alignItems: "flex-start", gap: 8 }}>
@@ -968,26 +968,25 @@ function StoryboardInspector({ shot, asset, session, allAssets, visionReviewEnab
           style={{ marginTop: 4 }}
         />
         <span>
-          <strong>严格按时间顺序生成（sequential 模式）</strong>
+          <strong>{t.inspector.storyboardSequential}</strong>
           <small style={{ display: "block", color: "var(--muted, #888)", marginTop: 2 }}>
-            勾上后每个 panel 都用一次 Seedream（耗时 ~10s × {panelCount} 张）+ ffmpeg 拼网格。每张以前一张为参考，**Beat 顺序硬保证**——TL→TR→BL→BR 严格对应你写的 Beat 1/2/3。
-            建议在「场景描述」里用 `Beat 1: …` `Beat 2: …` 显式分段；不勾就走默认 group call 一次出图，更快但 Seedream 偶尔会乱序。
+            {t.inspector.storyboardSequentialHint(panelCount)}
           </small>
         </span>
       </label>
 
       <div className="inspector-section">
-        <strong>参考资产（跨分镜身份锚定）</strong>
-        <div className="inspector-hint">勾选=固定带去 Seedream；也可以在上面的场景描述里输入 @ 选择资产，server 会自动把被 @ 的公开图片作为 Seedream 4.5 参考图。未发布的本地 /media 图不会直接传给远端模型。</div>
+        <strong>{t.inspector.referenceAssets}</strong>
+        <div className="inspector-hint">{t.inspector.referenceAssetsHint}</div>
         <div className="inspector-ref-list">
-          {anchorCandidates.length === 0 && <div className="inspector-empty">本 session 还没有可作为参考的资产，先去左列建一个角色 / 场景资产。</div>}
+          {anchorCandidates.length === 0 && <div className="inspector-empty">{t.inspector.noReferenceAssets}</div>}
           {anchorCandidates.map((a) => {
             const checked = refIds.includes(a.id);
             const thumb = a.mediaUrl || a.imageUrl || a.referenceImageUrl;
             return (
               <label key={a.id} className={`inspector-ref-item ${checked ? "active" : ""}`}>
                 <input type="checkbox" checked={checked} onChange={() => toggleRef(a.id)} />
-                {thumb ? <img src={thumb} alt={a.name} /> : <div className="inspector-ref-empty">无图</div>}
+                {thumb ? <img src={thumb} alt={a.name} /> : <div className="inspector-ref-empty">{t.inspector.noImage}</div>}
                 <div className="inspector-ref-meta">
                   <strong>{a.name}</strong>
                   <small>{a.type}</small>
@@ -997,22 +996,22 @@ function StoryboardInspector({ shot, asset, session, allAssets, visionReviewEnab
           })}
         </div>
         {referenceAssets.length > 0 && (
-          <div className="inspector-hint">已选 {referenceAssets.length} 张：{referenceAssets.map((a) => a.name).join("、")}</div>
+          <div className="inspector-hint">{t.inspector.selectedReferenceImages(referenceAssets.length, referenceAssets.map((a) => a.name).join("、"))}</div>
         )}
       </div>
 
       <details className="inspector-fold" open={Boolean(composedDraft)}>
-        <summary>送给 Seedream 的最终 prompt（草稿，可改）</summary>
-        <textarea rows={10} value={composedDraft} onChange={(e) => setComposedDraft(e.target.value)} placeholder="点「预览组装」拉取一份默认值，再改" />
-        <div className="inspector-hint">空表示走默认组装；非空则下次「重新出图」原样使用这一份</div>
+        <summary>{t.inspector.seedreamFinalPrompt}</summary>
+        <textarea rows={10} value={composedDraft} onChange={(e) => setComposedDraft(e.target.value)} placeholder={t.inspector.previewComposePlaceholder} />
+        <div className="inspector-hint">{t.inspector.defaultComposeHint}</div>
       </details>
 
       <div className="inspector-actions">
         <button onClick={previewSeedreamGrid} disabled={Boolean(busy)}>
-          {busy === "preview" ? "..." : "预览组装"}
+          {busy === "preview" ? "..." : t.inspector.previewCompose}
         </button>
         <button onClick={regenerate} disabled={Boolean(busy)} className="primary">
-          {busy === "generate" ? "..." : asset ? "重新出图" : "生成分镜板"}
+          {busy === "generate" ? "..." : asset ? t.inspector.regenerateImage : t.inspector.generateStoryboard}
         </button>
       </div>
       {asset && assetPreviewUrl(asset) && (
@@ -1022,35 +1021,35 @@ function StoryboardInspector({ shot, asset, session, allAssets, visionReviewEnab
           download={`storyboard-${shot.title || `shot-${shot.index}`}.png`}
           onClick={() => emitDownloadToast(`storyboard-${shot.title || `shot-${shot.index}`}.png`)}
         >
-          ⬇ 下载分镜板原图
+          {t.inspector.downloadStoryboard}
         </a>
       )}
       {asset && assetPreviewUrl(asset) && (
         <details className="inspector-fold" open>
-          <summary>当前分镜板预览（点开看大图）</summary>
+          <summary>{t.inspector.currentStoryboardPreview}</summary>
           <ZoomablePreview
             url={assetPreviewUrl(asset) as string}
             mediaKind="image"
-            title={`${shot.title || `Shot ${shot.index}`} · 分镜板`}
+            title={t.inspector.storyboardTitle(shot.title || `Shot ${shot.index}`)}
             downloadUrl={api.downloadAssetUrl(asset.id)}
             downloadFilename={`storyboard-${shot.title || `shot-${shot.index}`}.png`}
             generatedAt={asset.generatedAt}
-            generatedLabel="分镜板生成时间"
+            generatedLabel={t.inspector.storyboardGeneratedAt}
             fallbackAt={asset.createdAt}
-            fallbackLabel="创建时间"
+            fallbackLabel={t.inspector.createdAt}
           />
         </details>
       )}
 
       {asset?.composedPrompt && (
         <details className="inspector-fold">
-          <summary>上次实际送出的 prompt（审计）{formatActualImageModel(asset) ? ` · ${formatActualImageModel(asset)}` : ""}</summary>
+          <summary>{t.inspector.lastPromptAudit}{formatActualImageModel(asset) ? ` · ${formatActualImageModel(asset)}` : ""}</summary>
           <pre className="inspector-pre">{asset.composedPrompt}</pre>
         </details>
       )}
       {asset?.referenceImageUrls?.length ? (
         <details className="inspector-fold">
-          <summary>上次实际带去的参考图 ({asset.referenceImageUrls.length})</summary>
+          <summary>{t.inspector.lastReferenceImages(asset.referenceImageUrls.length)}</summary>
           <div className="inspector-ref-thumbs">
             {asset.referenceImageUrls.map((url, i) => (
               <img key={i} src={url} alt={`ref-${i}`} />
@@ -1256,6 +1255,8 @@ function ShotInspector({ shot, session, allAssets, visionReviewEnabled, onMutate
   const [title, setTitle] = useState<string>(shot.title || "");
   const [busy, setBusy] = useState<"" | "preview" | "save" | "generate" | "rename" | "derive-switch" | "restore" | "delete-render" | "review" | "tailframe">("");
   const [error, setError] = useState<string>("");
+  const { lang, t } = useI18n();
+  const tr = (zh: string, en: string) => (lang === "en" ? en : zh);
   const [showFailedHistory, setShowFailedHistory] = useState(false);
   // The rawPrompt value as it was when composedDraft (#2) was last regenerated. Used to detect
   // staleness — when #1 (rawPrompt) has been edited since #2 was composed, the user could be
@@ -1446,10 +1447,10 @@ function ShotInspector({ shot, session, allAssets, visionReviewEnabled, onMutate
   return (
     <aside className="inspector">
       <header>
-        <span className="inspector-tag">视频 · Shot {shot.index}</span>
-        <button onClick={onClose} className="inspector-close">×</button>
+        <span className="inspector-tag">{tr("视频", "Video")} · Shot {shot.index}</span>
+        <button onClick={onClose} className="inspector-close" title={t.inspector.close}>×</button>
       </header>
-      <label>分镜名称
+      <label>{tr("分镜名称", "Shot name")}
         <input
           value={title}
           onChange={(e) => setTitle(e.target.value)}
@@ -1461,32 +1462,36 @@ function ShotInspector({ shot, session, allAssets, visionReviewEnabled, onMutate
       </label>
       {refVideoTooLong && (
         <div className="inspector-section" style={{ borderLeft: "3px solid #fbbf24", paddingLeft: 10 }}>
-          <strong>⚠️ 参考视频超过 Seedance 15.2s 上限</strong>
+          <strong>{tr("⚠️ 参考视频超过 Seedance 15.2s 上限", "⚠️ Reference video exceeds Seedance's 15.2s limit")}</strong>
           <div className="inspector-hint">
-            绑定的参考视频时长超出限制,Seedance 拒绝了上次提交。点下面的按钮会:产出一个截前 15s 的派生剪裁节点,并把本分镜的参考视频切到新派生上。原参考视频不动。
+            {tr("绑定的参考视频时长超出限制,Seedance 拒绝了上次提交。点下面的按钮会:产出一个截前 15s 的派生剪裁节点,并把本分镜的参考视频切到新派生上。原参考视频不动。", "The bound reference video is too long and Seedance rejected the last submission. The button below creates a derived first-15s clip and switches this shot to that derivative. The original reference video is untouched.")}
           </div>
           <div className="inspector-actions">
             <button onClick={deriveAndSwitch} disabled={Boolean(busy)} className="primary">
-              {busy === "derive-switch" ? "..." : "派生 15s 剪裁版并切换"}
+              {busy === "derive-switch" ? "..." : tr("派生 15s 剪裁版并切换", "Derive 15s clip and switch")}
             </button>
           </div>
           <details className="inspector-fold">
-            <summary>原始错误</summary>
+            <summary>{tr("原始错误", "Raw error")}</summary>
             <pre style={{ whiteSpace: "pre-wrap", fontSize: 11 }}>{shot.error}</pre>
           </details>
         </div>
       )}
-      <label>场景描述 / 6 字段动作 prompt
+      <label>{tr("场景描述 / 6 字段动作 prompt", "Scene description / 6-field action prompt")}
         <MentionTextarea
           value={rawPrompt}
           onChange={setRawPrompt}
           rows={10}
           options={buildShotMentionOptions(shot, allAssets, session)}
-          placeholder={[
+          placeholder={(lang === "en" ? [
+            "Write the action prompt for this shot.",
+            "Tip: image assets connected to the Shot are automatically used as Seedance reference images; a reference video must be @-mentioned in the prompt to be sent as reference_video.",
+            "First/last-frame or storyboard mode overrides ordinary reference images. Type @ to choose assets / reference videos / storyboards."
+          ] : [
             "写这一镜的动作 prompt。",
             "提示: 连到 Shot 的图片资产会自动作为 Seedance 参考图; 参考视频需要在 prompt 里 @ 它才会作为 reference_video 传入。",
             "启用首尾帧或分镜板模式时,普通参考图会被覆盖。输入 @ 可选择资产 / 参考视频 / 分镜板。"
-          ].join("\n")}
+          ]).join("\n")}
         />
       </label>
       {/* Compact reminder of which references are wired in. The autocomplete (typing @ inside the
@@ -1501,40 +1506,40 @@ function ShotInspector({ shot, session, allAssets, visionReviewEnabled, onMutate
         }}
       />
       <div className="inspector-row">
-        <label>时长 (秒)<input type="number" min={1} max={15} value={durationSec} onChange={(e) => setDurationSec(Number(e.target.value) || 12)} /></label>
-        <label>状态<input value={status} disabled /></label>
+        <label>{tr("时长 (秒)", "Duration (sec)")}<input type="number" min={1} max={15} value={durationSec} onChange={(e) => setDurationSec(Number(e.target.value) || 12)} /></label>
+        <label>{tr("状态", "Status")}<input value={status} disabled /></label>
       </div>
       <div className="inspector-section">
-        <label className="vision-review-toggle" title="勾选后，这个视频用 first_frame / last_frame 模式；不勾选则走默认参考图 / 参考视频模式。">
+        <label className="vision-review-toggle" title={tr("勾选后，这个视频用 first_frame / last_frame 模式；不勾选则走默认参考图 / 参考视频模式。", "When checked, this video uses first_frame / last_frame mode; unchecked uses default reference-image / reference-video mode.")}>
           <input
             type="checkbox"
             checked={firstLastModeEnabled}
             disabled={Boolean(busy)}
             onChange={(e) => { void updateFirstLastFrameMode(e.target.checked); }}
           />
-          使用首尾帧模式（不勾选=默认参考图/参考视频）
+          {tr("使用首尾帧模式（不勾选=默认参考图/参考视频）", "Use first/last-frame mode (unchecked = default references)")}
         </label>
         {firstLastModeEnabled && (
           <div className="inspector-row">
-            <label>首帧参考
+            <label>{tr("首帧参考", "First-frame reference")}
               <select
                 value={shot.firstFrameAssetId || ""}
                 disabled={Boolean(busy)}
                 onChange={(e) => { void updateFrameAnchor("firstFrameAssetId", e.target.value); }}
               >
-                <option value="">未选择</option>
+                <option value="">{tr("未选择", "None")}</option>
                 {frameCandidates.map((asset) => (
                   <option key={asset.id} value={asset.id}>{asset.name}</option>
                 ))}
               </select>
             </label>
-            <label>尾帧参考
+            <label>{tr("尾帧参考", "Last-frame reference")}
               <select
                 value={shot.lastFrameAssetId || ""}
                 disabled={Boolean(busy)}
                 onChange={(e) => { void updateFrameAnchor("lastFrameAssetId", e.target.value); }}
               >
-                <option value="">未选择</option>
+                <option value="">{tr("未选择", "None")}</option>
                 {frameCandidates.map((asset) => (
                   <option key={asset.id} value={asset.id}>{asset.name}</option>
                 ))}
@@ -1543,10 +1548,10 @@ function ShotInspector({ shot, session, allAssets, visionReviewEnabled, onMutate
           </div>
         )}
         <div className="inspector-hint">
-          连接进这个视频节点的尾帧/帧锚点会出现在候选里；拖尾帧节点到视频节点会自动设为首帧。
+          {tr("连接进这个视频节点的尾帧/帧锚点会出现在候选里；拖尾帧节点到视频节点会自动设为首帧。", "Tail-frame/frame-anchor nodes connected to this video appear as candidates; dragging a tail-frame node to a video node sets it as the first-frame reference.")}
         </div>
       </div>
-      <label className="vision-review-toggle" title="勾选后，这个视频节点参与 VLM 审核；审核失败可一键修当前/前序依赖 prompt。">
+      <label className="vision-review-toggle" title={tr("勾选后，这个视频节点参与 VLM 审核；审核失败可一键修当前/前序依赖 prompt。", "When checked, this video node participates in VLM review; failed review can repair current/upstream prompts.")}>
         <input
           type="checkbox"
           checked={shot.vlmReviewEnabled !== false}
@@ -1555,10 +1560,10 @@ function ShotInspector({ shot, session, allAssets, visionReviewEnabled, onMutate
             await onMutated();
           }}
         />
-        VLM 审核此节点
+        {tr("VLM 审核此节点", "VLM review this node")}
       </label>
       <ReviewSummaryCard
-        label="最近一次 VLM 审片"
+        label={tr("最近一次 VLM 审片", "Latest VLM video review")}
         verdict={latestVideoReview}
         status={latestVideoReviewStatus}
         error={latestVideoReviewError}
@@ -1566,50 +1571,49 @@ function ShotInspector({ shot, session, allAssets, visionReviewEnabled, onMutate
       />
       <details className="inspector-fold" open={Boolean(composedDraft) || composedDraftStale}>
         <summary>
-          送给 Seedance 的最终 prompt（草稿，可改）
-          {composedDraftStale && <span className="inspector-stale-tag">⚠ 与 #1 不同步</span>}
+          {tr("送给 Seedance 的最终 prompt（草稿，可改）", "Final prompt sent to Seedance (draft, editable)")}
+          {composedDraftStale && <span className="inspector-stale-tag">{tr("⚠ 与 #1 不同步", "⚠ Out of sync with #1")}</span>}
         </summary>
         {composedDraftStale && (
           <div className="inspector-stale-warn">
             <span>
-              你改了上面的「场景描述」，但这份组装结果还是旧版本——下次「出片」会用这份旧的 text 内容。
-              （@-mention 的参考图 / 视频按 #1 实时生效，**只有文字描述部分**会沿用旧版本。）
+              {tr("你改了上面的「场景描述」，但这份组装结果还是旧版本——下次「出片」会用这份旧的 text 内容。（@-mention 的参考图 / 视频按 #1 实时生效，只有文字描述部分会沿用旧版本。）", "You changed the scene description above, but this composition is still the old version. The next generation will use this old text. @-mentioned image/video references still update from #1; only the written description remains old.")}
             </span>
             <div className="inspector-stale-actions">
               <button
                 onClick={previewSeedancePrompt}
                 disabled={Boolean(busy)}
-                title="按当前 #1 重新组装一份新的 #2"
+                title={tr("按当前 #1 重新组装一份新的 #2", "Recompose a new #2 from the current #1")}
               >
-                {busy === "preview" ? "..." : "重新组装"}
+                {busy === "preview" ? "..." : tr("重新组装", "Recompose")}
               </button>
               <button
                 onClick={() => {
                   setComposedDraft("");
                   setComposedDraftBasis(rawPrompt);
                 }}
-                title="清空 #2，下次出片让 server 自动按 #1 现场组装"
+                title={tr("清空 #2，下次出片让 server 自动按 #1 现场组装", "Clear #2; next generation lets the server compose from #1 automatically")}
               >
-                清空 #2（走自动）
+                {tr("清空 #2（走自动）", "Clear #2 (auto)")}
               </button>
             </div>
           </div>
         )}
-        <textarea rows={12} value={composedDraft} onChange={(e) => setComposedDraft(e.target.value)} placeholder="点「预览组装」拉取一份完整的中文组装结果，再改" />
-        <div className="inspector-hint">空表示走默认组装；非空则下次「出片」原样使用这一份</div>
+        <textarea rows={12} value={composedDraft} onChange={(e) => setComposedDraft(e.target.value)} placeholder={tr("点「预览组装」拉取一份完整的中文组装结果，再改", "Click “Preview composition” to fetch a complete composed result, then edit it")} />
+        <div className="inspector-hint">{tr("空表示走默认组装；非空则下次「出片」原样使用这一份", "Empty means default composition; non-empty means the next generation uses this text verbatim")}</div>
       </details>
       <div className="inspector-actions">
         <button onClick={previewSeedancePrompt} disabled={Boolean(busy)}>
-          {busy === "preview" ? "..." : "预览组装"}
+          {busy === "preview" ? "..." : t.inspector.previewCompose}
         </button>
         <button onClick={save} disabled={Boolean(busy)}>
-          {busy === "save" ? "..." : "保存"}
+          {busy === "save" ? "..." : tr("保存", "Save")}
         </button>
         <button onClick={regenerate} disabled={Boolean(busy) || generating} className="primary">
-          {busy === "generate" || generating ? "生成中..." : shot.videoUrl ? "重生" : "出片"}
+          {busy === "generate" || generating ? t.nodes.generating + "..." : shot.videoUrl ? tr("重生", "Regenerate") : tr("出片", "Generate video")}
         </button>
         <button onClick={reviewShot} disabled={Boolean(busy) || generating || !shot.videoUrl}>
-          {busy === "review" ? "审片中..." : "VLM 审片"}
+          {busy === "review" ? tr("审片中...", "Reviewing...") : tr("VLM 审片", "VLM review")}
         </button>
         <button
           onClick={async () => {
@@ -1617,12 +1621,12 @@ function ShotInspector({ shot, session, allAssets, visionReviewEnabled, onMutate
             try {
               await api.repairShotPromptsFromReview(shot.id);
               await onMutated();
-            } catch (err) { setError(err instanceof Error ? err.message : "修 prompt 失败"); }
+            } catch (err) { setError(err instanceof Error ? err.message : tr("修 prompt 失败", "Prompt repair failed")); }
             finally { setBusy(""); }
           }}
           disabled={Boolean(busy) || generating || !(shot.videoReview || (shot.renders || []).some((r) => r.videoReview))}
         >
-          修 Prompt
+          {tr("修 Prompt", "Repair prompt")}
         </button>
         {/*
          * Explicit "delete shot" button. Canvas-keyboard delete (Delete / Backspace) also works,
@@ -1632,10 +1636,10 @@ function ShotInspector({ shot, session, allAssets, visionReviewEnabled, onMutate
         <button
           onClick={async () => {
             if (shot.status === "generating") {
-              window.alert("该分镜正在生成中，完成或取消后再删除。");
+              window.alert(tr("该分镜正在生成中，完成或取消后再删除。", "This shot is generating. Delete it after it completes or is cancelled."));
               return;
             }
-            if (!window.confirm(`删除「${shot.title || `Shot ${shot.index}`}」？删除后可在画布顶部「↶ 撤销」恢复。`)) return;
+            if (!window.confirm(tr(`删除「${shot.title || `Shot ${shot.index}`}」？删除后可在画布顶部「↶ 撤销」恢复。`, `Delete “${shot.title || `Shot ${shot.index}`}”? You can restore it with “↶ Undo” in the canvas toolbar.`))) return;
             setBusy("delete-render"); setError("");
             try {
               if (onDeleteCanvasShot) {
@@ -1651,14 +1655,14 @@ function ShotInspector({ shot, session, allAssets, visionReviewEnabled, onMutate
               }
               onClose();
             } catch (err) {
-              setError(err instanceof Error ? err.message : "删除失败");
+              setError(err instanceof Error ? err.message : t.inspector.deleteFailed);
             } finally { setBusy(""); }
           }}
           disabled={Boolean(busy) || shot.status === "generating"}
           className="danger"
-          title={shot.status === "generating" ? "生成中不能删除，先取消或等完成" : "删除这一镜（可撤销）"}
+          title={shot.status === "generating" ? tr("生成中不能删除，先取消或等完成", "Cannot delete while generating; cancel or wait for completion") : tr("删除这一镜（可撤销）", "Delete this shot (undoable)")}
         >
-          {busy === "delete-render" ? "..." : "删除"}
+          {busy === "delete-render" ? "..." : t.inspector.delete}
         </button>
       </div>
       {/* Opt-in to sub-storyboard mode: only emit the StoryboardNode placeholder once the user
@@ -1671,9 +1675,9 @@ function ShotInspector({ shot, session, allAssets, visionReviewEnabled, onMutate
             await api.updateShot(shot.id, { subShotPanelCount: 9 });
             await onMutated();
           }}
-          title="为这个 shot 启用「分镜板」工作流：打开后画布会出现一个空白分镜板节点，点开能编辑参数 + 出图"
+          title={tr("为这个 shot 启用「分镜板」工作流：打开后画布会出现一个空白分镜板节点，点开能编辑参数 + 出图", "Enable the storyboard workflow for this shot: an empty storyboard node appears on the canvas; open it to edit parameters and generate")}
         >
-          + 启用分镜板（3×3）
+          {tr("+ 启用分镜板（3×3）", "+ Enable storyboard (3×3)")}
         </button>
       )}
       {currentVideoReady && (
@@ -1683,7 +1687,7 @@ function ShotInspector({ shot, session, allAssets, visionReviewEnabled, onMutate
           download={`${shot.title || `shot-${shot.index}`}.mp4`}
           onClick={() => emitDownloadToast(`${shot.title || `shot-${shot.index}`}.mp4`)}
         >
-          ⬇ 下载本镜 mp4
+          {tr("⬇ 下载本镜 mp4", "⬇ Download this shot mp4")}
         </a>
       )}
       {currentVideoReady && (
@@ -1691,14 +1695,14 @@ function ShotInspector({ shot, session, allAssets, visionReviewEnabled, onMutate
           className="ghost-action"
           onClick={createTailframe}
           disabled={Boolean(busy)}
-          title="从当前视频最后一帧抽图，生成一个可拖线连接到后续视频的尾帧节点"
+          title={tr("从当前视频最后一帧抽图，生成一个可拖线连接到后续视频的尾帧节点", "Extract the current video's final frame and create a tail-frame node that can connect to later videos")}
         >
-          {busy === "tailframe" ? "..." : "+ 生成尾帧节点"}
+          {busy === "tailframe" ? "..." : tr("+ 生成尾帧节点", "+ Generate tail-frame node")}
         </button>
       )}
       {latestTailframe && assetPreviewUrl(latestTailframe) && (
         <details className="inspector-fold">
-          <summary>最近尾帧节点预览</summary>
+          <summary>{tr("最近尾帧节点预览", "Latest tail-frame node preview")}</summary>
           <ZoomablePreview
             url={assetPreviewUrl(latestTailframe) as string}
             mediaKind="image"
@@ -1706,43 +1710,43 @@ function ShotInspector({ shot, session, allAssets, visionReviewEnabled, onMutate
             downloadUrl={api.downloadAssetUrl(latestTailframe.id)}
             downloadFilename={`${latestTailframe.name}.png`}
             generatedAt={latestTailframe.generatedAt}
-            generatedLabel="尾帧生成时间"
+            generatedLabel={tr("尾帧生成时间", "Tail frame generated at")}
             fallbackAt={latestTailframe.createdAt}
-            fallbackLabel="创建时间"
+            fallbackLabel={t.inspector.createdAt}
           />
-          <div className="inspector-hint">画布上可把这个尾帧节点拖线连接到后续视频节点，作为该视频的首帧参考。</div>
+          <div className="inspector-hint">{tr("画布上可把这个尾帧节点拖线连接到后续视频节点，作为该视频的首帧参考。", "On the canvas, drag this tail-frame node to a later video node to use it as that video's first-frame reference.")}</div>
         </details>
       )}
       {generating ? (
         <details className="inspector-fold" open>
-          <summary>当前视频（点开放大播放）</summary>
+          <summary>{tr("当前视频（点开放大播放）", "Current video (click to enlarge)")}</summary>
           <div className="inspector-generating-preview" role="status" aria-live="polite">
             <span className="flow-empty-spinner" aria-hidden />
             <strong>{generatingLabel}…</strong>
-            {generatingElapsed && <small>已用时 {generatingElapsed}</small>}
-            {shot.videoUrl && <p>新视频还没完成，暂不显示旧视频，避免误判新旧结果。</p>}
+            {generatingElapsed && <small>{t.nodes.elapsed(generatingElapsed)}</small>}
+            {shot.videoUrl && <p>{tr("新视频还没完成，暂不显示旧视频，避免误判新旧结果。", "The new video is not ready yet, so the old video is hidden to avoid confusing old and new results.")}</p>}
           </div>
         </details>
       ) : currentVideoReady ? (
         <details className="inspector-fold" open>
-          <summary>当前视频（点开放大播放）</summary>
+          <summary>{tr("当前视频（点开放大播放）", "Current video (click to enlarge)")}</summary>
           <ZoomablePreview
             url={api.shotStreamUrl(shot.id, videoCacheKey)}
             mediaKind="video"
-            title={`${shot.title || `Shot ${shot.index}`} · 视频`}
+            title={`${shot.title || `Shot ${shot.index}`} · ${t.nodes.video}`}
             downloadUrl={api.downloadShotUrl(shot.id)}
             downloadFilename={`${shot.title || `shot-${shot.index}`}.mp4`}
             generatedAt={currentRender?.videoGeneratedAt || shot.videoGeneratedAt}
-            generatedLabel="视频生成时间"
+            generatedLabel={tr("视频生成时间", "Video generated at")}
             fallbackAt={currentRender?.createdAt}
-            fallbackLabel="提交时间"
+            fallbackLabel={tr("提交时间", "Submitted at")}
           />
         </details>
       ) : null}
       {currentVideoReady && (() => {
         return (
           <details className="inspector-fold" open>
-            <summary>VLM 审片结果</summary>
+            <summary>{tr("VLM 审片结果", "VLM video review result")}</summary>
             <VideoReviewCard
               verdict={latestVideoReview}
               status={latestVideoReviewStatus}
@@ -1756,7 +1760,7 @@ function ShotInspector({ shot, session, allAssets, visionReviewEnabled, onMutate
         if (generating || !latestRender?.composedPrompt) return null;
         return (
           <details className="inspector-fold">
-            <summary>上次实际送出的 prompt（审计）</summary>
+            <summary>{t.inspector.lastPromptAudit}</summary>
             <pre className="inspector-pre">{latestRender.composedPrompt}</pre>
           </details>
         );
@@ -1774,28 +1778,28 @@ function ShotInspector({ shot, session, allAssets, visionReviewEnabled, onMutate
         if (!previous.length) return null;
         const hiddenFailedCount = previous.length - previous.filter((r) => r.videoUrl).length;
         const restoreRender = async (renderId: string) => {
-          if (!window.confirm("用这个历史版本覆盖当前结果？\n（当前 videoUrl 仍保留在历史里，可随时再切回。）")) return;
+          if (!window.confirm(tr("用这个历史版本覆盖当前结果？\n（当前 videoUrl 仍保留在历史里，可随时再切回。）", "Restore this history version as the current result?\nThe current videoUrl stays in history and can be switched back later."))) return;
           setBusy("restore"); setError("");
           try {
             await api.restoreShotRender(shot.id, renderId);
             await onMutated();
           } catch (err) {
-            setError(err instanceof Error ? err.message : "恢复失败");
+            setError(err instanceof Error ? err.message : tr("恢复失败", "Restore failed"));
           } finally { setBusy(""); }
         };
         const deleteRender = async (renderId: string) => {
-          if (!window.confirm("删除这一条历史版本？此操作不可撤销。")) return;
+          if (!window.confirm(tr("删除这一条历史版本？此操作不可撤销。", "Delete this history version? This cannot be undone."))) return;
           setBusy("delete-render"); setError("");
           try {
             await api.deleteShotRender(shot.id, renderId);
             await onMutated();
           } catch (err) {
-            setError(err instanceof Error ? err.message : "删除失败");
+            setError(err instanceof Error ? err.message : t.inspector.deleteFailed);
           } finally { setBusy(""); }
         };
         return (
           <details className="inspector-fold">
-            <summary>历史版本（{visible.length}{hiddenFailedCount && !showFailedHistory ? ` · 隐藏失败 ${hiddenFailedCount}` : ""}）</summary>
+            <summary>{tr("历史版本", "History")}（{visible.length}{hiddenFailedCount && !showFailedHistory ? ` · ${tr("隐藏失败", "hidden failed")} ${hiddenFailedCount}` : ""}）</summary>
             {hiddenFailedCount > 0 && (
               <label className="inspector-hint" style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 8 }}>
                 <input
@@ -1803,16 +1807,16 @@ function ShotInspector({ shot, session, allAssets, visionReviewEnabled, onMutate
                   checked={showFailedHistory}
                   onChange={(e) => setShowFailedHistory(e.target.checked)}
                 />
-                显示失败/未完成的记录
+                {tr("显示失败/未完成的记录", "Show failed/incomplete records")}
               </label>
             )}
             {visible.length === 0 && (
-              <div className="inspector-hint">暂无历史版本。</div>
+              <div className="inspector-hint">{tr("暂无历史版本。", "No history versions yet.")}</div>
             )}
             {visible.map((render) => {
               const tsSource = render.videoGeneratedAt || render.createdAt;
               const ts = formatMediaTime(tsSource) || "";
-              const tsLabel = render.videoGeneratedAt ? "生成时间" : "提交时间";
+              const tsLabel = render.videoGeneratedAt ? tr("生成时间", "Generated at") : tr("提交时间", "Submitted at");
               const playable = Boolean(render.videoUrl);
               return (
                 <div key={render.id} className="inspector-history-item">
@@ -1827,24 +1831,24 @@ function ShotInspector({ shot, session, allAssets, visionReviewEnabled, onMutate
                     <ZoomablePreview
                       url={api.shotStreamUrl(shot.id, render.id)}
                       mediaKind="video"
-                      title={`${shot.title || `Shot ${shot.index}`} · ${ts || "历史版本"}`}
+                      title={`${shot.title || `Shot ${shot.index}`} · ${ts || tr("历史版本", "History version")}`}
                       downloadUrl={api.downloadShotUrl(shot.id)}
                       downloadFilename={`${shot.title || `shot-${shot.index}`}-${render.id}.mp4`}
                       generatedAt={render.videoGeneratedAt}
-                      generatedLabel="生成时间"
+                      generatedLabel={tr("生成时间", "Generated at")}
                       fallbackAt={render.createdAt}
-                      fallbackLabel="提交时间"
+                      fallbackLabel={tr("提交时间", "Submitted at")}
                     />
                   )}
                   {render.composedPrompt && (
                     <details>
-                      <summary>查看送出的 prompt</summary>
+                      <summary>{tr("查看送出的 prompt", "View submitted prompt")}</summary>
                       <pre className="inspector-pre">{render.composedPrompt}</pre>
                     </details>
                   )}
                   {(render.videoReview || render.videoReviewStatus || render.videoReviewError) && (
                     <details>
-                      <summary>VLM 审片</summary>
+                      <summary>{tr("VLM 审片", "VLM review")}</summary>
                       <VideoReviewCard verdict={render.videoReview} status={render.videoReviewStatus} error={render.videoReviewError} />
                     </details>
                   )}
@@ -1855,9 +1859,9 @@ function ShotInspector({ shot, session, allAssets, visionReviewEnabled, onMutate
                         type="button"
                         onClick={() => restoreRender(render.id)}
                         disabled={Boolean(busy)}
-                        title="把这一条历史版本切换为当前结果"
+                        title={tr("把这一条历史版本切换为当前结果", "Switch this history version to the current result")}
                       >
-                        {busy === "restore" ? "..." : "恢复此版本"}
+                        {busy === "restore" ? "..." : tr("恢复此版本", "Restore this version")}
                       </button>
                     )}
                     <button
@@ -1866,7 +1870,7 @@ function ShotInspector({ shot, session, allAssets, visionReviewEnabled, onMutate
                       onClick={() => deleteRender(render.id)}
                       disabled={Boolean(busy)}
                     >
-                      {busy === "delete-render" ? "..." : "删除"}
+                      {busy === "delete-render" ? "..." : t.inspector.delete}
                     </button>
                   </div>
                 </div>
@@ -1894,6 +1898,8 @@ function StitchInspector({ session, job, legacy, onMutated, onClose }: {
 }) {
   const [busy, setBusy] = useState<"" | "stitch" | "review" | "repair" | "order">("");
   const [error, setError] = useState<string>("");
+  const { lang, t } = useI18n();
+  const tr = (zh: string, en: string) => (lang === "en" ? en : zh);
 
   const orderedShots = (session.shots || []).slice().sort((a, b) => a.index - b.index);
   const shotById = new Map(orderedShots.map((shot) => [shot.id, shot]));
@@ -1909,7 +1915,7 @@ function StitchInspector({ session, job, legacy, onMutated, onClose }: {
   const isStitching = job.status === "running";
   const finalCacheKey = job.finalVideoGeneratedAt || job.finalVideoUrl || job.finalVideoSignature || job.updatedAt;
   const jobId = legacy ? undefined : job.id;
-  const title = job.name || "完整视频";
+  const title = job.name || t.nodes.fullVideo;
 
   const saveOrder = async (nextIds: string[]) => {
     setBusy("order"); setError("");
@@ -1930,7 +1936,7 @@ function StitchInspector({ session, job, legacy, onMutated, onClose }: {
         });
       }
       await onMutated();
-    } catch (err) { setError(err instanceof Error ? err.message : "保存拼接顺序失败"); }
+    } catch (err) { setError(err instanceof Error ? err.message : tr("保存拼接顺序失败", "Failed to save stitch order")); }
     finally { setBusy(""); }
   };
 
@@ -1947,7 +1953,7 @@ function StitchInspector({ session, job, legacy, onMutated, onClose }: {
     try {
       await api.stitch(session.id, { force: explicitMode, jobId });
       await onMutated();
-    } catch (err) { setError(err instanceof Error ? err.message : "拼接失败"); }
+    } catch (err) { setError(err instanceof Error ? err.message : tr("拼接失败", "Stitch failed")); }
     finally { setBusy(""); }
   };
 
@@ -1956,7 +1962,7 @@ function StitchInspector({ session, job, legacy, onMutated, onClose }: {
     try {
       await api.reviewFinalVideo(session.id, jobId);
       await onMutated();
-    } catch (err) { setError(err instanceof Error ? err.message : "VLM 终审失败"); }
+    } catch (err) { setError(err instanceof Error ? err.message : tr("VLM 终审失败", "Final VLM review failed")); }
     finally { setBusy(""); }
   };
 
@@ -1965,37 +1971,37 @@ function StitchInspector({ session, job, legacy, onMutated, onClose }: {
     try {
       await api.repairFinalPromptsFromReview(session.id, jobId);
       await onMutated();
-    } catch (err) { setError(err instanceof Error ? err.message : "终审修 Prompt 失败"); }
+    } catch (err) { setError(err instanceof Error ? err.message : tr("终审修 Prompt 失败", "Final-review prompt repair failed")); }
     finally { setBusy(""); }
   };
 
   return (
     <aside className="inspector">
       <header>
-        <span className="inspector-tag">拼接 · {title}</span>
-        <button onClick={onClose} className="inspector-close">×</button>
+        <span className="inspector-tag">{t.nodes.stitch} · {title}</span>
+        <button onClick={onClose} className="inspector-close" title={t.inspector.close}>×</button>
       </header>
       <div className="inspector-section">
-        <div>共 {session.shots?.length || 0} 个分镜，目标 {session.targetDurationSec}s。</div>
+        <div>{tr(`共 ${session.shots?.length || 0} 个分镜，目标 ${session.targetDurationSec}s。`, `${session.shots?.length || 0} shots · target ${session.targetDurationSec}s.`)}</div>
         <div className="inspector-hint">
-          {explicitMode ? "将按连接到这个拼接节点的顺序合成视频。" : "未连接视频时，将按分镜顺序拼接全片。"}
+          {explicitMode ? tr("将按连接到这个拼接节点的顺序合成视频。", "The video will be stitched in the order connected to this stitch node.") : tr("未连接视频时，将按分镜顺序拼接全片。", "With no connected videos, the full film is stitched by shot order.")}
         </div>
       </div>
       <div className="inspector-section">
-        <strong>拼接顺序</strong>
+        <strong>{tr("拼接顺序", "Stitch order")}</strong>
         {!explicitMode ? (
           <>
-            <div className="inspector-hint">拖拽视频节点连接到这个拼接节点即可自定义顺序。多个拼接节点互不影响。</div>
+            <div className="inspector-hint">{tr("拖拽视频节点连接到这个拼接节点即可自定义顺序。多个拼接节点互不影响。", "Drag video nodes into this stitch node to customize order. Multiple stitch nodes are independent.")}</div>
             {missingShotIds.length > 0 && (
               <div className="inspector-error">
-                存在 {missingShotIds.length} 个失效镜头引用：{missingShotIds.join(", ")}
+                {tr(`存在 ${missingShotIds.length} 个失效镜头引用：${missingShotIds.join(", ")}`, `${missingShotIds.length} invalid shot references: ${missingShotIds.join(", ")}`)}
                 <button
                   type="button"
                   className="ghost-action"
                   onClick={() => saveOrder(explicitIds.filter((id) => !missingShotIds.includes(id)))}
                   disabled={Boolean(busy)}
                 >
-                  移除失效引用
+                  {tr("移除失效引用", "Remove invalid references")}
                 </button>
               </div>
             )}
@@ -2005,21 +2011,21 @@ function StitchInspector({ session, job, legacy, onMutated, onClose }: {
               onClick={() => saveOrder(orderedShots.map((s) => s.id))}
               disabled={Boolean(busy) || orderedShots.length === 0}
             >
-              用当前分镜建立顺序
+              {tr("用当前分镜建立顺序", "Build order from current shots")}
             </button>
           </>
         ) : (
           <div className="inspector-history-list">
             {missingShotIds.length > 0 && (
               <div className="inspector-error">
-                存在 {missingShotIds.length} 个失效镜头引用：{missingShotIds.join(", ")}
+                {tr(`存在 ${missingShotIds.length} 个失效镜头引用：${missingShotIds.join(", ")}`, `${missingShotIds.length} invalid shot references: ${missingShotIds.join(", ")}`)}
                 <button
                   type="button"
                   className="ghost-action"
                   onClick={() => saveOrder(explicitIds.filter((id) => !missingShotIds.includes(id)))}
                   disabled={Boolean(busy)}
                 >
-                  移除失效引用
+                  {tr("移除失效引用", "Remove invalid references")}
                 </button>
               </div>
             )}
@@ -2029,8 +2035,8 @@ function StitchInspector({ session, job, legacy, onMutated, onClose }: {
                 return (
                   <div key={`${shotId}-${index}`} className="inspector-history-item">
                     <div className="inspector-history-meta">
-                      <strong>{index + 1}. 失效镜头引用：{shotId}</strong>
-                      <span className="inspector-history-status">已删除/已替换</span>
+                      <strong>{index + 1}. {tr(`失效镜头引用：${shotId}`, `Invalid shot reference: ${shotId}`)}</strong>
+                      <span className="inspector-history-status">{tr("已删除/已替换", "Deleted/replaced")}</span>
                     </div>
                     <div className="inspector-history-actions">
                       <button
@@ -2039,7 +2045,7 @@ function StitchInspector({ session, job, legacy, onMutated, onClose }: {
                         onClick={() => saveOrder(explicitIds.filter((_, i) => i !== index))}
                         disabled={Boolean(busy)}
                       >
-                        移除
+                        {tr("移除", "Remove")}
                       </button>
                     </div>
                   </div>
@@ -2049,18 +2055,18 @@ function StitchInspector({ session, job, legacy, onMutated, onClose }: {
                 <div key={`${shotId}-${index}`} className="inspector-history-item">
                   <div className="inspector-history-meta">
                     <strong>{index + 1}. {shot.title || `Shot ${shot.index}`}</strong>
-                    <span className="inspector-history-status">{shot.videoUrl ? "已生成" : "未生成"}</span>
+                    <span className="inspector-history-status">{shot.videoUrl ? t.nodes.statusReady : t.nodes.notGenerated}</span>
                   </div>
                   <div className="inspector-history-actions">
-                    <button type="button" onClick={() => move(index, -1)} disabled={Boolean(busy) || index === 0}>上移</button>
-                    <button type="button" onClick={() => move(index, 1)} disabled={Boolean(busy) || index === explicitIds.length - 1}>下移</button>
+                    <button type="button" onClick={() => move(index, -1)} disabled={Boolean(busy) || index === 0}>{tr("上移", "Move up")}</button>
+                    <button type="button" onClick={() => move(index, 1)} disabled={Boolean(busy) || index === explicitIds.length - 1}>{tr("下移", "Move down")}</button>
                     <button
                       type="button"
                       className="ghost-action"
                       onClick={() => saveOrder(explicitIds.filter((_, i) => i !== index))}
                       disabled={Boolean(busy)}
                     >
-                      移除
+                      {tr("移除", "Remove")}
                     </button>
                   </div>
                 </div>
@@ -2068,10 +2074,10 @@ function StitchInspector({ session, job, legacy, onMutated, onClose }: {
             })}
             <div className="inspector-actions">
               <button type="button" onClick={() => saveOrder(orderedShots.map((s) => s.id))} disabled={Boolean(busy)}>
-                重置为分镜顺序
+                {tr("重置为分镜顺序", "Reset to shot order")}
               </button>
               <button type="button" className="ghost-action" onClick={() => saveOrder([])} disabled={Boolean(busy)}>
-                清空连接顺序
+                {tr("清空连接顺序", "Clear connected order")}
               </button>
             </div>
           </div>
@@ -2079,20 +2085,20 @@ function StitchInspector({ session, job, legacy, onMutated, onClose }: {
       </div>
       <div className="inspector-actions">
         <button onClick={stitch} disabled={Boolean(busy) || !canStitch} className="primary">
-          {busy === "stitch" ? "..." : explicitMode ? "按连接顺序拼接" : (job.finalVideoUrl ? "重新拼接" : "按分镜顺序拼接全片")}
+          {busy === "stitch" ? "..." : explicitMode ? t.flow.stitchByConnections : (job.finalVideoUrl ? tr("重新拼接", "Restitch") : tr("按分镜顺序拼接全片", "Stitch full film by shot order"))}
         </button>
         <button onClick={reviewFinal} disabled={Boolean(busy) || !job.finalVideoUrl || isStitching}>
-          {busy === "review" ? "终审中..." : "VLM 终审"}
+          {busy === "review" ? tr("终审中...", "Final reviewing...") : t.nodes.finalReview}
         </button>
         <button onClick={repairFinalPrompts} disabled={Boolean(busy) || !job.finalVideoReview}>
-          {busy === "repair" ? "修复中..." : "按终审修 Prompt"}
+          {busy === "repair" ? tr("修复中...", "Repairing...") : tr("按终审修 Prompt", "Repair prompts from final review")}
         </button>
       </div>
       {!canStitch && (
         <div className="inspector-hint">
           {missingShotIds.length > 0
-            ? "拼接顺序里有已删除/已替换的镜头引用，请先移除失效引用。"
-            : explicitMode ? "已连接的视频中还有未生成的镜头。" : "还有分镜没生成视频。"}
+            ? tr("拼接顺序里有已删除/已替换的镜头引用，请先移除失效引用。", "The stitch order contains deleted/replaced shot references. Remove invalid references first.")
+            : explicitMode ? tr("已连接的视频中还有未生成的镜头。", "Some connected videos have not been generated yet.") : tr("还有分镜没生成视频。", "Some shots have not generated videos yet.")}
         </div>
       )}
       {job.finalVideoUrl && !isStitching && (
@@ -2102,12 +2108,12 @@ function StitchInspector({ session, job, legacy, onMutated, onClose }: {
           download={`${session.title || session.id}-${title}.mp4`}
           onClick={() => emitDownloadToast(`${session.title || session.id}-${title}.mp4`)}
         >
-          ⬇ 下载完整片
+          {tr("⬇ 下载完整片", "⬇ Download full film")}
         </a>
       )}
       {job.finalVideoUrl && !isStitching && (
         <details className="inspector-fold" open>
-          <summary>当前完整视频（点开放大播放）</summary>
+          <summary>{tr("当前完整视频（点开放大播放）", "Current full video (click to enlarge)")}</summary>
           <ZoomablePreview
             url={api.sessionStreamUrl(session.id, finalCacheKey, jobId)}
             mediaKind="video"
@@ -2115,15 +2121,15 @@ function StitchInspector({ session, job, legacy, onMutated, onClose }: {
             downloadUrl={api.downloadSessionUrl(session.id, jobId)}
             downloadFilename={`${session.title || session.id}-${title}.mp4`}
             generatedAt={job.finalVideoGeneratedAt}
-            generatedLabel="最终视频生成时间"
+            generatedLabel={tr("最终视频生成时间", "Final video generated at")}
             fallbackAt={job.updatedAt}
-            fallbackLabel="最近拼接更新时间"
+            fallbackLabel={tr("最近拼接更新时间", "Last stitch updated at")}
           />
         </details>
       )}
       {job.finalVideoUrl && !isStitching && (
         <ReviewSummaryCard
-          label="最近一次 VLM 终审"
+          label={tr("最近一次 VLM 终审", "Latest final VLM review")}
           verdict={job.finalVideoReview}
           status={job.finalVideoReviewStatus}
           error={job.finalVideoReviewError}
@@ -2131,7 +2137,7 @@ function StitchInspector({ session, job, legacy, onMutated, onClose }: {
       )}
       {job.finalVideoUrl && !isStitching && (
         <details className="inspector-fold" open>
-          <summary>VLM 终审结果</summary>
+          <summary>{tr("VLM 终审结果", "Final VLM review result")}</summary>
           <VideoReviewCard
             verdict={job.finalVideoReview}
             status={job.finalVideoReviewStatus}
@@ -2162,6 +2168,8 @@ function ReferenceVideoInspector({ asset, session, onMutated, onDeleteCanvasAsse
   const [busy, setBusy] = useState<"" | "reanalyze" | "apply" | "save" | "reclip" | "derive" | "delete">("");
   const [error, setError] = useState<string>("");
   const [name, setName] = useState(asset.name);
+  const { lang, t } = useI18n();
+  const tr = (zh: string, en: string) => (lang === "en" ? en : zh);
 
   useEffect(() => {
     setName(asset.name);
@@ -2176,7 +2184,7 @@ function ReferenceVideoInspector({ asset, session, onMutated, onDeleteCanvasAsse
       await api.saveAsset({ id: asset.id, name: trimmed });
       await onMutated();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "保存失败");
+      setError(err instanceof Error ? err.message : t.inspector.saveFailed);
     } finally { setBusy(""); }
   };
 
@@ -2187,7 +2195,7 @@ function ReferenceVideoInspector({ asset, session, onMutated, onDeleteCanvasAsse
       await api.reclipReferenceVideo(asset.id, strategy);
       await onMutated();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "重新裁剪失败");
+      setError(err instanceof Error ? err.message : tr("重新裁剪失败", "Reclip failed"));
     } finally { setBusy(""); }
   };
 
@@ -2205,7 +2213,7 @@ function ReferenceVideoInspector({ asset, session, onMutated, onDeleteCanvasAsse
       }
       await onMutated();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "重新解析失败");
+      setError(err instanceof Error ? err.message : tr("重新解析失败", "Reanalysis failed"));
     } finally { setBusy(""); }
   };
 
@@ -2231,7 +2239,7 @@ function ReferenceVideoInspector({ asset, session, onMutated, onDeleteCanvasAsse
       await api.updateShot(targetShotId, { rawPrompt: draft, prompt: draft });
       await onMutated();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "应用失败");
+      setError(err instanceof Error ? err.message : tr("应用失败", "Apply failed"));
     } finally { setBusy(""); }
   };
 
@@ -2241,39 +2249,39 @@ function ReferenceVideoInspector({ asset, session, onMutated, onDeleteCanvasAsse
   return (
     <aside className="inspector">
       <header>
-        <span className="inspector-tag">参考视频</span>
-        <button onClick={onClose} className="inspector-close">×</button>
+        <span className="inspector-tag">{t.nodes.referenceVideo}</span>
+        <button onClick={onClose} className="inspector-close" title={t.inspector.close}>×</button>
       </header>
       <div className="inspector-section">
         <label>
-          名称
+          {t.inspector.name}
           <input
             value={name}
             onChange={(e) => setName(e.target.value)}
             onBlur={saveName}
             onKeyDown={(e) => { if (e.key === "Enter") (e.target as HTMLInputElement).blur(); }}
             disabled={busy === "save"}
-            placeholder="参考视频名称"
+            placeholder={t.nodes.referenceVideo}
           />
         </label>
         {asset.description && <small className="inspector-hint">{asset.description}</small>}
         <div className="inspector-hint">
-          状态：
+          {tr("状态：", "Status: ")}
           <span style={{
             color: status === "ready" ? "#34d399" :
                    status === "parsing" ? "#60a5fa" :
                    status === "error" ? "#f87171" : "#9ca3af"
           }}>
-            {status === "ready" ? `已解析 ${asset.parsedShots?.length ?? 0} 镜` :
-             status === "parsing" ? "解析中…可能需要 30-60 秒" :
-             status === "error" ? "解析失败" : "待解析"}
+            {status === "ready" ? t.nodes.parsedShots(asset.parsedShots?.length ?? 0) :
+             status === "parsing" ? tr("解析中…可能需要 30-60 秒", "Parsing… may take 30–60 seconds") :
+             status === "error" ? t.nodes.parseFailed : t.nodes.parsePending}
           </span>
         </div>
         {asset.parseError && <div className="inspector-error">{asset.parseError}</div>}
         <div className="inspector-actions">
           <button
             onClick={async () => {
-              if (!window.confirm(`删除参考视频「${asset.name || asset.id}」？删除后可在画布顶部「↶ 撤销」恢复。`)) return;
+              if (!window.confirm(tr(`删除参考视频「${asset.name || asset.id}」？删除后可在画布顶部「↶ 撤销」恢复。`, `Delete reference video “${asset.name || asset.id}”? You can restore it with “↶ Undo” in the canvas toolbar.`))) return;
               setBusy("delete"); setError("");
               try {
                 if (onDeleteCanvasAsset) {
@@ -2286,20 +2294,20 @@ function ReferenceVideoInspector({ asset, session, onMutated, onDeleteCanvasAsse
                 }
                 onClose();
               } catch (err) {
-                setError(err instanceof Error ? err.message : "删除失败");
+                setError(err instanceof Error ? err.message : t.inspector.deleteFailed);
               } finally { setBusy(""); }
             }}
             disabled={Boolean(busy)}
             className="danger"
           >
-            {busy === "delete" ? "..." : "删除参考视频"}
+            {busy === "delete" ? "..." : tr("删除参考视频", "Delete reference video")}
           </button>
         </div>
       </div>
 
       {(asset.mediaUrl || asset.imageUrl) && (
         <details className="inspector-fold" open>
-          <summary>视频预览</summary>
+          <summary>{tr("视频预览", "Video preview")}</summary>
           <ZoomablePreview
             url={api.assetStreamUrl(asset.id, asset.generatedAt || asset.updatedAt || asset.id)}
             mediaKind="video"
@@ -2307,9 +2315,9 @@ function ReferenceVideoInspector({ asset, session, onMutated, onDeleteCanvasAsse
             downloadUrl={api.downloadAssetUrl(asset.id)}
             downloadFilename={`${asset.name}.mp4`}
             generatedAt={asset.generatedAt}
-            generatedLabel="处理时间"
+            generatedLabel={tr("处理时间", "Processed at")}
             fallbackAt={asset.createdAt}
-            fallbackLabel="上传时间"
+            fallbackLabel={tr("上传时间", "Uploaded at")}
           />
         </details>
       )}
@@ -2324,18 +2332,18 @@ function ReferenceVideoInspector({ asset, session, onMutated, onDeleteCanvasAsse
        */}
       {asset.originalDurationSec !== undefined && asset.originalDurationSec > 15.2 && (
         <div className="inspector-section">
-          <strong>15s 裁剪策略</strong>
+          <strong>{tr("15s 裁剪策略", "15s clipping strategy")}</strong>
           <div className="inspector-hint">
-            原片 {asset.originalDurationSec.toFixed(1)}s 超过 Seedance r2v 的 15.2s 上限，已按下面的策略压到 ≤15s。
+            {tr(`原片 ${asset.originalDurationSec.toFixed(1)}s 超过 Seedance r2v 的 15.2s 上限，已按下面的策略压到 ≤15s。`, `Original ${asset.originalDurationSec.toFixed(1)}s exceeds Seedance r2v's 15.2s limit and has been compressed to ≤15s using the strategy below.`)}
             {asset.clipDurationSec !== undefined && (
-              <> 当前产出 <strong>{asset.clipDurationSec.toFixed(1)}s</strong>。</>
+              <> {tr("当前产出", "Current output")} <strong>{asset.clipDurationSec.toFixed(1)}s</strong>.</>
             )}
           </div>
           <div className="clip-strategy-buttons" style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
             {([
-              { id: "sample-concat", label: "多段拼接", hint: "4 段 ×3s 时序采样,覆盖全片但有硬切" },
-              { id: "trim", label: "截前 15s", hint: "原速运动,丢弃后段" },
-              { id: "speedup", label: "整体加速", hint: "全帧覆盖,运动会变快" }
+              { id: "sample-concat", label: t.nodes.sampleConcat, hint: tr("4 段 ×3s 时序采样,覆盖全片但有硬切", "4 × 3s temporal samples, covers the full clip but has hard cuts") },
+              { id: "trim", label: t.nodes.trim15, hint: tr("原速运动,丢弃后段", "Original-speed motion, discards later part") },
+              { id: "speedup", label: t.nodes.speedup, hint: tr("全帧覆盖,运动会变快", "Covers all frames, motion becomes faster") }
             ] as const).map((opt) => {
               const active = asset.clipStrategy === opt.id;
               return (
@@ -2353,7 +2361,7 @@ function ReferenceVideoInspector({ asset, session, onMutated, onDeleteCanvasAsse
             })}
           </div>
           <small className="inspector-hint">
-            切换策略会重新 ffmpeg 处理本地原片并重新 publish 到 TOS — 处理时间 5–30 秒。已绑定本 asset 的 shot 下次出片自动用新版本。
+            {tr("切换策略会重新 ffmpeg 处理本地原片并重新 publish 到 TOS — 处理时间 5–30 秒。已绑定本 asset 的 shot 下次出片自动用新版本。", "Switching strategy reruns ffmpeg on the local original and republishes to TOS — usually 5–30 seconds. Shots bound to this asset use the new version next time.")}
           </small>
         </div>
       )}
@@ -2365,19 +2373,19 @@ function ReferenceVideoInspector({ asset, session, onMutated, onDeleteCanvasAsse
        * change ("主角变成兔子") to drive the remake.
        */}
       <div className="inspector-section">
-        <strong>用作视频参考（Seedance reference_video）</strong>
+        <strong>{tr("用作视频参考（Seedance reference_video）", "Use as video reference (Seedance reference_video)")}</strong>
         <div className="inspector-hint">
-          选一个分镜把整段参考视频喂给 Seedance — 它会参考镜头语言/光影/运镜/节奏，并按你写的新 prompt 生成主体与风格。需要 TOS 公网 URL（上传时已自动 publish）。
+          {tr("选一个分镜把整段参考视频喂给 Seedance — 它会参考镜头语言/光影/运镜/节奏，并按你写的新 prompt 生成主体与风格。需要 TOS 公网 URL（上传时已自动 publish）。", "Choose a shot to feed the whole reference video to Seedance. It follows motion/framing/lighting/pacing while your prompt controls subject and style. Requires a public TOS URL, auto-published on upload.")}
         </div>
         {!asset.tosObjectKey && asset.mediaUrl?.startsWith("/media/") && (
           <div className="inspector-hint" style={{ color: "#fbbf24" }}>
-            ⚠️ 此视频还没 publish 到公网（TOS 未配置或 publish 失败），Seedance 抓不到，绑了也无效。
+            {tr("⚠️ 此视频还没 publish 到公网（TOS 未配置或 publish 失败），Seedance 抓不到，绑了也无效。", "⚠️ This video is not published publicly yet (TOS missing or publish failed), so Seedance cannot fetch it even if bound.")}
           </div>
         )}
         {(() => {
           const sortedShots = (session?.shots || []).slice().sort((a, b) => a.index - b.index);
           if (!sortedShots.length) {
-            return <div className="inspector-empty">本 session 还没有分镜。先点顶部「+ 分镜」加一个。</div>;
+            return <div className="inspector-empty">{tr("本 session 还没有分镜。先点顶部「+ 分镜」加一个。", "This session has no shots yet. Click “+ Shot” at the top first.")}</div>;
           }
           return (
             <div className="ref-bind-list">
@@ -2409,12 +2417,12 @@ function ReferenceVideoInspector({ asset, session, onMutated, onDeleteCanvasAsse
                           });
                           await onMutated();
                         } catch (err) {
-                          setError(err instanceof Error ? err.message : "绑定失败");
+                          setError(err instanceof Error ? err.message : tr("绑定失败", "Binding failed"));
                         } finally { setBusy(""); }
                       }}
                     />
                     <span><strong>Shot {s.index}</strong> {s.title || ""}</span>
-                    {bound && <span className="ref-bind-badge">已绑定</span>}
+                    {bound && <span className="ref-bind-badge">{tr("已绑定", "Bound")}</span>}
                   </label>
                 );
               })}
@@ -2425,8 +2433,8 @@ function ReferenceVideoInspector({ asset, session, onMutated, onDeleteCanvasAsse
 
       {Array.isArray(asset.parsedShots) && asset.parsedShots.length > 0 && (
         <div className="inspector-section">
-          <strong>分镜表（共 {asset.parsedShots.length} 镜）</strong>
-          <div className="inspector-hint">从下表挑一条 → 选「应用到 Shot N」，会把这条的画面/运镜/景别/风格组合成 6 字段 rawPrompt 写到目标分镜。</div>
+          <strong>{tr(`分镜表（共 ${asset.parsedShots.length} 镜）`, `Shot table (${asset.parsedShots.length} shots)`)}</strong>
+          <div className="inspector-hint">{tr("从下表挑一条 → 选「应用到 Shot N」，会把这条的画面/运镜/景别/风格组合成 6 字段 rawPrompt 写到目标分镜。", "Pick a row below and choose “Apply to Shot N”; its visual/camera/shot-size/style fields become a 6-field rawPrompt on the target shot.")}</div>
           <div className="ref-shot-list">
             {asset.parsedShots.map((entry) => (
               <article key={entry.index} className="ref-shot-row">
@@ -2437,7 +2445,7 @@ function ReferenceVideoInspector({ asset, session, onMutated, onDeleteCanvasAsse
                 </header>
                 {entry.sceneContent && <p className="ref-shot-content">{entry.sceneContent}</p>}
                 <details>
-                  <summary>展开 prompt 字段</summary>
+                  <summary>{tr("展开 prompt 字段", "Expand prompt fields")}</summary>
                   {entry.imagePrompt && <div className="ref-shot-field"><label>imagePrompt</label><pre>{entry.imagePrompt}</pre></div>}
                   {entry.cameraPrompt && <div className="ref-shot-field"><label>cameraPrompt</label><pre>{entry.cameraPrompt}</pre></div>}
                   {entry.styleNotes && <div className="ref-shot-field"><label>styleNotes</label><pre>{entry.styleNotes}</pre></div>}
@@ -2453,7 +2461,7 @@ function ReferenceVideoInspector({ asset, session, onMutated, onDeleteCanvasAsse
                       e.target.value = "";
                     }}
                   >
-                    <option value="">应用到分镜…</option>
+                    <option value="">{tr("应用到分镜…", "Apply to shot…")}</option>
                     {shotsForApply.map((s) => (
                       <option key={s.id} value={s.id}>Shot {s.index} · {s.title || ""}</option>
                     ))}
@@ -2467,7 +2475,7 @@ function ReferenceVideoInspector({ asset, session, onMutated, onDeleteCanvasAsse
 
       <div className="inspector-actions">
         <button onClick={reanalyze} disabled={Boolean(busy) || status === "parsing"}>
-          {busy === "reanalyze" ? "..." : status === "ready" ? "重新解析" : status === "parsing" ? "解析中…" : "开始解析"}
+          {busy === "reanalyze" ? "..." : status === "ready" ? tr("重新解析", "Reanalyze") : status === "parsing" ? tr("解析中…", "Parsing…") : tr("开始解析", "Start analysis")}
         </button>
       </div>
 
@@ -2478,7 +2486,7 @@ function ReferenceVideoInspector({ asset, session, onMutated, onDeleteCanvasAsse
           download={`${asset.name}.mp4`}
           onClick={() => emitDownloadToast(`${asset.name}.mp4`)}
         >
-          ⬇ 下载参考视频
+          {tr("⬇ 下载参考视频", "⬇ Download reference video")}
         </a>
       )}
 
@@ -2490,9 +2498,9 @@ function ReferenceVideoInspector({ asset, session, onMutated, onDeleteCanvasAsse
        * via the strategy switcher above.
        */}
       <div className="inspector-section">
-        <strong>派生剪裁节点</strong>
+        <strong>{tr("派生剪裁节点", "Derive clipped node")}</strong>
         <div className="inspector-hint">
-          产出一个独立的视频处理节点（不影响本 asset），默认按"截前 15s"剪裁。在 canvas 上拖到分镜即可作为参考视频。
+          {tr("产出一个独立的视频处理节点（不影响本 asset），默认按\"截前 15s\"剪裁。在 canvas 上拖到分镜即可作为参考视频。", "Create an independent video-processor node without changing this asset. Defaults to the first-15s trim; drag it to a shot on the canvas to use as reference video.")}
         </div>
         <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
           {(["trim", "speedup", "sample-concat"] as const).map((strat) => (
@@ -2506,11 +2514,11 @@ function ReferenceVideoInspector({ asset, session, onMutated, onDeleteCanvasAsse
                   await api.deriveClip(asset.id, strat);
                   await onMutated();
                 } catch (err) {
-                  setError(err instanceof Error ? err.message : "派生失败");
+                  setError(err instanceof Error ? err.message : tr("派生失败", "Derive failed"));
                 } finally { setBusy(""); }
               }}
             >
-              {busy === "derive" ? "..." : `+ ${strat === "trim" ? "截前 15s" : strat === "speedup" ? "整体加速" : "多段拼接"}`}
+              {busy === "derive" ? "..." : `+ ${strat === "trim" ? t.nodes.trim15 : strat === "speedup" ? t.nodes.speedup : t.nodes.sampleConcat}`}
             </button>
           ))}
         </div>
@@ -2538,6 +2546,8 @@ function VideoProcessorInspector({ asset, sourceAsset, session, onMutated, onDel
   const [busy, setBusy] = useState<"" | "save" | "reclip" | "bind" | "delete">("");
   const [error, setError] = useState<string>("");
   const [name, setName] = useState(asset.name);
+  const { lang, t } = useI18n();
+  const tr = (zh: string, en: string) => (lang === "en" ? en : zh);
 
   useEffect(() => {
     setName(asset.name);
@@ -2552,7 +2562,7 @@ function VideoProcessorInspector({ asset, sourceAsset, session, onMutated, onDel
       await api.saveAsset({ id: asset.id, name: trimmed });
       await onMutated();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "保存失败");
+      setError(err instanceof Error ? err.message : t.inspector.saveFailed);
     } finally { setBusy(""); }
   };
 
@@ -2563,12 +2573,12 @@ function VideoProcessorInspector({ asset, sourceAsset, session, onMutated, onDel
       await api.reclipReferenceVideo(asset.id, strategy);
       await onMutated();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "重新裁剪失败");
+      setError(err instanceof Error ? err.message : tr("重新裁剪失败", "Reclip failed"));
     } finally { setBusy(""); }
   };
 
   const removeDerivative = async () => {
-    if (!confirm(`删除剪裁节点 "${asset.name}"？源参考视频 ${sourceAsset?.name || ""} 不受影响，可用撤销恢复。`)) return;
+    if (!confirm(tr(`删除剪裁节点 "${asset.name}"？源参考视频 ${sourceAsset?.name || ""} 不受影响，可用撤销恢复。`, `Delete clipped node "${asset.name}"? Source reference video ${sourceAsset?.name || ""} is not affected and this can be undone.`))) return;
     setBusy("delete"); setError("");
     try {
       if (onDeleteCanvasAsset) {
@@ -2581,7 +2591,7 @@ function VideoProcessorInspector({ asset, sourceAsset, session, onMutated, onDel
       }
       onClose();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "删除失败");
+      setError(err instanceof Error ? err.message : t.inspector.deleteFailed);
     } finally { setBusy(""); }
   };
 
@@ -2590,40 +2600,40 @@ function VideoProcessorInspector({ asset, sourceAsset, session, onMutated, onDel
   return (
     <aside className="inspector">
       <header>
-        <span className="inspector-tag">视频处理</span>
-        <button onClick={onClose} className="inspector-close">×</button>
+        <span className="inspector-tag">{t.nodes.videoProcessor}</span>
+        <button onClick={onClose} className="inspector-close" title={t.inspector.close}>×</button>
       </header>
       <div className="inspector-section">
         <label>
-          名称
+          {t.inspector.name}
           <input
             value={name}
             onChange={(e) => setName(e.target.value)}
             onBlur={saveName}
             onKeyDown={(e) => { if (e.key === "Enter") (e.target as HTMLInputElement).blur(); }}
             disabled={busy === "save"}
-            placeholder="视频处理节点名称"
+            placeholder={t.nodes.videoProcessor}
           />
         </label>
         {sourceAsset && (
           <small className="inspector-hint">
-            源：<strong>{sourceAsset.name}</strong>
+            {tr("源：", "Source: ")}<strong>{sourceAsset.name}</strong>
           </small>
         )}
       </div>
 
       <div className="inspector-section">
-        <strong>15s 裁剪策略</strong>
+        <strong>{tr("15s 裁剪策略", "15s clipping strategy")}</strong>
         {asset.originalDurationSec !== undefined && asset.clipDurationSec !== undefined && (
           <div className="inspector-hint">
-            原片 {asset.originalDurationSec.toFixed(1)}s → 当前产出 <strong>{asset.clipDurationSec.toFixed(1)}s</strong>
+            {tr(`原片 ${asset.originalDurationSec.toFixed(1)}s → 当前产出 `, `Original ${asset.originalDurationSec.toFixed(1)}s → current output `)}<strong>{asset.clipDurationSec.toFixed(1)}s</strong>
           </div>
         )}
         <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
           {([
-            { id: "sample-concat", label: "多段拼接", hint: "4 段 ×3s 时序采样" },
-            { id: "trim", label: "截前 15s", hint: "原速运动,丢后段" },
-            { id: "speedup", label: "整体加速", hint: "全帧覆盖,运动加快" }
+            { id: "sample-concat", label: t.nodes.sampleConcat, hint: tr("4 段 ×3s 时序采样", "4 × 3s temporal samples") },
+            { id: "trim", label: t.nodes.trim15, hint: tr("原速运动,丢后段", "Original-speed motion, drops later part") },
+            { id: "speedup", label: t.nodes.speedup, hint: tr("全帧覆盖,运动加快", "Covers all frames, speeds up motion") }
           ] as const).map((opt) => {
             const active = asset.clipStrategy === opt.id;
             return (
@@ -2644,7 +2654,7 @@ function VideoProcessorInspector({ asset, sourceAsset, session, onMutated, onDel
 
       {(asset.mediaUrl || asset.imageUrl) && (
         <details className="inspector-fold" open>
-          <summary>裁剪结果预览</summary>
+          <summary>{tr("裁剪结果预览", "Clipped result preview")}</summary>
           <ZoomablePreview
             url={api.assetStreamUrl(asset.id, asset.generatedAt || asset.updatedAt || asset.id)}
             mediaKind="video"
@@ -2652,18 +2662,18 @@ function VideoProcessorInspector({ asset, sourceAsset, session, onMutated, onDel
             downloadUrl={api.downloadAssetUrl(asset.id)}
             downloadFilename={`${asset.name}.mp4`}
             generatedAt={asset.generatedAt}
-            generatedLabel="处理时间"
+            generatedLabel={tr("处理时间", "Processed at")}
             fallbackAt={asset.createdAt}
-            fallbackLabel="创建时间"
+            fallbackLabel={t.inspector.createdAt}
           />
         </details>
       )}
 
       <div className="inspector-section">
-        <strong>绑定到分镜</strong>
-        <div className="inspector-hint">把本剪裁节点作为 Seedance reference_video 喂给某个分镜。一个分镜同时只能绑一个参考视频。</div>
+        <strong>{tr("绑定到分镜", "Bind to shot")}</strong>
+        <div className="inspector-hint">{tr("把本剪裁节点作为 Seedance reference_video 喂给某个分镜。一个分镜同时只能绑一个参考视频。", "Feed this clipped node to a shot as Seedance reference_video. A shot can bind only one reference video at a time.")}</div>
         {!sortedShots.length ? (
-          <div className="inspector-empty">本 session 还没有分镜。</div>
+          <div className="inspector-empty">{tr("本 session 还没有分镜。", "This session has no shots yet.")}</div>
         ) : (
           <div className="ref-bind-list">
             {sortedShots.map((s) => {
@@ -2693,12 +2703,12 @@ function VideoProcessorInspector({ asset, sourceAsset, session, onMutated, onDel
                         });
                         await onMutated();
                       } catch (err) {
-                        setError(err instanceof Error ? err.message : "绑定失败");
+                        setError(err instanceof Error ? err.message : tr("绑定失败", "Binding failed"));
                       } finally { setBusy(""); }
                     }}
                   />
                   <span><strong>Shot {s.index}</strong> {s.title || ""}</span>
-                  {bound && <span className="ref-bind-badge">已绑定</span>}
+                  {bound && <span className="ref-bind-badge">{tr("已绑定", "Bound")}</span>}
                 </label>
               );
             })}
@@ -2708,7 +2718,7 @@ function VideoProcessorInspector({ asset, sourceAsset, session, onMutated, onDel
 
       <div className="inspector-actions">
         <button onClick={removeDerivative} disabled={Boolean(busy)} className="danger">
-          {busy === "delete" ? "..." : "删除剪裁节点"}
+          {busy === "delete" ? "..." : tr("删除剪裁节点", "Delete clipped node")}
         </button>
       </div>
 
