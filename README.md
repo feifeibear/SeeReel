@@ -11,7 +11,7 @@
 </p>
 
 <p align="center">
-  <strong>English</strong> · <a href="README.zh-CN.md">中文文档</a>
+  <strong>English</strong> · <a href="README.zh-CN.md">中文文档</a> · <a href="LICENSE">MIT License</a>
 </p>
 
 <p align="center">

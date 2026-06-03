@@ -2,6 +2,7 @@
   "name": "reelyai-agent",
   "version": "0.1.0",
   "private": true,
+  "license": "MIT",
   "type": "module",
   "scripts": {
     "dev": "tsx src/server/index.ts",
