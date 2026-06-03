@@ -1,3 +1,5 @@
+import { getRequestAgentPlanKey } from "./userCredentials";
+
 export const ARK_AGENT_PLAN_BASE = "https://ark.cn-beijing.volces.com/api/plan/v3";
 
 export interface ArkCredential {
@@ -14,11 +16,15 @@ export interface ResolveArkCredentialOpts {
 }
 
 export function resolveArkCredential(opts: ResolveArkCredentialOpts): ArkCredential {
+  const requestAgentPlanKey = getRequestAgentPlanKey();
   const agentPlanKey = env("ARK_AGENT_PLAN_KEY", "AGENT_PLAN_API_KEY", "VOLCENGINE_AGENT_PLAN_KEY");
   const standardKey = env(...opts.keyEnvNames);
   const standardBase = (env(...opts.baseEnvNames) || opts.defaultBase).replace(/\/$/, "");
   const preferAgentPlan = opts.preferAgentPlan ?? (isEnabled("REELYAI_USE_AGENT_PLAN") || env("REELYAI_CREDENTIAL_MODE") === "agent-plan");
 
+  if (requestAgentPlanKey) {
+    return { apiKey: requestAgentPlanKey, apiBase: agentPlanBase(), source: "agent-plan" };
+  }
   if (preferAgentPlan && agentPlanKey) {
     return { apiKey: agentPlanKey, apiBase: agentPlanBase(), source: "agent-plan" };
   }
@@ -32,7 +38,7 @@ export function resolveArkCredential(opts: ResolveArkCredentialOpts): ArkCredent
 }
 
 export function hasAgentPlanKey() {
-  return Boolean(env("ARK_AGENT_PLAN_KEY", "AGENT_PLAN_API_KEY", "VOLCENGINE_AGENT_PLAN_KEY"));
+  return Boolean(getRequestAgentPlanKey() || env("ARK_AGENT_PLAN_KEY", "AGENT_PLAN_API_KEY", "VOLCENGINE_AGENT_PLAN_KEY"));
 }
 
 export function arkMissingKeyMessage(service: string, existingEnvNames: string[]) {

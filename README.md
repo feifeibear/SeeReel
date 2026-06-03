@@ -264,6 +264,16 @@ Production-style local run:
 NODE_ENV=production PORT=5174 npm run start
 ```
 
+## Public Volcengine Deployment
+
+For the first public release, use one Volcengine ECS instance with Docker Compose and a persistent
+volume. With an ECS public IP and SSH access, run [deploy/deploy-to-ecs.sh](deploy/deploy-to-ecs.sh);
+see [deploy/volcengine.md](deploy/volcengine.md) for the full runbook.
+
+Do not set your own `ARK_AGENT_PLAN_KEY` on a public server. Visitors enter their own Agent Plan
+token in the top bar; the backend keeps it in process memory and never returns it from `/api/state`.
+TOS remains a backend-only server credential, preferably with a private bucket and signed URLs.
+
 Health check:
 
 ```bash

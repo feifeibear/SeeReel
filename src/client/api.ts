@@ -1,6 +1,7 @@
 import type {
   Asset,
   AssetImageModel,
+  AgentPlanCredentialStatus,
   CreateSessionPayload,
   ExpandAssetPromptResult,
   NarrationStrategy,
@@ -69,6 +70,14 @@ async function request<T>(url: string, options?: RequestInit): Promise<T> {
 
 export const api = {
   state: () => request<StoreSnapshot>("/api/state"),
+  agentPlanCredential: () => request<AgentPlanCredentialStatus>("/api/credentials/agent-plan"),
+  saveAgentPlanCredential: (apiKey: string) =>
+    request<AgentPlanCredentialStatus>("/api/credentials/agent-plan", {
+      method: "POST",
+      body: JSON.stringify({ apiKey })
+    }),
+  clearAgentPlanCredential: () =>
+    request<AgentPlanCredentialStatus>("/api/credentials/agent-plan", { method: "DELETE" }),
   createSession: (payload: CreateSessionPayload) =>
     request<SessionWithShots>("/api/sessions", { method: "POST", body: JSON.stringify(payload) }),
   updateSession: (sessionId: string, patch: Partial<SessionWithShots>) =>

@@ -26,6 +26,8 @@ Treat ReelyAI as an Agent-native short-drama production workstation, not just a 
 3. Work with the user in chat to shape the premise, characters, tone, shot count, and duration.
    - **Default cadence: prefer fewer, longer shots.** A 60s short drama defaults to **4 shots × 15s** (Seedance 2.0 supports up to 15s per generation). Long shots make character + scene consistency easier and reduce cut-induced drift. Only break a shot into shorter segments when the action genuinely demands a hard cut (e.g. POV change, time jump, location change).
    - Inside each long shot, plan a beat timeline (`0-3s … / 3-7s … / 7-12s … / 12-15s …`). Pass that timeline through to the Seedance prompt so the model paces correctly. The companion `seedance-prompt-craft` skill has the full 6-element template.
+   - **Vibe Creating for narrative shorts:** for mood/poetic/character-driven shorts, prefer story-expression prompts over over-specified production commands. Keep the user's intent, enrich situation, emotion, atmosphere, memory, and sensory detail; remove unnecessary focal-length/F-stop/camera-speed parameter chatter unless it directly serves the emotion. A strong prompt should carry four layers: visual anchor, subject action/state, local tone/light/rhythm, and the video's overall theme/style.
+   - **Continuity bible before generation:** when a user complains about inconsistent shots, write a short repeated continuity paragraph before every shot prompt: exact character design, fixed wardrobe/material/color, recurring prop/visual motif, global color grade, and explicit negatives for drift. Also create session-scoped character/style reference assets and bind them in every shot's `assetIds` when possible.
 4. Save the story plan and shots through app APIs or existing scripts so the web app reflects the work.
 5. Generate or import reference images.
    - Use Codex imagegen when available for high-quality storyboards or character/scene references.
@@ -52,6 +54,17 @@ Treat ReelyAI as an Agent-native short-drama production workstation, not just a 
 - If the user edits prompt, duration, assets, or first-frame settings in the web app, treat that as source of truth.
 - Do not overwrite manual edits unless the user asks for regeneration or a specific replacement.
 - Use the UI as a review surface: after large changes, tell the user what they can inspect in the browser.
+
+## Multi-shot consistency playbook
+
+Use this playbook for original multi-shot shorts, especially after a result has inconsistent task, character, or style.
+
+1. **Pick one continuous task spine.** Do not make each shot a separate idea. Give the protagonist one repeated action or motif that evolves across shots (for example, carrying one red thread through the city). Put that spine in the story `theme`, every beat, and every shot prompt.
+2. **Write Vibe-style prompts, not parameter dumps.** Describe the situation, emotional pressure, atmosphere, and sensory details as a short literary scene. Keep only camera language that tells the model how the viewer should feel ("the view slowly moves closer, making the office feel trapping"), not bare execution parameters ("85mm f/1.4, speed 0.7x") unless the user needs industrial precision.
+3. **Repeat a continuity bible verbatim.** Start every Seedance prompt with the same 2–4 sentence bible for: protagonist design, recurring prop, world/style, palette, and negative drift constraints. This is more reliable than assuming the model remembers previous prompts.
+4. **Use shared reference assets across all shots.** Generate or import at least one session-scoped character reference and one style/world reference, publish/verify remote `https` URLs, and bind both IDs in every shot's `assetIds`. Avoid per-shot storyboard grids if they overpower the global style or force different character designs.
+5. **Choose one continuity mode, don't stack mutually exclusive modes.** In this app, `firstFrameAssetId` and `subShotStoryboardAssetId` suppress normal reference-image / previous-shot continuity paths. For a 4×15s narrative short, the safest default is: shared `assetIds` on every shot + `usePreviousShotClip: true` from shot 2 onward. Use first-frame only when the opening composition matters more than reference images; use sub-shot grid only when in-shot beat layout matters more than previous-shot motion continuity.
+6. **Generate serially and inspect before stitching.** Let shot N finish before shot N+1. If a shot drifts badly in character/style, regenerate that shot before continuing; do not stitch a visibly broken chain.
 
 ## Reference image rules
 

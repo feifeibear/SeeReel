@@ -1,0 +1,81 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+APP_DIR="${REELYAI_REMOTE_APP_DIR:-$(pwd)}"
+PUBLIC_URL="${APP_PUBLIC_URL:-}"
+
+if [[ -z "$PUBLIC_URL" ]]; then
+  echo "APP_PUBLIC_URL is required for the systemd/Caddy deployment." >&2
+  exit 2
+fi
+
+if ! command -v node >/dev/null 2>&1; then
+  echo "Node.js 22+ is required. Install Node.js before running this script." >&2
+  exit 3
+fi
+
+node_major="$(node -e 'console.log(process.versions.node.split(".")[0])')"
+if [[ "$node_major" -lt 22 ]]; then
+  echo "Node.js 22+ is required; found $(node -v)." >&2
+  exit 3
+fi
+
+if ! command -v caddy >/dev/null 2>&1; then
+  if ! command -v apt-get >/dev/null 2>&1; then
+    echo "Caddy is required. Install Caddy or use the Docker Compose deployment." >&2
+    exit 4
+  fi
+  export DEBIAN_FRONTEND=noninteractive
+  apt-get update -y
+  apt-get install -y caddy
+fi
+
+cd "$APP_DIR"
+
+npm config set registry "${NPM_CONFIG_REGISTRY:-https://registry.npmmirror.com}"
+npm config set replace-registry-host always
+npm install --package-lock=false --no-audit --no-fund
+npm run build
+
+cat >/etc/systemd/system/reelyai-agent.service <<SERVICE
+[Unit]
+Description=ReelyAI Agent Web App
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=$APP_DIR
+EnvironmentFile=$APP_DIR/deploy/.env.production
+ExecStart=$(command -v npm) run start
+Restart=always
+RestartSec=5
+User=root
+
+[Install]
+WantedBy=multi-user.target
+SERVICE
+
+cat >/etc/caddy/Caddyfile <<CADDY
+$PUBLIC_URL {
+  encode zstd gzip
+  reverse_proxy 127.0.0.1:5173
+}
+CADDY
+
+systemctl daemon-reload
+systemctl enable --now reelyai-agent
+systemctl enable --now caddy
+systemctl reload caddy
+
+for _ in {1..60}; do
+  if curl -fsS http://127.0.0.1:5173/api/healthz >/dev/null; then
+    systemctl is-active reelyai-agent
+    systemctl is-active caddy
+    exit 0
+  fi
+  sleep 5
+done
+
+journalctl -u reelyai-agent --no-pager -n 120 >&2
+exit 5

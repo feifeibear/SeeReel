@@ -344,6 +344,85 @@ label {
   flex-wrap: wrap;
 }
 
+.agent-plan-control {
+  position: relative;
+}
+
+.agent-plan-button.configured {
+  color: #dcfce7;
+  border-color: rgba(34, 197, 94, 0.45);
+  background: rgba(34, 197, 94, 0.1);
+}
+
+.agent-plan-button:not(.configured) {
+  color: #fef3c7;
+  border-color: rgba(245, 158, 11, 0.5);
+  background: rgba(245, 158, 11, 0.12);
+}
+
+.agent-plan-popover {
+  position: absolute;
+  left: 0;
+  top: calc(100% + 8px);
+  z-index: 30;
+  width: min(340px, calc(100vw - 40px));
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid rgba(148, 163, 184, 0.28);
+  border-radius: 8px;
+  background: rgba(11, 15, 22, 0.98);
+  box-shadow: 0 18px 60px rgba(0, 0, 0, 0.38);
+}
+
+.agent-plan-status {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: center;
+  color: #e2e8f0;
+  font-size: 12px;
+}
+
+.agent-plan-status div {
+  min-width: 0;
+  display: grid;
+  gap: 3px;
+}
+
+.agent-plan-status small,
+.agent-plan-status span {
+  color: #94a3b8;
+  font-size: 11px;
+}
+
+.agent-plan-status span {
+  grid-column: 1 / -1;
+}
+
+.agent-plan-help-link {
+  width: 28px;
+  height: 28px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid rgba(96, 165, 250, 0.42);
+  border-radius: 999px;
+  color: #bfdbfe;
+  background: rgba(59, 130, 246, 0.14);
+  text-decoration: none;
+}
+
+.agent-plan-help-link:hover {
+  color: #ffffff;
+  border-color: rgba(96, 165, 250, 0.72);
+  background: rgba(59, 130, 246, 0.24);
+}
+
+.agent-plan-actions {
+  justify-content: flex-end;
+}
+
 .vision-review-toggle {
   display: inline-flex;
   align-items: center;

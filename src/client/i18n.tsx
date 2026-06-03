@@ -40,7 +40,17 @@ const zh = {
     pendingVideoName: "上传中视频",
     pendingUpload: "上传中…",
     uploadFailed: "上传失败",
-    uploadFailedWithMessage: (message: string) => `上传失败：${message}`
+    uploadFailedWithMessage: (message: string) => `上传失败：${message}`,
+    agentPlanSet: "配置火山 Agent Plan Key",
+    agentPlanReady: "火山 Agent Plan 已配置",
+    agentPlanMissingTitle: "输入你自己的火山 Agent Plan Key",
+    agentPlanConfiguredTitle: (fingerprint: string) => fingerprint ? `当前浏览器已配置火山 Agent Plan：${fingerprint}` : "当前浏览器已配置火山 Agent Plan",
+    agentPlanFingerprint: (fingerprint: string) => `指纹 ${fingerprint}`,
+    agentPlanPlaceholder: "粘贴火山 Agent Plan Key",
+    agentPlanHelpText: "用于调用 Seedream / Seedance / Seed",
+    agentPlanOpenTitle: "开通火山 Agent Plan",
+    agentPlanSave: "保存",
+    agentPlanClear: "清除"
   },
   token: {
     summary: (input: string, output: string, calls: number) => `输入 ${input} · 输出 ${output} · ${calls} 次调用`,
@@ -341,7 +351,17 @@ const en: Dictionary = {
     pendingVideoName: "Uploading video",
     pendingUpload: "Uploading…",
     uploadFailed: "Upload failed",
-    uploadFailedWithMessage: (message) => `Upload failed: ${message}`
+    uploadFailedWithMessage: (message) => `Upload failed: ${message}`,
+    agentPlanSet: "Set Volcengine Agent Plan Key",
+    agentPlanReady: "Volcengine Agent Plan Ready",
+    agentPlanMissingTitle: "Enter your own Volcengine Agent Plan Key",
+    agentPlanConfiguredTitle: (fingerprint) => fingerprint ? `Volcengine Agent Plan is configured for this browser: ${fingerprint}` : "Volcengine Agent Plan is configured for this browser",
+    agentPlanFingerprint: (fingerprint) => `Fingerprint ${fingerprint}`,
+    agentPlanPlaceholder: "Paste Volcengine Agent Plan Key",
+    agentPlanHelpText: "For Seedream / Seedance / Seed calls",
+    agentPlanOpenTitle: "Open Volcengine Agent Plan",
+    agentPlanSave: "Save",
+    agentPlanClear: "Clear"
   },
   token: {
     summary: (input, output, calls) => `Input ${input} · output ${output} · ${enPlural(calls, "call")}`,

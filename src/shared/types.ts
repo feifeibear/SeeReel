@@ -649,7 +649,13 @@ export interface StoreSnapshot {
   runtime?: {
     seedreamCredentialSource?: "standard" | "agent-plan" | "missing";
     seedreamDefaultModel?: AssetImageModel;
+    agentPlanCredential?: AgentPlanCredentialStatus;
   };
+}
+
+export interface AgentPlanCredentialStatus {
+  configured: boolean;
+  fingerprint?: string;
 }
 
 /** Joined session shape returned by session-specific mutation/poll endpoints and built client-side for the canvas. */

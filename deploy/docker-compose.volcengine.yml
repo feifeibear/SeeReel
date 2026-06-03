@@ -1,0 +1,33 @@
+services:
+  reelyai:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    image: reelyai-agent:latest
+    restart: unless-stopped
+    env_file:
+      - ./.env.production
+    expose:
+      - "5173"
+    volumes:
+      - reelyai-data:/app/data
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    depends_on:
+      - reelyai
+    env_file:
+      - ./.env.production
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+
+volumes:
+  reelyai-data:
+  caddy-data:
+  caddy-config:

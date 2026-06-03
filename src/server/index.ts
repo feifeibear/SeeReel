@@ -34,6 +34,12 @@ import { computeNarrationSignature, resolveEffectiveVoice, runNarrationPipeline 
 import { CinemaStore } from "./store";
 import { tokenUsageEventFromRaw } from "./tokenUsage";
 import { publishAssetImageToTos, publishLocalMediaToTos, hasTosConfig } from "./tos";
+import {
+  clearRequestAgentPlanKey,
+  requestAgentPlanStatus,
+  setRequestAgentPlanKey,
+  userCredentialMiddleware
+} from "./userCredentials";
 import { condenseForSeedanceR2V, probeVideo, type CondenseStrategy } from "./videoCondense";
 import { buildShotFrameAssignments, generateStoryboardGrid } from "./storyboardGrid";
 import { buildSubStoryboardAssetPayload, generateSubStoryboardGrid, generateSubStoryboardSequential, type SubStoryboardResult } from "./subStoryboard";
@@ -85,6 +91,7 @@ const mediaDir = path.resolve(process.cwd(), "data", "media");
 const storyboardMediaDir = path.join(mediaDir, "codex-storyboards");
 
 const app = express();
+app.set("trust proxy", 1);
 const store = new CinemaStore();
 await store.load();
 const shotGenerateSubmissions = new Map<string, Promise<{ status: number; body: unknown }>>();
@@ -150,6 +157,7 @@ await resetOrphanStitchJobs();
 await resetOrphanNarrationJobs();
 
 app.use(cors());
+app.use(userCredentialMiddleware);
 app.use(express.json({ limit: "25mb" }));
 app.use("/media", express.static(path.resolve(process.cwd(), "data", "media")));
 
@@ -164,6 +172,22 @@ app.get("/api/healthz", (_req, res) => {
 
 app.get("/api/state", (_req, res) => {
   res.json({ ...store.snapshot(), runtime: runtimeInfo() });
+});
+
+app.get("/api/credentials/agent-plan", (_req, res) => {
+  res.json(requestAgentPlanStatus());
+});
+
+app.post("/api/credentials/agent-plan", (req, res) => {
+  const apiKey = typeof req.body?.apiKey === "string" ? req.body.apiKey.trim() : "";
+  if (!apiKey || apiKey.length < 8) return res.status(400).json({ error: "请输入有效的 Agent Plan token" });
+  setRequestAgentPlanKey(apiKey);
+  res.json(requestAgentPlanStatus());
+});
+
+app.delete("/api/credentials/agent-plan", (_req, res) => {
+  clearRequestAgentPlanKey();
+  res.json(requestAgentPlanStatus());
 });
 
 function resolveAssetPromptOverride(asset: Asset, explicitOverride?: string) {
@@ -192,7 +216,8 @@ function assetImageModelFromActual(actualModelId: string | undefined, fallback: 
 function runtimeInfo() {
   return {
     seedreamCredentialSource: seedreamCredentialSource(),
-    seedreamDefaultModel: defaultSeedreamAssetImageModel()
+    seedreamDefaultModel: defaultSeedreamAssetImageModel(),
+    agentPlanCredential: requestAgentPlanStatus()
   };
 }
 

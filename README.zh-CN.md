@@ -122,6 +122,16 @@ curl -sS http://localhost:5173/api/state | head -c 200
 
 ---
 
+## 部署到火山云公开网址
+
+首版推荐 **单台火山云 ECS + Docker Compose 或 systemd/Caddy + 持久目录**，最快拿到公开 IP/域名。已有 ECS 后可直接运行 [deploy/deploy-to-ecs.sh](deploy/deploy-to-ecs.sh)；如果 ECS 拉 Docker Hub 镜像不稳定，可走 systemd/Caddy fallback；如果证书验证链路被 EIP 网络挡住，可先用 Cloudflare Quick Tunnel 拿 HTTPS 测试入口。完整部署手册见 [deploy/volcengine.md](deploy/volcengine.md)。
+
+公开部署时不要把你的 `ARK_AGENT_PLAN_KEY` 写进服务器环境变量；用户在顶栏「配置 Agent Plan」输入自己的 token，后端只保存在 Node 进程内存里，不会写入 `/api/state` 或 `data/cinema-store.json`。TOS 仍使用服务器后台凭据，建议私有桶 + 预签名 URL。
+
+当前首版公网入口为 `https://reelyai.app`。实际应用进程在火山 ECS 上运行，Vercel/Cloudflare 只负责 HTTPS 边缘代理。
+
+---
+
 ## Agent 操作手册
 
 > **本节读者**：Codex、Claude Code、Cursor Agent。  

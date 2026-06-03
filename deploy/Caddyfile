@@ -1,0 +1,4 @@
+{$CADDY_SITE_ADDRESS} {
+	encode zstd gzip
+	reverse_proxy reelyai:5173
+}

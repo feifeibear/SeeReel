@@ -1,7 +1,7 @@
-import { Archive, BarChart3, Loader2, Plus, RefreshCw, Trash2 } from "lucide-react";
+import { Archive, BarChart3, CircleHelp, KeyRound, Loader2, Plus, RefreshCw, Trash2 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { api } from "./api";
-import type { Asset, AssetType, CreateSessionPayload, Session, Shot, StitchJob, StoreSnapshot, TokenUsageEvent, TokenUsageModelFamily } from "../shared/types";
+import type { AgentPlanCredentialStatus, Asset, AssetType, CreateSessionPayload, Session, Shot, StitchJob, StoreSnapshot, TokenUsageEvent, TokenUsageModelFamily } from "../shared/types";
 import { FlowView } from "./flow/FlowView";
 import { PendingGenerationsProvider } from "./flow/PendingGenerations";
 import { useUndoKeyboardShortcut, useUndoStack } from "./flow/useUndoStack";
@@ -356,6 +356,8 @@ export function App() {
   const [sessionTitleDraft, setSessionTitleDraft] = useState("");
   const [showArchivedSessions, setShowArchivedSessions] = useState(false);
   const [showTokenUsage, setShowTokenUsage] = useState(false);
+  const [showAgentPlanKey, setShowAgentPlanKey] = useState(false);
+  const [agentPlanDraft, setAgentPlanDraft] = useState("");
   const [busy, setBusy] = useState<string>("");
   const [error, setError] = useState<string>("");
   // Network-status banner: flips to true when api.ts emits "api-network-down" (a fetch threw a
@@ -426,6 +428,7 @@ export function App() {
   }, []);
 
   const sessions = state.sessions;
+  const agentPlanCredential = state.runtime?.agentPlanCredential;
   const latestSession = sessions[0];
   const archivedSessions = sessions.slice(1);
   const selectedSession = sessions.find((session) => session.id === selectedSessionId);
@@ -635,6 +638,39 @@ export function App() {
         ...prev,
         sessions: prev.sessions.map((item) => (item.id === updated.id ? stripShots(updated) : item))
       }));
+    });
+  };
+
+  const updateAgentPlanStatus = (status: AgentPlanCredentialStatus) => {
+    setState((prev) => ({
+      ...prev,
+      runtime: {
+        ...prev.runtime,
+        agentPlanCredential: status,
+        seedreamCredentialSource: status.configured ? "agent-plan" : prev.runtime?.seedreamCredentialSource,
+        seedreamDefaultModel: status.configured ? "seedream-5-lite" : prev.runtime?.seedreamDefaultModel
+      }
+    }));
+  };
+
+  const saveAgentPlanKey = () => {
+    const apiKey = agentPlanDraft.trim();
+    if (!apiKey) return;
+    run("save-agent-plan-key", async () => {
+      const status = await api.saveAgentPlanCredential(apiKey);
+      updateAgentPlanStatus(status);
+      setAgentPlanDraft("");
+      setShowAgentPlanKey(false);
+      await refresh();
+    });
+  };
+
+  const clearAgentPlanKey = () => {
+    run("clear-agent-plan-key", async () => {
+      const status = await api.clearAgentPlanCredential();
+      updateAgentPlanStatus(status);
+      setAgentPlanDraft("");
+      await refresh();
     });
   };
 
@@ -1042,6 +1078,72 @@ export function App() {
             )}
           </div>
           <div className="top-actions">
+            <div className="agent-plan-control">
+              <button
+                type="button"
+                className={`agent-plan-button ${agentPlanCredential?.configured ? "configured" : ""}`}
+                onClick={() => setShowAgentPlanKey((value) => !value)}
+                title={agentPlanCredential?.configured
+                  ? t.app.agentPlanConfiguredTitle(agentPlanCredential.fingerprint || "")
+                  : t.app.agentPlanMissingTitle}
+              >
+                <KeyRound size={16} />
+                {agentPlanCredential?.configured ? t.app.agentPlanReady : t.app.agentPlanSet}
+              </button>
+              {showAgentPlanKey && (
+                <form
+                  className="agent-plan-popover"
+                  onSubmit={(event) => {
+                    event.preventDefault();
+                    saveAgentPlanKey();
+                  }}
+                >
+                  <div className="agent-plan-status">
+                    <div>
+                      <strong>{agentPlanCredential?.configured ? t.app.agentPlanReady : t.app.agentPlanSet}</strong>
+                      <small>{t.app.agentPlanHelpText}</small>
+                    </div>
+                    <a
+                      className="agent-plan-help-link"
+                      href="https://www.volcengine.com/activity/agentplan"
+                      target="_blank"
+                      rel="noreferrer"
+                      title={t.app.agentPlanOpenTitle}
+                      aria-label={t.app.agentPlanOpenTitle}
+                    >
+                      <CircleHelp size={16} />
+                    </a>
+                    {agentPlanCredential?.fingerprint && <span>{t.app.agentPlanFingerprint(agentPlanCredential.fingerprint)}</span>}
+                  </div>
+                  <input
+                    type="password"
+                    autoComplete="off"
+                    value={agentPlanDraft}
+                    onChange={(event) => setAgentPlanDraft(event.target.value)}
+                    placeholder={t.app.agentPlanPlaceholder}
+                    aria-label={t.app.agentPlanPlaceholder}
+                  />
+                  <div className="button-row agent-plan-actions">
+                    <button
+                      type="submit"
+                      className="primary"
+                      disabled={busy === "save-agent-plan-key" || !agentPlanDraft.trim()}
+                    >
+                      {busy === "save-agent-plan-key" ? <Loader2 size={16} className="spin" /> : <KeyRound size={16} />}
+                      {t.app.agentPlanSave}
+                    </button>
+                    <button
+                      type="button"
+                      className="danger"
+                      onClick={clearAgentPlanKey}
+                      disabled={busy === "clear-agent-plan-key" || !agentPlanCredential?.configured}
+                    >
+                      {t.app.agentPlanClear}
+                    </button>
+                  </div>
+                </form>
+              )}
+            </div>
             <button
               type="button"
               className="language-toggle"
