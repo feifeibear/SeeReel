@@ -25,6 +25,7 @@ jobs:
       REELYAI_SKIP_SKILL_INSTALL: "1"
       REELYAI_ECS_HOST: ${{ secrets.REELYAI_ECS_HOST }}
       REELYAI_ECS_USER: ${{ secrets.REELYAI_ECS_USER }}
+      REELYAI_ECS_PORT: ${{ secrets.REELYAI_ECS_PORT }}
       REELYAI_ECS_SSH_KEY: ${{ secrets.REELYAI_ECS_SSH_KEY }}
       REELYAI_ECS_DIR: ${{ secrets.REELYAI_ECS_DIR }}
       APP_PUBLIC_URL: ${{ inputs.public_url }}
