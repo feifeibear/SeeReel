@@ -21,6 +21,7 @@ npm run install:skill
 - `reelyai-storyboard-imagegen`: Codex imagegen / `gpt-image-2` cinematic storyboard prompt workflow
 - `reelyai-script-chat`: guided script-development chat flow
 - `reelyai-agent-session`: REST-driven session control
+- `reelyai-cli`: local CLI workflow and fine-grained node control for AI agents
 
 Target one or more runtimes, or force all of them:
 
@@ -52,6 +53,26 @@ Open the shown localhost URL. Production-style local runs often use:
 ```bash
 NODE_ENV=production PORT=5174 npm run start
 ```
+
+### Local Agent CLI
+
+This repo also ships a local npm CLI package for Codex / Claude Code / Cursor Agent to create visible web workflows from natural language:
+
+```bash
+npm install -g reelyai
+reelyai skill install --agent all
+reelyai configure --base-url https://reelyai.app --access-token "$REELYAI_ACCESS_TOKEN"
+reelyai workflow "a short video idea in natural language" --duration 60
+```
+
+Repo-local fallback:
+
+```bash
+npm install -g ./packages/reelyai-cli
+npm run cli -- workflow "a short video idea in natural language" --duration 60
+```
+
+Default CLI behavior is intentionally review-first: create/select the browser-scoped user session, save the prompt as the session logline, generate the script, generate the storyboard/workflow, then return `https://reelyai.app/#/s/<sessionId>` for human takeover. Use `reelyai render --session latest --stitch` only when the user explicitly wants paid video generation to continue.
 
 ## Operating Model
 

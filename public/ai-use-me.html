@@ -1,0 +1,310 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>AI use me - ReelyAI CLI Guide</title>
+    <style>
+      :root {
+        color-scheme: dark;
+        --bg: #080b10;
+        --panel: #101720;
+        --panel-2: #151d28;
+        --line: rgba(184, 199, 216, 0.18);
+        --line-strong: rgba(184, 199, 216, 0.34);
+        --text: #eef5f8;
+        --muted: #9aa8b5;
+        --accent: #d8aa54;
+        --cyan: #5ccbc5;
+        --danger: #f19191;
+      }
+
+      * { box-sizing: border-box; }
+
+      body {
+        margin: 0;
+        background:
+          linear-gradient(180deg, rgba(18, 27, 38, 0.94), rgba(8, 11, 16, 0.98) 360px),
+          var(--bg);
+        color: var(--text);
+        font: 15px/1.65 ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      }
+
+      main {
+        width: min(980px, calc(100% - 32px));
+        margin: 0 auto;
+        padding: 42px 0 64px;
+      }
+
+      header {
+        padding: 0 0 26px;
+        border-bottom: 1px solid var(--line);
+      }
+
+      .eyebrow {
+        margin: 0 0 8px;
+        color: var(--cyan);
+        font-size: 12px;
+        font-weight: 800;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+      }
+
+      h1 {
+        margin: 0;
+        font-size: clamp(32px, 5vw, 56px);
+        line-height: 1;
+        letter-spacing: 0;
+      }
+
+      .lede {
+        max-width: 780px;
+        margin: 18px 0 0;
+        color: #c9d5df;
+        font-size: 18px;
+      }
+
+      section {
+        padding: 28px 0;
+        border-bottom: 1px solid var(--line);
+      }
+
+      h2 {
+        margin: 0 0 12px;
+        font-size: 22px;
+        letter-spacing: 0;
+      }
+
+      h3 {
+        margin: 24px 0 8px;
+        font-size: 17px;
+      }
+
+      p { margin: 10px 0; color: #d9e3ea; }
+      a { color: var(--cyan); text-decoration: none; }
+      a:hover { text-decoration: underline; }
+
+      ul, ol {
+        margin: 10px 0 0;
+        padding-left: 22px;
+        color: #d9e3ea;
+      }
+
+      li + li { margin-top: 8px; }
+
+      code {
+        color: #f7d996;
+        background: rgba(216, 170, 84, 0.1);
+        border: 1px solid rgba(216, 170, 84, 0.18);
+        border-radius: 5px;
+        padding: 1px 5px;
+      }
+
+      pre {
+        margin: 12px 0;
+        overflow-x: auto;
+        white-space: pre;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: #070a0f;
+        padding: 14px 16px;
+      }
+
+      pre code {
+        display: block;
+        padding: 0;
+        border: 0;
+        background: transparent;
+        color: #e9f1f5;
+      }
+
+      .callout {
+        margin: 16px 0;
+        border: 1px solid rgba(216, 170, 84, 0.34);
+        border-left: 4px solid var(--accent);
+        border-radius: 8px;
+        background: rgba(216, 170, 84, 0.08);
+        padding: 14px 16px;
+      }
+
+      .danger {
+        border-color: rgba(241, 145, 145, 0.34);
+        border-left-color: var(--danger);
+        background: rgba(241, 145, 145, 0.08);
+      }
+
+      .grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+        gap: 12px;
+      }
+
+      .card {
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: linear-gradient(180deg, var(--panel), var(--panel-2));
+        padding: 15px;
+      }
+
+      .card strong {
+        display: block;
+        margin-bottom: 5px;
+      }
+
+      .card p {
+        margin: 0;
+        color: var(--muted);
+      }
+
+      .checklist li::marker { color: var(--accent); }
+      footer { padding-top: 22px; color: var(--muted); font-size: 13px; }
+    </style>
+  </head>
+  <body>
+    <main>
+      <header>
+        <p class="eyebrow">ReelyAI Agent CLI</p>
+        <h1>AI use me</h1>
+        <p class="lede">
+          This page is written for Codex, Claude Code, Cursor Agent, and other local AI agents.
+          Use the CLI to turn a human video idea into a visible ReelyAI web workflow, then continue
+          generation only after the human has configured Agent Plan access.
+        </p>
+      </header>
+
+      <section>
+        <h2>What you are allowed to do</h2>
+        <div class="grid">
+          <div class="card">
+            <strong>Create the workflow</strong>
+            <p>Create a session, write the natural-language idea as the logline, generate the script, and generate storyboard shots visible in the web UI.</p>
+          </div>
+          <div class="card">
+            <strong>Let the human take over</strong>
+            <p>Return the session URL so the human can edit script, prompts, assets, shot durations, references, and generation choices.</p>
+          </div>
+          <div class="card">
+            <strong>Continue to video</strong>
+            <p>After the human confirms credentials and prompt choices, render missing shots and stitch the final video through ReelyAI APIs.</p>
+          </div>
+        </div>
+      </section>
+
+      <section>
+        <h2>Human checkpoint: Agent Plan</h2>
+        <div class="callout danger">
+          <strong>Do not invent, scrape, or expose API keys.</strong>
+          The human must open and pay for Agent Plan, then enter the key themselves.
+        </div>
+        <ol class="checklist">
+          <li>Ask the human to open <a href="https://www.volcengine.com/activity/agentplan" target="_blank" rel="noreferrer">Volcengine Agent Plan</a> and create an Agent Plan API key in the Ark console.</li>
+          <li>Ask the human to open <a href="https://reelyai.app/" target="_blank" rel="noreferrer">https://reelyai.app/</a>, click the top-bar Agent Plan button, and paste the key for browser/manual generation.</li>
+          <li>For CLI automation, the CLI also needs the key in its own local user scope. Ask the human to run the configure command themselves, or set <code>REELYAI_AGENT_PLAN_TOKEN</code> in the agent runtime environment.</li>
+        </ol>
+        <pre><code>reelyai configure --base-url https://reelyai.app --agent-plan-token "&lt;human-pastes-key-here&gt;"</code></pre>
+        <p>
+          The browser key and CLI key are separate because ReelyAI isolates visitors by cookie. Treat that isolation as a safety feature.
+        </p>
+      </section>
+
+      <section>
+        <h2>Install the CLI</h2>
+        <h3>Install from npm</h3>
+        <pre><code>npm install -g reelyai
+reelyai --help</code></pre>
+
+        <h3>Install the AI skill bundled with the CLI</h3>
+        <pre><code>reelyai skill install --agent all
+reelyai skill print</code></pre>
+        <p>
+          The npm package includes the <code>reelyai-cli</code> skill. Installing it gives Codex, Claude Code,
+          Cursor Agent, and other local agent runtimes the operating procedure for using the CLI safely.
+        </p>
+
+        <h3>Repo-local fallback</h3>
+        <pre><code>git clone https://github.com/feifeibear/reelyai-agent.git
+cd reelyai-agent
+npm install
+npm install -g ./packages/reelyai-cli
+reelyai skill install --agent all</code></pre>
+      </section>
+
+      <section>
+        <h2>Create a reviewable workflow</h2>
+        <p>Start here. This is low risk because it creates visible planning nodes and stops before paid video rendering.</p>
+        <pre><code>reelyai workflow "一个失眠导演在午夜便利店遇见未来的自己" \
+  --base-url https://reelyai.app \
+  --duration 60 \
+  --style "neo-noir, rain reflections, grounded sci-fi" \
+  --json</code></pre>
+        <p>Return the <code>webUrl</code> to the human. It should look like:</p>
+        <pre><code>https://reelyai.app/#/s/ses_xxxxxxxx</code></pre>
+      </section>
+
+      <section>
+        <h2>Generate the full video</h2>
+        <p>Only continue after the human confirms Agent Plan is configured and the web workflow looks acceptable.</p>
+        <pre><code>reelyai render --session latest --stitch --json</code></pre>
+        <p>Or create, render, and stitch in one run when the human explicitly asks for full automation:</p>
+        <pre><code>reelyai workflow "用户的视频创意" --duration 60 --render --stitch --json</code></pre>
+        <p>
+          Poll until the CLI returns a final <code>downloadUrl</code>. If a shot fails, report the failed shot id and let the human edit or ask you to retry.
+        </p>
+      </section>
+
+      <section>
+        <h2>Fine-grained node operations</h2>
+        <p>Use these when the human edits the workflow or asks you to operate one canvas node precisely.</p>
+
+        <h3>Inspect one node</h3>
+        <pre><code>reelyai node get --id shot_xxxxxxxx --json
+reelyai node get --id asset_xxxxxxxx --json
+reelyai node get --id ses_xxxxxxxx --json</code></pre>
+
+        <h3>Update a video node prompt</h3>
+        <pre><code>reelyai node update-prompt --id shot_xxxxxxxx \
+  --prompt "新的 Seedance 视频 prompt，保留角色服装和场景连续性" \
+  --title "03 重新追上自己" \
+  --duration 15 \
+  --json</code></pre>
+
+        <h3>Generate or poll a single video node</h3>
+        <pre><code>reelyai node generate --id shot_xxxxxxxx --wait --json
+reelyai node poll --id shot_xxxxxxxx --json</code></pre>
+
+        <h3>Generate a shot tailframe</h3>
+        <pre><code>reelyai node tailframe --id shot_xxxxxxxx --publish-tos --canvas-node --json</code></pre>
+        <p>
+          Use <code>--publish-tos</code> when the tailframe will become a Seedance reference. Remote Seedance cannot fetch local <code>/media/...</code> URLs.
+        </p>
+
+        <h3>Open VLM review and repair prompts</h3>
+        <pre><code>reelyai node review --id shot_xxxxxxxx --frame-count 8 --json
+reelyai node repair --id shot_xxxxxxxx --json
+reelyai final-review --session latest --json
+reelyai final-review --session latest --repair --json</code></pre>
+
+        <h3>Assets and storyboards</h3>
+        <pre><code>reelyai node update-prompt --id asset_xxxxxxxx --prompt "角色参考图 prompt" --json
+reelyai node generate --id asset_xxxxxxxx --model seedream-5-lite --json
+reelyai node review --id asset_xxxxxxxx --json
+reelyai publish-storyboards --session latest --json</code></pre>
+      </section>
+
+      <section>
+        <h2>Operational rules for AI agents</h2>
+        <ul class="checklist">
+          <li>Use ReelyAI API/CLI state as the source of truth. Do not hide generated media in private scratch folders.</li>
+          <li>Refresh status before continuing after any human web edit.</li>
+          <li>Do not call paid video generation until Agent Plan is configured and the human has approved continuing.</li>
+          <li>For local development, replace the base URL with <code>http://localhost:5173</code> or <code>REELYAI_AGENT_BASE_URL</code>.</li>
+          <li>If the public backend requires a shared access token, use <code>REELYAI_ACCESS_TOKEN</code> or <code>--access-token</code>.</li>
+        </ul>
+      </section>
+
+      <footer>
+        ReelyAI keeps the web canvas human-editable: sessions, scripts, shots, assets, renders, stitch state, and final videos remain visible in the app.
+      </footer>
+    </main>
+  </body>
+</html>

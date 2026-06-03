@@ -16,6 +16,8 @@
     "smoke:canvas-crud": "tsx scripts/smoke-canvas-crud.ts",
     "smoke:guardrails": "tsx scripts/smoke-guardrails.ts",
     "smoke:production": "tsx scripts/smoke-production.ts",
+    "cli": "node packages/reelyai-cli/bin/reelyai.js",
+    "cli:pack": "npm pack ./packages/reelyai-cli",
     "install:skill": "node scripts/install_agent_skill.mjs",
     "postinstall": "node scripts/install_agent_skill.mjs --postinstall || true",
     "start": "NODE_ENV=production tsx src/server/index.ts"

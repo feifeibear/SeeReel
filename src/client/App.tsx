@@ -1149,6 +1149,16 @@ export function App() {
             )}
           </div>
           <div className="top-actions">
+            <a
+              className="ai-use-me-link"
+              href="/ai-use-me.html"
+              target="_blank"
+              rel="noreferrer"
+              title="CLI guide for AI agents"
+            >
+              <CircleHelp size={16} />
+              AI use me
+            </a>
             <div className="agent-plan-control">
               <button
                 type="button"

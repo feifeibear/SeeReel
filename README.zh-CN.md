@@ -20,6 +20,36 @@
 
 ![ReelyAI 画布工作流](docs/reelyai-workflow-ui.png)
 
+## 本地 Agent CLI
+
+如果你希望本机 Codex / Claude Code 直接把一句自然语言变成线上网页里的可编辑 workflow，可以安装仓库内置 CLI：
+
+```bash
+npm install -g reelyai
+reelyai skill install --agent all
+reelyai configure --base-url https://reelyai.app --access-token "$REELYAI_ACCESS_TOKEN"
+reelyai workflow "一个失眠导演在午夜便利店遇见未来的自己" --duration 60 --style "neo-noir, rain"
+```
+
+不想全局安装时，可在仓库根目录直接运行：
+
+```bash
+npm run cli -- workflow "一个失眠导演在午夜便利店遇见未来的自己" --duration 60
+```
+
+CLI 默认只做到 **创建 session → 生成剧本 → 生成分镜 / workflow → 返回 `https://reelyai.app/#/s/<sessionId>`**，让人类先在网页上审稿、改 prompt、接管节点。需要继续真实生视频时再运行：
+
+```bash
+reelyai render --session latest --stitch
+```
+
+配置项：
+
+- `REELYAI_AGENT_BASE_URL` / `CINEMA_AGENT_BASE_URL` 或 `--base-url`：切换线上 / 本地服务。
+- `REELYAI_ACCESS_TOKEN` 或 `--access-token`：公开部署启用共享访问令牌时使用。
+- `REELYAI_AGENT_PLAN_TOKEN` / `ARK_AGENT_PLAN_KEY` 或 `--agent-plan-token`：写入当前 CLI cookie 对应的网页用户空间，供 Seedream / Seedance / VLM 生成使用。
+- 本地配置与 cookie 存在 `~/.reelyai/config.json`；网页里的 session、shot、prompt、render、stitch 仍由 ReelyAI API / store 做唯一真相。
+
 ---
 
 ## 推荐：火山方舟 Agent Plan
@@ -154,7 +184,7 @@ curl -sS http://localhost:5173/api/state | head -c 200
 
 1. **只调 API**，不要用浏览器自动化操作 Web（人可在 `http://localhost:5173` 审阅/改稿，与 API 共享 `data/cinema-store.json`）。
 2. **先读完本文「初始化」**，缺凭证时**停止产片**，用下文「告诉用户」模板让人去火山引擎/console 开通；不要编造 key。
-3. 安装并遵循项目 skills（单一源 `.agents/skills/` 为跨平台标准；`npm run install:skill` 自动分发到本机检测到的各 runtime——Codex/Claude/Cursor/agents）：`reelyai-shortdrama`、`reelyai-agent-session`、需要故事板时用 `reelyai-storyboard-imagegen`。
+3. 安装并遵循项目 skills（单一源 `.agents/skills/` 为跨平台标准；`npm run install:skill` 自动分发到本机检测到的各 runtime——Codex/Claude/Cursor/agents）：`reelyai-shortdrama`、`reelyai-agent-session`、`reelyai-cli`，需要故事板时用 `reelyai-storyboard-imagegen`。
 4. **远端 Seedance 只吃 `http(s)` 参考图**。本地 `/media/...` 必须先 `POST .../publish-tos` 或配置 `PUBLIC_MEDIA_BASE_URL`（不能是 localhost）。
 5. Web 上的人工修改视为**当前真相**；继续前 `GET /api/state` 刷新。
 
@@ -315,6 +345,7 @@ flowchart LR
 - [AGENTS.md](AGENTS.md) — 媒体、TOS、串行、拼接门闩  
 - [docs/agent-workflow.md](docs/agent-workflow.md) — 角色分工与 image provider 形状  
 - [.agents/skills/reelyai-shortdrama/SKILL.md](.agents/skills/reelyai-shortdrama/SKILL.md) — 端到端短剧 skill  
+- [.agents/skills/reelyai-cli/SKILL.md](.agents/skills/reelyai-cli/SKILL.md) — CLI 与细粒度 node 操作 skill  
 
 ## 人做什么（极简）
 

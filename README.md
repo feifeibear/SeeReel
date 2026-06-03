@@ -30,6 +30,36 @@ The canvas is not just a progress screen. It is the human takeover surface. You 
 
 ![ReelyAI canvas workflow](docs/reelyai-workflow-ui.png)
 
+## Local Agent CLI
+
+Install the repo CLI when you want local Codex or Claude Code to turn one natural-language request into a visible ReelyAI web workflow:
+
+```bash
+npm install -g reelyai
+reelyai skill install --agent all
+reelyai configure --base-url https://reelyai.app --access-token "$REELYAI_ACCESS_TOKEN"
+reelyai workflow "a sleepless film director meets his future self in a midnight convenience store" --duration 60
+```
+
+From this repo you can also run it without a global install:
+
+```bash
+npm run cli -- workflow "a sleepless film director meets his future self in a midnight convenience store" --duration 60
+```
+
+By default the CLI creates the session, generates the script, generates the storyboard/workflow, then returns a shareable `https://reelyai.app/#/s/<sessionId>` URL so a human can review or take over in the canvas. Real video generation is opt-in:
+
+```bash
+reelyai render --session latest --stitch
+```
+
+Configuration:
+
+- `REELYAI_AGENT_BASE_URL` / `CINEMA_AGENT_BASE_URL` or `--base-url`: switch between production and local servers.
+- `REELYAI_ACCESS_TOKEN` or `--access-token`: shared deployment token when the public backend is gated.
+- `REELYAI_AGENT_PLAN_TOKEN` / `ARK_AGENT_PLAN_KEY` or `--agent-plan-token`: browser-scoped Agent Plan key for Seedream, Seedance, and VLM calls.
+- Local config and cookies live at `~/.reelyai/config.json`; ReelyAI API/state remains the source of truth for sessions, shots, prompts, renders, stitch jobs, and final videos.
+
 ## Recommended: Volcengine Agent Plan
 
 [Agent Plan](https://www.volcengine.com/docs/82379/2366394?lang=zh) is Volcengine Ark’s subscription package for **Agent workloads**. Instead of wiring separate pay-as-you-go keys for every model, Agent Plan bundles the models and harness tools an agent actually needs — text, image, video, web search, and memory — and meters usage with **Agent Fuel Points (AFP)**.
@@ -213,6 +243,7 @@ This repo ships cross-agent skills in `.agents/skills/`:
 | --- | --- |
 | `reelyai-shortdrama` | End-to-end short-drama production |
 | `reelyai-agent-session` | REST-driven session control |
+| `reelyai-cli` | Local CLI workflow and fine-grained node control |
 | `reelyai-script-chat` | Script and casting chat flow |
 | `reelyai-storyboard-imagegen` | Storyboard contact-sheet prompting |
 

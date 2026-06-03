@@ -1,0 +1,21 @@
+{
+  "name": "reelyai",
+  "version": "0.1.1",
+  "description": "Local agent CLI for creating and driving ReelyAI web workflows.",
+  "license": "MIT",
+  "type": "module",
+  "bin": {
+    "reelyai": "bin/reelyai.js"
+  },
+  "files": [
+    "bin",
+    "skills",
+    "README.md"
+  ],
+  "engines": {
+    "node": ">=18.17"
+  },
+  "scripts": {
+    "smoke": "node bin/reelyai.js --help"
+  }
+}

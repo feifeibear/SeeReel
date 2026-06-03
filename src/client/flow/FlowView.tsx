@@ -15,7 +15,6 @@ import {
   applyNodeChanges,
   applyEdgeChanges
 } from "@xyflow/react";
-import { Zap } from "lucide-react";
 import "@xyflow/react/dist/style.css";
 
 import { api } from "../api";
@@ -1225,50 +1224,7 @@ export function FlowView({ snapshot, session, visionReviewEnabled, defaultImageM
               {t.flow.redo}
             </button>
           )}
-          <button
-            onClick={() => guardCreate("character", () => onCreateAnchorAsset("character"))}
-            disabled={Boolean(creating)}
-            title={t.flow.createCharacterTitle}
-          >
-            {creating === "character" ? "..." : t.flow.createCharacter}
-          </button>
-          <button
-            onClick={() => guardCreate("scene", () => onCreateAnchorAsset("scene"))}
-            disabled={Boolean(creating)}
-            title={t.flow.createSceneTitle}
-          >
-            {creating === "scene" ? "..." : t.flow.createScene}
-          </button>
-          <button
-            onClick={() => guardCreate("shot", () => onCreateShot())}
-            disabled={Boolean(creating)}
-            title={t.flow.createShotTitle}
-          >
-            {creating === "shot" ? "..." : t.flow.createShot}
-          </button>
-          <button
-            onClick={() => {
-              pendingFilePositionRef.current = undefined;
-              videoInputRef.current?.click();
-            }}
-            title={t.flow.uploadVideoTitle}
-          >
-            {t.flow.uploadVideo}
-          </button>
-          <button
-            onClick={() => { void executeWorkflowFast(); }}
-            className="workflow-run-button"
-            disabled={workflowBusy || Boolean(creating)}
-            title={t.flow.executeFastTitle}
-          >
-            <Zap size={14} />
-            {workflowBusy ? t.flow.executing : t.flow.executeFast}
-          </button>
-          <button onClick={() => onStitch({ force: Boolean(session.stitchShotIds?.length) })} className="primary" disabled={!toolbarStitchReady}>
-            {session.stitchShotIds?.length ? t.flow.stitchByConnections : t.flow.stitchAll}
-          </button>
         </div>
-        {workflowStatus && <div className="flow-workflow-status">{workflowStatus}</div>}
       </header>
       <div className="flow-canvas-row">
         <div
