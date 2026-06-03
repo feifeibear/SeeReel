@@ -59,7 +59,7 @@ WantedBy=multi-user.target
 SERVICE
 
 cat >/etc/caddy/Caddyfile <<CADDY
-$PUBLIC_URL {
+:80 {
   encode zstd gzip
   log {
     output stdout
