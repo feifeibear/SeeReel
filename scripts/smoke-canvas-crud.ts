@@ -84,6 +84,7 @@ async function withServer<T>(fn: () => Promise<T>): Promise<T> {
   const child: ChildProcess = spawn("npm", ["run", "dev"], {
     cwd: process.cwd(),
     env: { ...process.env, PORT: new URL(baseUrl).port || "5173" },
+    detached: process.platform !== "win32",
     stdio: ["ignore", "pipe", "pipe"]
   });
   child.stdout?.on("data", (chunk) => process.stdout.write(`[server] ${chunk}`));
@@ -93,6 +94,19 @@ async function withServer<T>(fn: () => Promise<T>): Promise<T> {
     await waitForServer();
     return await fn();
   } finally {
+    terminateServer(child);
+  }
+}
+
+function terminateServer(child: ChildProcess) {
+  if (!child.pid) return;
+  try {
+    if (process.platform === "win32") {
+      child.kill("SIGTERM");
+    } else {
+      process.kill(-child.pid, "SIGTERM");
+    }
+  } catch {
     child.kill("SIGTERM");
   }
 }
