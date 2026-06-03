@@ -141,6 +141,7 @@ async function run() {
       REELYAI_SESSION_GENERATION_DAILY_CAP: String(CAP),
       REELYAI_SKIP_SKILL_INSTALL: "1"
     },
+    detached: process.platform !== "win32",
     stdio: ["ignore", "pipe", "pipe"]
   });
   child.stdout?.on("data", (chunk) => process.stdout.write(`[server] ${chunk}`));
@@ -150,6 +151,19 @@ async function run() {
     await waitForServer();
     await main();
   } finally {
+    terminateServer(child);
+  }
+}
+
+function terminateServer(child: ChildProcess) {
+  if (!child.pid) return;
+  try {
+    if (process.platform === "win32") {
+      child.kill("SIGTERM");
+    } else {
+      process.kill(-child.pid, "SIGTERM");
+    }
+  } catch {
     child.kill("SIGTERM");
   }
 }
