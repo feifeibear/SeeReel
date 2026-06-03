@@ -19,6 +19,7 @@ const PORT = process.env.REELYAI_GUARDRAILS_PORT || "5199";
 const baseUrl = `http://127.0.0.1:${PORT}`;
 const TOKEN = "guardrail-smoke-token";
 const CAP = 2;
+let cookieHeader = "";
 
 const EMPTY_KEY_ENVS = [
   "ARK_API_KEY",
@@ -36,10 +37,25 @@ const EMPTY_KEY_ENVS = [
 
 type Raw = { status: number; body: any };
 
+function rememberCookies(headers: Headers) {
+  const raw = headers.get("set-cookie");
+  if (!raw) return;
+  cookieHeader = raw
+    .split(/,(?=[^;,]+=)/)
+    .map((item) => item.split(";")[0].trim())
+    .filter(Boolean)
+    .join("; ");
+}
+
 async function call(path: string, init?: RequestInit & { token?: boolean }): Promise<Raw> {
-  const headers: Record<string, string> = { "Content-Type": "application/json", ...(init?.headers as Record<string, string>) };
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+    ...(cookieHeader ? { Cookie: cookieHeader } : {}),
+    ...(init?.headers as Record<string, string>)
+  };
   if (init?.token) headers["x-reelyai-access"] = TOKEN;
   const res = await fetch(`${baseUrl}${path}`, { ...init, headers });
+  rememberCookies(res.headers);
   const text = await res.text();
   let body: any;
   try {
@@ -138,6 +154,7 @@ async function run() {
       PORT,
       REELYAI_COOKIE_SECURE: "0",
       REELYAI_ACCESS_TOKEN: TOKEN,
+      REELYAI_DISABLE_ADMIN_AGENT_PLAN: "1",
       REELYAI_SESSION_GENERATION_DAILY_CAP: String(CAP),
       REELYAI_SKIP_SKILL_INSTALL: "1"
     },

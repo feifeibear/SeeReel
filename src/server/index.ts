@@ -628,7 +628,7 @@ function ownedResourceGuard(req: Request, res: Response, next: () => void) {
   }
 
   const shotMatch = req.path.match(/^\/api\/shots\/([^/]+)/);
-  if (shotMatch && !ownsShot(shotById(shotMatch[1]))) {
+  if (shotMatch && shotMatch[1] !== "restore" && !ownsShot(shotById(shotMatch[1]))) {
     return res.status(404).json({ error: "Shot not found" });
   }
 
@@ -1488,8 +1488,13 @@ app.patch("/api/shots/:shotId", async (req, res) => {
   const savedShot = store.getShot(req.params.shotId);
   if (!savedShot) return res.status(404).json({ error: "Shot not found" });
   const patch = normalizeShotPatch(req.body);
-  const shot = await store.updateShot(req.params.shotId, normalizeContinuityPatch(savedShot, patch));
+  let shot = await store.updateShot(req.params.shotId, normalizeContinuityPatch(savedShot, patch));
   if (!shot) return res.status(404).json({ error: "Shot not found" });
+  const promptPatch = pendingRenderPromptEditPatch(patch);
+  const pendingRender = promptPatch ? findPendingRender(shot) : undefined;
+  if (pendingRender?.id && promptPatch) {
+    shot = (await store.updateShotRender(shot.id, pendingRender.id, promptPatch)) || shot;
+  }
   res.json(shot);
 });
 
@@ -2528,6 +2533,25 @@ function normalizeShotPatch(body: Partial<Shot>) {
   if (patch.referenceVideoAssetId === "") patch.referenceVideoAssetId = undefined;
   if (patch.referenceVideoFromShotId === "") patch.referenceVideoFromShotId = undefined;
   return patch;
+}
+
+function pendingRenderPromptEditPatch(patch: Partial<Shot>): Partial<ShotRender> | undefined {
+  const renderPatch: Partial<ShotRender> = {};
+  if (Object.hasOwn(patch, "rawPrompt")) {
+    renderPatch.editedRawPrompt = (patch.rawPrompt || "").toString();
+  }
+  if (Object.hasOwn(patch, "prompt")) {
+    renderPatch.editedPrompt = (patch.prompt || patch.rawPrompt || "").toString();
+  } else if (Object.hasOwn(patch, "rawPrompt")) {
+    renderPatch.editedPrompt = (patch.rawPrompt || "").toString();
+  }
+  if (Object.hasOwn(patch, "composedSeedancePromptDraft")) {
+    const draft = typeof patch.composedSeedancePromptDraft === "string"
+      ? patch.composedSeedancePromptDraft.trim()
+      : "";
+    renderPatch.editedComposedPrompt = draft || undefined;
+  }
+  return Object.keys(renderPatch).length > 0 ? renderPatch : undefined;
 }
 
 function normalizeContinuityPatch(savedShot: Shot, patch: Partial<Shot>) {
@@ -4444,7 +4468,7 @@ app.post("/api/shots/:shotId/review", async (req, res) => {
   if (!selectedRender?.id) return res.status(400).json({ error: "No selected render to review" });
   if (!consumeGenerationOr429(res, shot.sessionId, "shot_vlm_review")) return;
   const nowIso = new Date().toISOString();
-  const reviewPrompt = (selectedRender.composedPrompt || selectedRender.rawPrompt || selectedRender.prompt || shot.rawPrompt || shot.prompt || "").toString();
+  const reviewPrompt = renderPromptForReview(selectedRender, shot);
   await store.updateShotRender(shot.id, selectedRender.id, {
     videoReviewStatus: "running",
     videoReviewError: undefined,
@@ -4647,7 +4671,7 @@ app.post("/api/shots/:shotId/poll", async (req, res) => {
           reviewLocks.set(renderId, lock);
           try {
             const referenceUrls = collectVideoReviewReferences(shot, pendingRender);
-            const reviewPrompt = (pendingRender.composedPrompt || pendingRender.rawPrompt || pendingRender.prompt || shot.prompt || "").toString();
+            const reviewPrompt = renderPromptForReview(pendingRender, shot);
             const verdict = await reviewVideoDetailed({
               scope: "shot",
               prompt: reviewPrompt,
@@ -4683,8 +4707,8 @@ app.post("/api/shots/:shotId/poll", async (req, res) => {
                   const retryAssets = store.getAssets(pendingRender.assetIds || []);
                   const shotForRetry: Shot = {
                     ...shot,
-                    rawPrompt: pendingRender.rawPrompt || shot.rawPrompt,
-                    prompt: pendingRender.prompt || shot.prompt,
+                    rawPrompt: renderRawPromptForRetry(pendingRender, shot),
+                    prompt: renderPromptForRetry(pendingRender, shot),
                     durationSec: pendingRender.durationSec || shot.durationSec,
                     seedanceVariant: pendingRender.seedanceVariant || shot.seedanceVariant,
                     usePreviousShotClip: pendingRender.usePreviousShotClip,
@@ -4706,7 +4730,7 @@ app.post("/api/shots/:shotId/poll", async (req, res) => {
                   // verbatim. The rewriter falls through to the original prompt on any failure
                   // (no API key, transport error, empty rewrite), so this is always at-least-as-good
                   // as the legacy verbatim path.
-                  const baseSeedanceText = pendingRender.composedPrompt || (pendingRender.rawPrompt || pendingRender.prompt || shot.prompt || "").toString();
+                  const baseSeedanceText = renderPromptForReview(pendingRender, shot);
                   const retrySession = store.getSession(shot.sessionId);
                   const retryLang = resolveLang(retrySession?.language);
                   const rewrite = await rewritePromptWithReviewFeedback({
@@ -4753,6 +4777,11 @@ app.post("/api/shots/:shotId/poll", async (req, res) => {
                     generationTaskId: task.taskId,
                     generationStartedAt: new Date().toISOString(),
                     error: undefined,
+                    rawPrompt: shotForRetry.rawPrompt,
+                    prompt: shotForRetry.prompt,
+                    editedRawPrompt: undefined,
+                    editedPrompt: undefined,
+                    editedComposedPrompt: undefined,
                     reviewAttempts: attemptIndex,
                     reviewModel: verdict.model,
                     reviewNote: formatReviewNote(failures, false),
@@ -4943,6 +4972,28 @@ function friendlyApiError(err: unknown, fallback = "请求失败"): string {
 
 function findPendingRender(shot: Shot) {
   return (shot.renders || []).find((render) => render.status === "generating" || Boolean(render.generationTaskId));
+}
+
+function renderPromptForReview(render: ShotRender | undefined, shot: Shot) {
+  return (
+    render?.editedComposedPrompt
+    || render?.editedRawPrompt
+    || render?.editedPrompt
+    || render?.composedPrompt
+    || render?.rawPrompt
+    || render?.prompt
+    || shot.rawPrompt
+    || shot.prompt
+    || ""
+  ).toString();
+}
+
+function renderRawPromptForRetry(render: ShotRender, shot: Shot) {
+  return render.editedRawPrompt || render.rawPrompt || shot.rawPrompt || shot.prompt || "";
+}
+
+function renderPromptForRetry(render: ShotRender, shot: Shot) {
+  return render.editedPrompt || render.editedRawPrompt || render.prompt || shot.prompt || shot.rawPrompt || "";
 }
 
 /**

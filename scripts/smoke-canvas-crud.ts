@@ -2,15 +2,28 @@ import { strict as assert } from "node:assert";
 import { spawn, type ChildProcess } from "node:child_process";
 
 const baseUrl = process.env.REELYAI_BASE_URL || "http://127.0.0.1:5173";
+let cookieHeader = "";
+
+function rememberCookies(headers: Headers) {
+  const raw = headers.get("set-cookie");
+  if (!raw) return;
+  cookieHeader = raw
+    .split(/,(?=[^;,]+=)/)
+    .map((item) => item.split(";")[0].trim())
+    .filter(Boolean)
+    .join("; ");
+}
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`${baseUrl}${path}`, {
     ...init,
     headers: {
       "Content-Type": "application/json",
+      ...(cookieHeader ? { Cookie: cookieHeader } : {}),
       ...(init?.headers || {})
     }
   });
+  rememberCookies(res.headers);
   if (!res.ok) {
     const text = await res.text().catch(() => "");
     throw new Error(`${init?.method || "GET"} ${path} failed: ${res.status} ${res.statusText} ${text}`);

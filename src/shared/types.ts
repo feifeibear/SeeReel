@@ -452,6 +452,13 @@ export interface ShotRender {
   videoReviewBuiltForPrompt?: string;
   /** The exact Seedance text content actually submitted for this render (audit trail). */
   composedPrompt?: string;
+  /**
+   * Prompt edits saved while this render is still in flight. The already-submitted Seedance task
+   * cannot be mutated, but VLM review and auto-retry should follow the user's latest saved intent.
+   */
+  editedRawPrompt?: string;
+  editedPrompt?: string;
+  editedComposedPrompt?: string;
   /** Reference-image URLs actually submitted to Seedance for this render. */
   submittedReferenceImageUrls?: string[];
   /**

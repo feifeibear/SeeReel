@@ -33,6 +33,7 @@ function envAdminAgentPlanKey() {
 }
 
 export function getAdminAgentPlanKey() {
+  if (/^(1|true|yes|on)$/i.test(process.env.REELYAI_DISABLE_ADMIN_AGENT_PLAN || "")) return undefined;
   return settings.adminAgentPlanKey?.trim() || envAdminAgentPlanKey();
 }
 
@@ -55,6 +56,14 @@ export function clearStoredAdminAgentPlanKey() {
 }
 
 export function adminAgentPlanStatus() {
+  if (/^(1|true|yes|on)$/i.test(process.env.REELYAI_DISABLE_ADMIN_AGENT_PLAN || "")) {
+    return {
+      configured: false,
+      fingerprint: undefined,
+      source: "none" as const,
+      updatedAt: settings.updatedAt
+    };
+  }
   const stored = settings.adminAgentPlanKey?.trim();
   const env = envAdminAgentPlanKey();
   const effective = stored || env;
