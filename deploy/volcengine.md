@@ -5,6 +5,10 @@ Docker container, one private `data/` directory or Docker volume, and backend-on
 
 ## Security Boundary
 
+- Set `REELYAI_ACCESS_TOKEN` to a strong random value on any public deployment. It gates all writes
+  plus `/api/state` and `/api/diagnostics` behind an `x-reelyai-access` header; the web UI prompts
+  for it once. Without it, anyone who can reach the server can drive every paid generation API.
+- Set `REELYAI_SESSION_GENERATION_DAILY_CAP` to bound paid submissions per session per day.
 - Do not set `ARK_AGENT_PLAN_KEY` on the public server. Each visitor enters their own Agent Plan
   token in the ReelyAI top bar.
 - User Agent Plan tokens are stored only in the Node process memory, keyed by an HttpOnly browser
@@ -76,6 +80,18 @@ vi deploy/.env.production
 docker compose -f deploy/docker-compose.volcengine.yml up -d --build
 docker compose -f deploy/docker-compose.volcengine.yml logs -f --tail=120
 ```
+
+## Monitoring And Release Gate
+
+- Release gate (run before every deploy): `npm run verify:release`. See [observability.md](observability.md)
+  and [release-checklist.md](release-checklist.md).
+- Optional self-hosted monitoring (Prometheus + Grafana + Alertmanager + blackbox + Feishu alerts):
+
+```bash
+docker compose -f deploy/docker-compose.volcengine.yml -f deploy/docker-compose.observability.yml up -d
+```
+
+All monitoring ports bind to `127.0.0.1` only; reach Grafana/Prometheus via an SSH tunnel.
 
 ## Manual systemd/Caddy On ECS
 

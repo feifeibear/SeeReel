@@ -1,0 +1,158 @@
+{
+  "annotations": { "list": [] },
+  "editable": true,
+  "graphTooltip": 0,
+  "schemaVersion": 39,
+  "title": "ReelyAI 总览",
+  "uid": "reelyai-overview",
+  "tags": ["reelyai"],
+  "time": { "from": "now-6h", "to": "now" },
+  "refresh": "30s",
+  "templating": { "list": [] },
+  "panels": [
+    {
+      "type": "row",
+      "title": "服务总览",
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 0 },
+      "id": 100
+    },
+    {
+      "type": "stat",
+      "title": "服务状态 (up)",
+      "id": 1,
+      "gridPos": { "h": 4, "w": 4, "x": 0, "y": 1 },
+      "datasource": { "type": "prometheus", "uid": "reelyai-prometheus" },
+      "fieldConfig": { "defaults": { "mappings": [{ "type": "value", "options": { "0": { "text": "DOWN" }, "1": { "text": "UP" } } }], "thresholds": { "steps": [{ "color": "red", "value": null }, { "color": "green", "value": 1 }] } } },
+      "targets": [{ "expr": "up{job=\"reelyai\"}", "refId": "A" }]
+    },
+    {
+      "type": "stat",
+      "title": "就绪 (reelyai_ready)",
+      "id": 2,
+      "gridPos": { "h": 4, "w": 4, "x": 4, "y": 1 },
+      "datasource": { "type": "prometheus", "uid": "reelyai-prometheus" },
+      "fieldConfig": { "defaults": { "thresholds": { "steps": [{ "color": "red", "value": null }, { "color": "green", "value": 1 }] } } },
+      "targets": [{ "expr": "reelyai_ready", "refId": "A" }]
+    },
+    {
+      "type": "stat",
+      "title": "访问令牌门禁",
+      "id": 3,
+      "gridPos": { "h": 4, "w": 4, "x": 8, "y": 1 },
+      "datasource": { "type": "prometheus", "uid": "reelyai-prometheus" },
+      "fieldConfig": { "defaults": { "mappings": [{ "type": "value", "options": { "0": { "text": "OFF" }, "1": { "text": "ON" } } }], "thresholds": { "steps": [{ "color": "red", "value": null }, { "color": "green", "value": 1 }] } } },
+      "targets": [{ "expr": "reelyai_access_guard_enabled", "refId": "A" }]
+    },
+    {
+      "type": "timeseries",
+      "title": "QPS (按状态)",
+      "id": 4,
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 1 },
+      "datasource": { "type": "prometheus", "uid": "reelyai-prometheus" },
+      "targets": [{ "expr": "sum by (status) (rate(reelyai_http_requests_total[5m]))", "legendFormat": "{{status}}", "refId": "A" }]
+    },
+    {
+      "type": "timeseries",
+      "title": "5xx 错误率",
+      "id": 5,
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 5 },
+      "datasource": { "type": "prometheus", "uid": "reelyai-prometheus" },
+      "fieldConfig": { "defaults": { "unit": "percentunit" } },
+      "targets": [{ "expr": "sum(rate(reelyai_http_requests_total{status=~\"5..\"}[5m])) / clamp_min(sum(rate(reelyai_http_requests_total[5m])), 1)", "legendFormat": "5xx rate", "refId": "A" }]
+    },
+    {
+      "type": "timeseries",
+      "title": "HTTP 延迟 P95 (秒)",
+      "id": 6,
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 9 },
+      "datasource": { "type": "prometheus", "uid": "reelyai-prometheus" },
+      "fieldConfig": { "defaults": { "unit": "s" } },
+      "targets": [{ "expr": "histogram_quantile(0.95, sum(rate(reelyai_http_request_duration_seconds_bucket[5m])) by (le))", "legendFormat": "p95", "refId": "A" }]
+    },
+    {
+      "type": "timeseries",
+      "title": "进程 RSS 内存",
+      "id": 7,
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 13 },
+      "datasource": { "type": "prometheus", "uid": "reelyai-prometheus" },
+      "fieldConfig": { "defaults": { "unit": "bytes" } },
+      "targets": [{ "expr": "reelyai_process_memory_rss_bytes", "legendFormat": "rss", "refId": "A" }]
+    },
+    {
+      "type": "row",
+      "title": "组件健康",
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 21 },
+      "id": 101
+    },
+    {
+      "type": "state-timeline",
+      "title": "组件健康 (reelyai_component_up)",
+      "id": 8,
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 22 },
+      "datasource": { "type": "prometheus", "uid": "reelyai-prometheus" },
+      "fieldConfig": { "defaults": { "mappings": [{ "type": "value", "options": { "0": { "text": "degraded", "color": "red" }, "1": { "text": "ok", "color": "green" } } }] } },
+      "targets": [{ "expr": "reelyai_component_up", "legendFormat": "{{component}}", "refId": "A" }]
+    },
+    {
+      "type": "row",
+      "title": "容量与存储",
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 30 },
+      "id": 102
+    },
+    {
+      "type": "timeseries",
+      "title": "store / media 大小",
+      "id": 9,
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 31 },
+      "datasource": { "type": "prometheus", "uid": "reelyai-prometheus" },
+      "fieldConfig": { "defaults": { "unit": "bytes" } },
+      "targets": [
+        { "expr": "reelyai_store_file_size_bytes", "legendFormat": "store", "refId": "A" },
+        { "expr": "reelyai_media_dir_size_bytes", "legendFormat": "media", "refId": "B" }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "in-flight 任务",
+      "id": 10,
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 31 },
+      "datasource": { "type": "prometheus", "uid": "reelyai-prometheus" },
+      "targets": [
+        { "expr": "reelyai_inflight_shot_generate_submissions", "legendFormat": "shot-generate", "refId": "A" },
+        { "expr": "reelyai_inflight_stitch_jobs", "legendFormat": "stitch", "refId": "B" },
+        { "expr": "reelyai_inflight_narration_jobs", "legendFormat": "narration", "refId": "C" },
+        { "expr": "reelyai_inflight_review_locks", "legendFormat": "review", "refId": "D" }
+      ]
+    },
+    {
+      "type": "row",
+      "title": "成本与防护",
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 39 },
+      "id": 103
+    },
+    {
+      "type": "timeseries",
+      "title": "付费生成提交速率 (按操作)",
+      "id": 11,
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 40 },
+      "datasource": { "type": "prometheus", "uid": "reelyai-prometheus" },
+      "targets": [{ "expr": "sum by (operation) (rate(reelyai_generation_submissions_total[5m]))", "legendFormat": "{{operation}}", "refId": "A" }]
+    },
+    {
+      "type": "timeseries",
+      "title": "被额度拦截的生成 (增量)",
+      "id": 12,
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 40 },
+      "datasource": { "type": "prometheus", "uid": "reelyai-prometheus" },
+      "targets": [{ "expr": "sum by (operation) (increase(reelyai_generation_blocked_total[15m]))", "legendFormat": "{{operation}}", "refId": "A" }]
+    },
+    {
+      "type": "timeseries",
+      "title": "Token 用量 (按 provider/model/operation)",
+      "id": 13,
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 48 },
+      "datasource": { "type": "prometheus", "uid": "reelyai-prometheus" },
+      "targets": [{ "expr": "reelyai_token_usage_total", "legendFormat": "{{provider}}/{{model}}/{{operation}}", "refId": "A" }]
+    }
+  ]
+}

@@ -8,7 +8,7 @@
     "dev": "tsx src/server/index.ts",
     "build": "tsc --noEmit && vite build",
     "verify": "npm run verify:offline",
-    "verify:offline": "npm run build && npm run smoke:canvas-crud && tsx scripts/smoke-fetch-retry.ts && node scripts/smoke_narration_units.mjs",
+    "verify:offline": "npm run build && npm run smoke:canvas-crud && tsx scripts/smoke-fetch-retry.ts && tsx scripts/smoke_narration_units.mjs",
     "verify:release": "npm run verify:offline && npm run smoke:guardrails",
     "verify:integration": "npm run test:ark-credentials",
     "test:ark-credentials": "tsx scripts/test-ark-credentials.ts",

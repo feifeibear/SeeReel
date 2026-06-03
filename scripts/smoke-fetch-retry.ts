@@ -1,4 +1,5 @@
 import { fetchWithRetry } from "../src/server/fetchWithRetry";
+import { createServer } from "node:http";
 
 async function timed<T>(label: string, fn: () => Promise<T>) {
   const t0 = Date.now();
@@ -61,17 +62,28 @@ async function main() {
     })
   );
 
-  console.log("\n=== smoke 5: happy path against local server (should return 200, no retries) ===");
-  await timed("GET localhost:5174/api/state", () =>
-    fetchWithRetry("http://localhost:5174/api/state", {
-      method: "GET",
-      retries: 3,
-      initialBackoffMs: 200,
-      maxBackoffMs: 1000,
-      timeoutMs: 5000,
-      tag: "smoke-happy"
-    }).then((r) => r.text().then(() => r.status))
-  );
+  console.log("\n=== smoke 5: happy path against temporary local server (should return 200, no retries) ===");
+  const server = createServer((_, res) => {
+    res.writeHead(200, { "content-type": "application/json" });
+    res.end(JSON.stringify({ ok: true }));
+  });
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const address = server.address();
+  if (!address || typeof address === "string") throw new Error("Temporary smoke server did not bind to a TCP port");
+  try {
+    await timed(`GET 127.0.0.1:${address.port}/api/state`, () =>
+      fetchWithRetry(`http://127.0.0.1:${address.port}/api/state`, {
+        method: "GET",
+        retries: 3,
+        initialBackoffMs: 200,
+        maxBackoffMs: 1000,
+        timeoutMs: 5000,
+        tag: "smoke-happy"
+      }).then((r) => r.text().then(() => r.status))
+    );
+  } finally {
+    server.close();
+  }
 }
 
 main().catch((err) => {
