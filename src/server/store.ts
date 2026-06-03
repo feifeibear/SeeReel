@@ -844,7 +844,8 @@ function shotPatchFromRender(render: ShotRender): Partial<Shot> {
     durationSec: render.durationSec,
     seedanceVariant: render.seedanceVariant,
     assetIds: render.assetIds,
-    prompt: render.prompt,
+    rawPrompt: render.editedRawPrompt || render.rawPrompt,
+    prompt: render.editedPrompt || render.editedRawPrompt || render.prompt,
     debugNote: render.note || "",
     videoUrl: render.videoUrl,
     videoGeneratedAt: render.videoGeneratedAt || render.createdAt,
@@ -869,5 +870,8 @@ function shotPatchFromRender(render: ShotRender): Partial<Shot> {
     videoReviewBuiltForPrompt: render.videoReviewBuiltForPrompt,
     status: "ready"
   };
+  if (render.editedComposedPrompt !== undefined) {
+    patch.composedSeedancePromptDraft = render.editedComposedPrompt;
+  }
   return Object.fromEntries(Object.entries(patch).filter(([, value]) => value !== undefined)) as Partial<Shot>;
 }

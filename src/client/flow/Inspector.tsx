@@ -1455,6 +1455,11 @@ function ShotInspector({ shot, session, allAssets, visionReviewEnabled, onMutate
     pendingRender?.generationStartedAt || shot.generationStartedAt || undefined,
     generating
   );
+  const inFlightPromptEdited = Boolean(
+    pendingRender?.editedRawPrompt
+    || pendingRender?.editedPrompt
+    || pendingRender?.editedComposedPrompt
+  );
   const currentVideoReady = Boolean(shot.videoUrl) && !generating;
   const latestRenderForReview = (shot.renders || []).find((r) => r.videoUrl === shot.videoUrl || r.remoteVideoUrl === shot.videoUrl);
   const latestVideoReview = latestRenderForReview?.videoReview || shot.videoReview;
@@ -1462,8 +1467,8 @@ function ShotInspector({ shot, session, allAssets, visionReviewEnabled, onMutate
   const latestVideoReviewError = latestRenderForReview?.videoReviewError || shot.videoReviewError;
   const latestReviewNote = latestRenderForReview?.reviewNote;
   const latestVideoReviewBuiltForPrompt = latestRenderForReview?.videoReviewBuiltForPrompt || shot.videoReviewBuiltForPrompt;
-  const latestRenderPrompt = latestRenderForReview?.composedPrompt || latestRenderForReview?.rawPrompt || latestRenderForReview?.prompt || "";
-  const latestRenderRawPrompt = latestRenderForReview?.rawPrompt || latestRenderForReview?.prompt || "";
+  const latestRenderPrompt = latestRenderForReview?.editedComposedPrompt || latestRenderForReview?.editedRawPrompt || latestRenderForReview?.editedPrompt || latestRenderForReview?.composedPrompt || latestRenderForReview?.rawPrompt || latestRenderForReview?.prompt || "";
+  const latestRenderRawPrompt = latestRenderForReview?.editedRawPrompt || latestRenderForReview?.rawPrompt || latestRenderForReview?.prompt || "";
   const currentShotPromptEdited = latestRenderForReview
     ? normalizeReviewPrompt(rawPrompt) !== normalizeReviewPrompt(latestRenderRawPrompt)
     : false;
@@ -1531,6 +1536,13 @@ function ShotInspector({ shot, session, allAssets, visionReviewEnabled, onMutate
           setRawPrompt((prev) => (prev.endsWith(" ") || prev.length === 0 ? prev + insert : prev + " " + insert));
         }}
       />
+      {generating && (
+        <div className="inspector-hint">
+          {inFlightPromptEdited
+            ? tr("已保存生成中的 prompt 修改；当前已提交任务不变，VLM 审核和后续自动重试会使用新 prompt。", "In-flight prompt edits saved. The already-submitted task is unchanged; VLM review and later auto-retry will use the new prompt.")
+            : tr("生成中也可以继续改 prompt 并保存；当前已提交任务不变，保存后 VLM 审核和后续自动重试会使用新 prompt。", "You can keep editing and saving the prompt while generating. The already-submitted task is unchanged; after saving, VLM review and later auto-retry will use the new prompt.")}
+        </div>
+      )}
       <div className="inspector-row">
         <label>{tr("时长 (秒)", "Duration (sec)")}<input type="number" min={1} max={15} value={durationSec} onChange={(e) => setDurationSec(Number(e.target.value) || 12)} /></label>
         <label>{tr("状态", "Status")}<input value={status} disabled /></label>
@@ -1626,14 +1638,18 @@ function ShotInspector({ shot, session, allAssets, visionReviewEnabled, onMutate
           </div>
         )}
         <textarea rows={12} value={composedDraft} onChange={(e) => setComposedDraft(e.target.value)} placeholder={tr("点「预览组装」拉取一份完整的中文组装结果，再改", "Click “Preview composition” to fetch a complete composed result, then edit it")} />
-        <div className="inspector-hint">{tr("空表示走默认组装；非空则下次「出片」原样使用这一份", "Empty means default composition; non-empty means the next generation uses this text verbatim")}</div>
+        <div className="inspector-hint">
+          {generating
+            ? tr("空表示走默认组装；非空则保存后用于本轮 VLM 审核 / 自动重试，以及下次手动出片", "Empty means default composition; non-empty text is used after saving for this run's VLM review / auto-retry and the next manual generation")
+            : tr("空表示走默认组装；非空则下次「出片」原样使用这一份", "Empty means default composition; non-empty means the next generation uses this text verbatim")}
+        </div>
       </details>
       <div className="inspector-actions">
         <button onClick={previewSeedancePrompt} disabled={Boolean(busy)}>
           {busy === "preview" ? "..." : t.inspector.previewCompose}
         </button>
         <button onClick={save} disabled={Boolean(busy)}>
-          {busy === "save" ? "..." : tr("保存", "Save")}
+          {busy === "save" ? "..." : generating ? tr("保存生成中修改", "Save in-flight edits") : tr("保存", "Save")}
         </button>
         <button onClick={regenerate} disabled={Boolean(busy) || generating} className="primary">
           {busy === "generate" || generating ? t.nodes.generating + "..." : shot.videoUrl ? tr("重生", "Regenerate") : tr("出片", "Generate video")}

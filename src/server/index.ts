@@ -4366,8 +4366,20 @@ async function startSeedanceVideoTask(
   opts: BuildSeedancePayloadOpts = {}
 ) {
   try {
-    const latestAssets = freshAssetsForSeedanceRender(shot, renderId, assets);
-    const task = await createSeedanceVideoTask(shot, latestAssets, opts);
+    const currentBeforeCreate = store.getShot(shot.id);
+    const currentRender = currentBeforeCreate?.renders?.find((render) => render.id === renderId);
+    if (!currentRender || currentRender.status !== "generating") return;
+    const shotForTask: Shot = {
+      ...shot,
+      ...(currentBeforeCreate || {}),
+      rawPrompt: renderRawPromptForRetry(currentRender, currentBeforeCreate || shot),
+      prompt: renderPromptForRetry(currentRender, currentBeforeCreate || shot)
+    };
+    const latestAssets = freshAssetsForSeedanceRender(shotForTask, renderId, assets);
+    const task = await createSeedanceVideoTask(shotForTask, latestAssets, {
+      ...opts,
+      ...(currentRender.editedComposedPrompt ? { prebuiltText: currentRender.editedComposedPrompt } : {})
+    });
     recordModelCall({ provider: "seedance", model: task.model, operation: "seedance_task_create" });
     await recordTokenUsage(shot.sessionId, task.createResponse, {
       nodeId: renderId,
@@ -4378,8 +4390,8 @@ async function startSeedanceVideoTask(
       model: task.model
     });
     const current = store.getShot(shot.id);
-    const currentRender = current?.renders?.find((render) => render.id === renderId);
-    if (!currentRender || currentRender.status !== "generating") {
+    const currentRenderAfterCreate = current?.renders?.find((render) => render.id === renderId);
+    if (!currentRenderAfterCreate || currentRenderAfterCreate.status !== "generating") {
       await cancelSeedanceVideoTask(task.taskId).catch(() => undefined);
       return;
     }
@@ -5207,13 +5219,13 @@ function parseExistingReviewFailures(reviewNote: string | undefined): Array<{ at
 function shotPatchFromCompletedRender(shot: Shot, renderId: string | undefined, videoUrl: string): Partial<Shot> {
   const render = renderId ? (shot.renders || []).find((item) => item.id === renderId) : undefined;
   if (!render) return { videoUrl };
-  return {
+  const patch: Partial<Shot> = {
     title: render.title,
     durationSec: render.durationSec,
     seedanceVariant: render.seedanceVariant,
     assetIds: render.assetIds,
-    rawPrompt: render.rawPrompt,
-    prompt: render.prompt,
+    rawPrompt: render.editedRawPrompt || render.rawPrompt,
+    prompt: render.editedPrompt || render.editedRawPrompt || render.prompt,
     debugNote: render.note || "",
     videoUrl,
     videoGeneratedAt: render.videoGeneratedAt || render.createdAt,
@@ -5237,6 +5249,10 @@ function shotPatchFromCompletedRender(shot: Shot, renderId: string | undefined, 
     videoReviewUpdatedAt: render.videoReviewUpdatedAt,
     videoReviewBuiltForPrompt: render.videoReviewBuiltForPrompt
   };
+  if (render.editedComposedPrompt !== undefined) {
+    patch.composedSeedancePromptDraft = render.editedComposedPrompt;
+  }
+  return patch;
 }
 
 type FinalArtifact = {
