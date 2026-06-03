@@ -34,7 +34,7 @@ npm run verify:release
 
 ## 3. 计费 / 额度（手动确认）
 
-- [ ] `REELYAI_SESSION_GENERATION_DAILY_CAP` 设为与预算匹配的值（默认 200）。
+- [ ] `REELYAI_SESSION_GENERATION_DAILY_CAP` 设为与预算匹配的值（默认 1000）。
 - [ ] 确认 Agent Plan vs 标准 Key 归属：Seedream/Seedance 走哪条计费链路符合预期（`REELYAI_USE_AGENT_PLAN`、各 `*_AGENT_PLAN_MODEL`）。
 - [ ] Vision 复审 + poll 自动重提的放大成本可接受；`maxReviewAttempts` 在预期范围。
 - [ ] TOS 上传产生的存储/出站费用已知悉；`TOS_*` 配置正确。

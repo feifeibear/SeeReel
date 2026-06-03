@@ -11,7 +11,7 @@ import { incCounter } from "./metrics";
  * Disabled when `REELYAI_SESSION_GENERATION_DAILY_CAP <= 0`.
  */
 
-const DEFAULT_DAILY_CAP = 200;
+const DEFAULT_DAILY_CAP = 1000;
 
 let currentDay = utcDay();
 const counters = new Map<string, number>();
