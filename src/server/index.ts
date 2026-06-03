@@ -32,7 +32,7 @@ import {
 } from "./generators";
 import { computeNarrationSignature, resolveEffectiveVoice, runNarrationPipeline } from "./narration";
 import { CinemaStore } from "./store";
-import { tokenUsageEventFromRaw } from "./tokenUsage";
+import { inferTokenUsageModelFamily, tokenUsageEventFromRaw } from "./tokenUsage";
 import { publishAssetImageToTos, publishLocalMediaToTos, hasTosConfig } from "./tos";
 import {
   clearRequestAgentPlanKey,
@@ -47,7 +47,8 @@ import { buildShotFrameAssignments, generateStoryboardGrid } from "./storyboardG
 import { buildSubStoryboardAssetPayload, generateSubStoryboardGrid, generateSubStoryboardSequential, type SubStoryboardResult } from "./subStoryboard";
 import { analyzeReferenceVideo } from "./videoAnalyze";
 import { directoryStats, fileSize, productionPaths, readableFileStatus, snapshotCounts, tokenUsageSummary, writableDirectoryStatus } from "./diagnostics";
-import { metricsText, observeHttpRequest, setGauge, setHttpInflight } from "./metrics";
+import { incCounter, metricsText, observeHttpRequest, setGauge, setHttpInflight } from "./metrics";
+import { collectVisitorMetrics, visitorMetricsMiddleware } from "./visitorMetrics";
 import {
   composeSeedanceVideoText,
   composeSeedreamAssetPrompt,
@@ -197,6 +198,7 @@ app.use((req, res, next) => {
 });
 
 app.use(cors());
+app.use(visitorMetricsMiddleware);
 app.use(userCredentialMiddleware);
 app.use(accessGuardMiddleware);
 app.use(express.json({ limit: "25mb" }));
@@ -251,6 +253,8 @@ app.get("/api/readyz", async (_req, res) => {
 async function collectServiceMetrics() {
   const snapshot = store.snapshot();
   const counts = snapshotCounts(snapshot);
+  collectVisitorMetrics();
+  collectModelArtifactMetrics(snapshot);
   setGauge("reelyai_store_sessions", "Current number of sessions in the JSON store.", undefined, counts.sessions);
   setGauge("reelyai_store_shots", "Current number of shots in the JSON store.", undefined, counts.shots);
   setGauge("reelyai_store_assets", "Current number of assets in the JSON store.", undefined, counts.assets);
@@ -281,6 +285,12 @@ async function collectServiceMetrics() {
       model: row.model,
       operation: row.operation
     }, row.totalTokens);
+    setGauge("reelyai_token_usage_events_total", "Current cumulative token usage event count by provider, model, and operation.", {
+      provider: row.provider,
+      model: row.model,
+      model_family: modelFamilyFor(row.provider, row.model),
+      operation: row.operation
+    }, row.events);
   }
 }
 
@@ -381,7 +391,64 @@ async function recordTokenUsage(
   if (!sessionId) return;
   const row = tokenUsageEventFromRaw(rawUsage, event);
   if (!row) return;
+  if (row.provider !== "seedance") {
+    recordModelCall({
+      provider: row.provider || "unknown",
+      model: row.model || row.modelFamily || "unknown",
+      operation: row.operation || "unknown"
+    });
+  }
   await store.addTokenUsage(sessionId, row);
+}
+
+function modelFamilyFor(provider: string | undefined, model: string | undefined) {
+  return inferTokenUsageModelFamily({ provider, model });
+}
+
+function recordModelCall(event: { provider?: string; model?: string; operation: string }) {
+  const provider = event.provider || "unknown";
+  const model = event.model || "unknown";
+  incCounter("reelyai_model_calls_total", "Total upstream model calls observed by the server since process start.", {
+    provider,
+    model,
+    model_family: modelFamilyFor(provider, model),
+    operation: event.operation
+  });
+}
+
+function collectModelArtifactMetrics(snapshot: StoreSnapshot) {
+  const artifacts = new Map<string, { provider: string; model: string; modelFamily: string; artifact: string; count: number }>();
+  const add = (provider: string, model: string | undefined, artifact: "image" | "video") => {
+    const resolvedModel = model || "unknown";
+    const modelFamily = modelFamilyFor(provider, resolvedModel);
+    if (modelFamily === "other" && provider !== "openai-image") return;
+    const key = `${provider}\t${resolvedModel}\t${modelFamily}\t${artifact}`;
+    const row = artifacts.get(key) || { provider, model: resolvedModel, modelFamily, artifact, count: 0 };
+    row.count += 1;
+    artifacts.set(key, row);
+  };
+
+  for (const asset of snapshot.assets) {
+    if (!asset.generatedAt || asset.mediaKind !== "image") continue;
+    const model = asset.generationModelActual || asset.generationModel;
+    const provider = model === "gpt-image-2" ? "openai-image" : "seedream";
+    add(provider, model, "image");
+  }
+  for (const shot of snapshot.shots) {
+    for (const render of shot.renders || []) {
+      if (!render.model) continue;
+      add("seedance", render.model, "video");
+    }
+  }
+
+  for (const row of artifacts.values()) {
+    setGauge("reelyai_model_artifacts_total", "Current generated artifacts in the store by provider/model family.", {
+      provider: row.provider,
+      model: row.model,
+      model_family: row.modelFamily,
+      artifact: row.artifact
+    }, row.count);
+  }
 }
 
 function shotLabel(shot: Shot) {
@@ -3950,6 +4017,7 @@ async function startSeedanceVideoTask(
 ) {
   try {
     const task = await createSeedanceVideoTask(shot, assets, opts);
+    recordModelCall({ provider: "seedance", model: task.model, operation: "seedance_task_create" });
     await recordTokenUsage(shot.sessionId, task.createResponse, {
       nodeId: renderId,
       nodeType: "shot",
@@ -4332,6 +4400,7 @@ app.post("/api/shots/:shotId/poll", async (req, res) => {
                     lang: retryLang,
                     ...(typeof pendingRender.generateAudio === "boolean" ? { generateAudio: pendingRender.generateAudio } : {})
                   });
+                  recordModelCall({ provider: "seedance", model: task.model, operation: "seedance_task_retry_create" });
                   await recordTokenUsage(shot.sessionId, task.createResponse, {
                     nodeId: pendingRender.id,
                     nodeType: "shot",
