@@ -7,8 +7,15 @@
   "scripts": {
     "dev": "tsx src/server/index.ts",
     "build": "tsc --noEmit && vite build",
+    "verify": "npm run verify:offline",
+    "verify:offline": "npm run build && npm run smoke:canvas-crud && tsx scripts/smoke-fetch-retry.ts && node scripts/smoke_narration_units.mjs",
+    "verify:release": "npm run verify:offline && npm run smoke:guardrails",
+    "verify:integration": "npm run test:ark-credentials",
+    "test:ark-credentials": "tsx scripts/test-ark-credentials.ts",
     "verify:canvas-crud": "npm run build && npm run smoke:canvas-crud",
     "smoke:canvas-crud": "tsx scripts/smoke-canvas-crud.ts",
+    "smoke:guardrails": "tsx scripts/smoke-guardrails.ts",
+    "smoke:production": "tsx scripts/smoke-production.ts",
     "install:skill": "node scripts/install_agent_skill.mjs",
     "postinstall": "node scripts/install_agent_skill.mjs --postinstall || true",
     "start": "NODE_ENV=production tsx src/server/index.ts"

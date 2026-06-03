@@ -19,3 +19,13 @@ fi
 
 docker compose -f deploy/docker-compose.volcengine.yml up -d --build
 docker compose -f deploy/docker-compose.volcengine.yml ps
+
+for _ in {1..60}; do
+  if docker compose -f deploy/docker-compose.volcengine.yml exec -T reelyai node -e "Promise.all([fetch('http://127.0.0.1:5173/api/healthz'), fetch('http://127.0.0.1:5173/api/readyz')]).then(([h,r])=>process.exit(h.ok&&r.ok?0:1)).catch(()=>process.exit(1))"; then
+    exit 0
+  fi
+  sleep 5
+done
+
+docker compose -f deploy/docker-compose.volcengine.yml logs --tail=120 reelyai >&2
+exit 5

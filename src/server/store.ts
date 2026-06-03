@@ -1,9 +1,11 @@
-import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
+import { cp, mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import path from "node:path";
 import type { Asset, CreateSessionPayload, Session, Shot, ShotRender, StitchJob, StoreSnapshot, TokenUsageEvent } from "../shared/types";
+import demoExample from "../../fixtures/demo-agent-plan/store.json";
+import { observeStoreSave } from "./metrics";
 
-const DATA_DIR = path.resolve(process.cwd(), "data");
-const STORE_FILE = path.join(DATA_DIR, "cinema-store.json");
+export const DATA_DIR = path.resolve(process.cwd(), "data");
+export const STORE_FILE = path.join(DATA_DIR, "cinema-store.json");
 
 const now = () => new Date().toISOString();
 const id = (prefix: string) => `${prefix}_${crypto.randomUUID().slice(0, 8)}`;
@@ -13,6 +15,9 @@ const emptyStore = (): StoreSnapshot => ({
   sessions: [],
   shots: []
 });
+
+const demoMediaSourceDir = path.resolve(process.cwd(), "fixtures", "demo-agent-plan", "media");
+const demoMediaTargetDir = path.join(DATA_DIR, "media", demoExample.mediaDir);
 
 export class CinemaStore {
   private data: StoreSnapshot = emptyStore();
@@ -24,6 +29,9 @@ export class CinemaStore {
       this.data = JSON.parse(await readFile(STORE_FILE, "utf8")) as StoreSnapshot;
     } catch {
       this.data = emptyStore();
+    }
+    const seeded = await this.ensureDemoExample();
+    if (seeded) {
       await this.save();
     }
   }
@@ -32,7 +40,41 @@ export class CinemaStore {
     return structuredClone(this.data);
   }
 
+  private async ensureDemoExample() {
+    if (isDemoSeedDisabled()) return false;
+    await cp(demoMediaSourceDir, demoMediaTargetDir, {
+      recursive: true,
+      force: false,
+      errorOnExist: false
+    });
+    if (this.data.sessions.some((session) => session.id === demoExample.session.id)) {
+      return false;
+    }
+
+    const demoSession = structuredClone(demoExample.session) as Session;
+    const demoAssets = structuredClone(demoExample.assets) as Asset[];
+    const demoShots = structuredClone(demoExample.shots) as Shot[];
+    const demoSessionIds = new Set([demoSession.id]);
+    const demoAssetIds = new Set(demoAssets.map((asset) => asset.id));
+    const demoShotIds = new Set(demoShots.map((shot) => shot.id));
+
+    this.data.sessions = [
+      demoSession,
+      ...this.data.sessions.filter((session) => !demoSessionIds.has(session.id))
+    ];
+    this.data.assets = [
+      ...demoAssets,
+      ...this.data.assets.filter((asset) => !demoAssetIds.has(asset.id))
+    ];
+    this.data.shots = [
+      ...this.data.shots.filter((shot) => !demoShotIds.has(shot.id) && !demoSessionIds.has(shot.sessionId)),
+      ...demoShots
+    ];
+    return true;
+  }
+
   async save() {
+    const started = performance.now();
     const payload = JSON.stringify(this.data, null, 2);
     const tmpFile = `${STORE_FILE}.${process.pid}.${Date.now()}.${crypto.randomUUID().slice(0, 8)}.tmp`;
     const write = this.writeQueue.then(async () => {
@@ -41,7 +83,13 @@ export class CinemaStore {
       await rename(tmpFile, STORE_FILE);
     });
     this.writeQueue = write.catch(() => undefined);
-    await write;
+    try {
+      await write;
+      observeStoreSave("ok", (performance.now() - started) / 1000);
+    } catch (error) {
+      observeStoreSave("error", (performance.now() - started) / 1000);
+      throw error;
+    }
   }
 
   async createSession(payload: CreateSessionPayload) {
@@ -609,6 +657,10 @@ function normalizeSessionTitle(title: string | undefined, sessions: Session[]) {
   let index = 1;
   while (used.has(index)) index += 1;
   return `unnamed session ${index}`;
+}
+
+function isDemoSeedDisabled() {
+  return /^(0|false|no|off)$/i.test(process.env.REELYAI_SEED_DEMO || "");
 }
 
 function normalizeMentionText(value: string) {

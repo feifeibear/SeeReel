@@ -13,6 +13,8 @@ export interface ResolveArkCredentialOpts {
   baseEnvNames: string[];
   defaultBase: string;
   preferAgentPlan?: boolean;
+  allowRequestAgentPlan?: boolean;
+  allowEnvAgentPlan?: boolean;
 }
 
 export function resolveArkCredential(opts: ResolveArkCredentialOpts): ArkCredential {
@@ -21,17 +23,19 @@ export function resolveArkCredential(opts: ResolveArkCredentialOpts): ArkCredent
   const standardKey = env(...opts.keyEnvNames);
   const standardBase = (env(...opts.baseEnvNames) || opts.defaultBase).replace(/\/$/, "");
   const preferAgentPlan = opts.preferAgentPlan ?? (isEnabled("REELYAI_USE_AGENT_PLAN") || env("REELYAI_CREDENTIAL_MODE") === "agent-plan");
+  const allowRequestAgentPlan = opts.allowRequestAgentPlan ?? true;
+  const allowEnvAgentPlan = opts.allowEnvAgentPlan ?? true;
 
-  if (requestAgentPlanKey) {
+  if (allowRequestAgentPlan && requestAgentPlanKey) {
     return { apiKey: requestAgentPlanKey, apiBase: agentPlanBase(), source: "agent-plan" };
   }
-  if (preferAgentPlan && agentPlanKey) {
+  if (allowEnvAgentPlan && preferAgentPlan && agentPlanKey) {
     return { apiKey: agentPlanKey, apiBase: agentPlanBase(), source: "agent-plan" };
   }
   if (standardKey) {
     return { apiKey: standardKey, apiBase: standardBase, source: "standard" };
   }
-  if (agentPlanKey) {
+  if (allowEnvAgentPlan && agentPlanKey) {
     return { apiKey: agentPlanKey, apiBase: agentPlanBase(), source: "agent-plan" };
   }
   return { apiBase: standardBase, source: "missing" };

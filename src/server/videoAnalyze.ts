@@ -7,15 +7,32 @@ import { arkMissingKeyMessage, resolveArkCredential } from "./arkCredentials";
 
 const BYTEPLUS_SEEDANCE_BASE = "https://ark.ap-southeast.bytepluses.com/api/v3";
 const VISION_KEY_ENVS = ["VISION_REVIEW_API_KEY", "SEED_PROMPT_API_KEY", "BP_ARK_API_KEY", "ARK_API_KEY"];
+const DEFAULT_AGENT_PLAN_VISION_MODEL = "doubao-seed-2.0-pro";
+
+function useAgentPlanForVisionReview() {
+  const value = process.env.REELYAI_VISION_REVIEW_USE_AGENT_PLAN?.trim();
+  if (!value) return true;
+  return /^(1|true|yes|on)$/i.test(value);
+}
+
+function useEnvAgentPlanForVisionReview() {
+  return /^(1|true|yes|on)$/i.test(process.env.REELYAI_VISION_REVIEW_USE_AGENT_PLAN || "");
+}
 
 const credential = () =>
   resolveArkCredential({
     keyEnvNames: VISION_KEY_ENVS,
     baseEnvNames: ["VISION_REVIEW_API_BASE", "SEED_PROMPT_API_BASE", "SEEDANCE_API_BASE"],
-    defaultBase: BYTEPLUS_SEEDANCE_BASE
+    defaultBase: BYTEPLUS_SEEDANCE_BASE,
+    preferAgentPlan: useAgentPlanForVisionReview(),
+    allowRequestAgentPlan: useAgentPlanForVisionReview(),
+    allowEnvAgentPlan: useEnvAgentPlanForVisionReview()
   });
 
-const visionModel = () => process.env.VIDEO_ANALYZE_MODEL || process.env.VISION_REVIEW_MODEL || "seed-2-0-pro-260328";
+const visionModel = (source: "standard" | "agent-plan" | "missing") => {
+  if (source === "agent-plan") return process.env.VIDEO_ANALYZE_AGENT_PLAN_MODEL || process.env.VISION_REVIEW_AGENT_PLAN_MODEL || DEFAULT_AGENT_PLAN_VISION_MODEL;
+  return process.env.VIDEO_ANALYZE_MODEL || process.env.VISION_REVIEW_MODEL || "seed-2-0-pro-260328";
+};
 
 const SYSTEM_PROMPT_ZH = `你是一名电影分镜解析师。给定从同一段参考视频按时序均匀采样的 N 帧（每帧标注了时间戳，单位秒），请把这段视频拆解成一个有序的镜头（shot）列表。镜头切分依据：构图明显变化、机位明显变化、动作节奏断点、场景切换。
 
@@ -186,7 +203,9 @@ function parseShotsResponse(rawText: string): ParsedShotEntry[] {
  */
 export async function analyzeReferenceVideo(opts: AnalyzeVideoOpts): Promise<AnalyzeVideoResult> {
   const ark = credential();
-  if (!ark.apiKey) throw new Error(arkMissingKeyMessage("video analyze", VISION_KEY_ENVS));
+  if (!ark.apiKey) {
+    throw new Error(`${arkMissingKeyMessage("video analyze", VISION_KEY_ENVS)}. Paste a browser Agent/Coding Plan key, or configure a standard VLM key. Set REELYAI_VISION_REVIEW_USE_AGENT_PLAN=0 only when video analysis must ignore browser Plan keys.`);
+  }
 
   // Resolve local file path: either a /media/X mapping or a real fs path.
   const localPath = opts.videoPath.startsWith("/media/")
@@ -201,7 +220,10 @@ export async function analyzeReferenceVideo(opts: AnalyzeVideoOpts): Promise<Ana
 
   const lang: SessionLanguage = opts.lang === "en" ? "en" : "zh";
   const systemPrompt = lang === "zh" ? SYSTEM_PROMPT_ZH : SYSTEM_PROMPT_EN;
-  const model = visionModel();
+  const model = visionModel(ark.source);
+  if (!model) {
+    throw new Error("Video analyze through Agent/Coding Plan requires a Plan model such as doubao-seed-2.0-pro. Do not send seed-2-0-pro-260328 to /api/plan/v3.");
+  }
 
   const userContent: Array<
     | { type: "input_text"; text: string }

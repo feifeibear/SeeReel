@@ -1,4 +1,14 @@
 {$CADDY_SITE_ADDRESS} {
 	encode zstd gzip
+	log {
+		output stdout
+		format json
+	}
+
+	@private path /metrics /api/diagnostics
+	handle @private {
+		respond "not found" 404
+	}
+
 	reverse_proxy reelyai:5173
 }

@@ -88,9 +88,14 @@ SEEDREAM_AGENT_PLAN_MODEL=doubao-seedream-5.0-lite
 SEED_PROMPT_AGENT_PLAN_MODEL=
 PROMPT_REWRITE_AGENT_PLAN_MODEL=
 AGENT_PLAN_TEXT_MODEL=
+REELYAI_VISION_REVIEW_USE_AGENT_PLAN=
+VISION_REVIEW_AGENT_PLAN_MODEL=doubao-seed-2.0-pro
+VIDEO_ANALYZE_AGENT_PLAN_MODEL=doubao-seed-2.0-pro
 SEEDANCE_AGENT_PLAN_MODEL=doubao-seedance-2-0-260128
 SEEDANCE_AGENT_PLAN_FAST_MODEL=doubao-seedance-2-0-fast-260128
 ```
+
+默认情况下，网页里用户填写的 Agent/Coding Plan Key 会用于 Seedream / Seedance，也会用于 VLM 审图/审片和参考视频解析。VLM 走 Plan 专属 Base URL `/api/plan/v3`，默认模型名为 `doubao-seed-2.0-pro`。不要把标准 Ark 模型 id `seed-2-0-pro-260328` 发到 `/api/plan/v3`；如果要强制 VLM 只走标准 Ark Key，可设置 `REELYAI_VISION_REVIEW_USE_AGENT_PLAN=0`。
 
 如果 Agent Plan 暂时不可用，删除 `REELYAI_USE_AGENT_PLAN`，改用普通 Ark key：`BP_ARK_API_KEY` / `ARK_API_KEY`，并保持 `SEEDANCE_API_BASE`、`SEEDREAM_API_BASE` 与 key 所在区域一致。
 
@@ -133,6 +138,8 @@ curl -sS http://localhost:5173/api/state | head -c 200
 首版推荐 **单台火山云 ECS + Docker Compose 或 systemd/Caddy + 持久目录**，最快拿到公开 IP/域名。已有 ECS 后可直接运行 [deploy/deploy-to-ecs.sh](deploy/deploy-to-ecs.sh)；如果 ECS 拉 Docker Hub 镜像不稳定，可走 systemd/Caddy fallback；如果证书验证链路被 EIP 网络挡住，可先用 Cloudflare Quick Tunnel 拿 HTTPS 测试入口。完整部署手册见 [deploy/volcengine.md](deploy/volcengine.md)。
 
 公开部署时不要把你的 `ARK_AGENT_PLAN_KEY` 写进服务器环境变量；用户在顶栏「配置 Agent Plan」输入自己的 token，后端只保存在 Node 进程内存里，不会写入 `/api/state` 或 `data/cinema-store.json`。TOS 仍使用服务器后台凭据，建议私有桶 + 预签名 URL。
+
+全新 store 会自动显示内置的「火山 Agent Plan × ReelyAI 示例广告片」session，方便新用户一进来就看到完整画布、参考资产、VLM 审核和最终拼接。私有部署若要空白启动，可设置 `REELYAI_SEED_DEMO=0`。
 
 当前首版公网入口为 `https://reelyai.app`。实际应用进程在火山 ECS 上运行，Vercel/Cloudflare 只负责 HTTPS 边缘代理。
 

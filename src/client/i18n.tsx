@@ -93,7 +93,7 @@ const zh = {
     minimapHint: "= 你看到的范围 · 拖动它移动画布",
     zoom: "缩放",
     zoomHint: "＋ 放大 · − 缩小 · ⤢ 全景",
-    canvasHint: "双击空白 = 回到全景 · 右键空白 = 新建节点 · 滚轮缩放 0.1–4×"
+    canvasHint: "点击节点 = 右侧编辑 · 视频右下角 ▶ 播放 · 双击空白 = 回到全景 · 右键空白 = 新建节点 · 滚轮缩放 0.1–4×"
   },
   menu: {
     aria: "新建节点",
@@ -186,7 +186,9 @@ const zh = {
     frameAnchor: "帧锚点",
     fromShot: (title: string) => `来自 ${title}`,
     usedBy: (titles: string) => `用于 ${titles}`,
-    dragToVideo: "拖到视频节点作为首帧"
+    dragToVideo: "拖到视频节点作为首帧",
+    playVideoTitle: "全屏播放视频",
+    clickNodeForInspector: "点击节点在右侧编辑"
   },
   toast: {
     downloadStarted: "已开始下载",
@@ -404,7 +406,7 @@ const en: Dictionary = {
     minimapHint: "= current viewport · drag it to pan",
     zoom: "Zoom",
     zoomHint: "+ zoom in · − zoom out · ⤢ fit view",
-    canvasHint: "Double-click empty space = fit view · right-click empty space = create node · wheel zoom 0.1–4×"
+    canvasHint: "Click a node = Inspector on the right · ▶ on video plays · double-click empty = fit view · right-click empty = create node · wheel zoom 0.1–4×"
   },
   menu: {
     aria: "Create node",
@@ -497,7 +499,9 @@ const en: Dictionary = {
     frameAnchor: "Frame anchor",
     fromShot: (title) => `From ${title}`,
     usedBy: (titles) => `Used by ${titles}`,
-    dragToVideo: "Drag to a video node as first frame"
+    dragToVideo: "Drag to a video node as first frame",
+    playVideoTitle: "Play video fullscreen",
+    clickNodeForInspector: "Click the node to edit in the Inspector"
   },
   toast: {
     downloadStarted: "Download started",

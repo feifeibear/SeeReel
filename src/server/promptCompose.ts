@@ -321,8 +321,8 @@ function composeSubShotSequenceInstruction(panelCount: number, lang: Lang): stri
  * Per-type intent:
  *   - **character**: 16:9 three-pose turnaround (front / 3/4 / back full body), studio softbox key,
  *     5500K daylight, neutral seamless backdrop, identity locked across views.
- *   - **scene**: 16:9 establishing plate, anamorphic deep focus, motivated practical lighting,
- *     atmospheric haze, no people unless prompted.
+ *   - **scene**: 16:9 establishing plate, anamorphic deep focus, clean readable lighting,
+ *     no people unless prompted.
  *   - **prop**: 1:1 product hero, 90mm macro, soft top + rim, neutral backdrop.
  *   - **style**: 16:9 mood board still, color grade and composition that ARE the style.
  */
@@ -351,10 +351,10 @@ export function composeSeedreamAssetPrompt(
       parts.intent = `电影场景 establishing plate：${asset.name || "电影场景"}。16:9 横构图电影级**全景空镜**，**画面内不出现人物**（除非用户原文显式要求），强调环境、光线与氛围。`;
       parts.purpose = "**用途声明**：这张图是**下游 Seedance 视频生成的场景参考底板**。Seedance 会在不同分镜里把演员置入这个场景。因此本图必须满足底板硬约束：**画面绝对干净无人物**（包括玻璃倒影、远处剪影、镜面反射均不可有人；车辆和动物视场景需要保留）；**前景留出 1/3 空地**便于后期演员置入；**光线接近中性**（不要逆光剪影、不要彩色霓虹主导画面、不要极端 god ray），让 Seedance 后续在该底板上自由演员置入与打光。";
       parts.cinematography = "**ARRI Alexa 35 + Cooke S7/i 32mm T2.0**（或场景需要时改为 Master Anamorphic 40mm T1.9 加水平蓝色 lens flare）；f/5.6-8 大景深保证全景纵深；轻微 anamorphic 横向 oval bokeh + ovalised highlights；2.39:1 宽银幕电影感（在 16:9 内画幅内构图）。";
-      parts.lighting = "**motivated practical lighting**：只用场景内合理光源驱动画面（窗光 / 街灯 / 霓虹 / 烛火 / god ray），主光方向明确，亮部与暗部之间有清晰过渡；空气中有薄雾或灰尘形成 atmospheric haze 让光束可见；时间设定与原文一致（golden hour / blue hour / night / overcast / 黎明）；但**避免极端逆光剪影**——前景空地区域要曝光合适以便置入演员。";
-      parts.composition = "**foreground / mid-ground / background 三层景深**清晰可读；遵循三分法或对称中心；leading lines 与 vanishing point 明确；**画面下半部 1/3 区域留白**（仅地面 / 桌面 / 走廊地板，不要堆放杂物或主体）以便 Seedance 后期置入演员；上半部展示场景标志性元素。";
-      parts.materials = "建筑表面老化：积尘、磨损、湿漉反光、油渍、霉斑等真实细节；地面、墙面、织物、金属等材质各有质感差别；**不要**所有表面都干净如新。";
-      parts.grading = "电影调色：**teal-orange**（白天 / 室内 / 都市夜景）或场景情绪对应 grade（noir = ENR 银盐保留 / 战争片 = bleach bypass / 80s = 暖色 push）；低饱和；highlight 软卷曲；shadow 保留细节；35mm 胶片颗粒；**保持中性偏温和**（不要 push 极端情绪 grade，Seedance 后续会按各分镜重新调色）。";
+      parts.lighting = "**干净可读的 motivated practical lighting**：优先使用与场景匹配的自然窗光、天窗漫射、办公/商业空间 overhead softbox / fluorescent practicals、墙面反弹光、柔和环境补光；主光方向明确，亮部与暗部之间有清晰但不过重的过渡；**默认高键、明亮、通透、曝光充足**，前景空地区域要明亮干净以便置入演员。仅当用户原文明确要求夜晚、霓虹、烛火、废墟、恐怖、潮湿、烟雾等氛围时，才加入街灯 / 霓虹 / 烛火 / god ray / atmospheric haze；时间设定与原文一致（daylight / golden hour / blue hour / night / overcast / 黎明）；避免极端逆光剪影和吞掉细节的低照度。";
+      parts.composition = "**foreground / mid-ground / background 三层景深**清晰可读；遵循三分法或对称中心；leading lines 与 vanishing point 明确；**画面下半部 1/3 区域留白**（仅干净地面 / 桌面 / 走廊地板，不要堆放杂物或主体）以便 Seedance 后期置入演员；上半部展示场景标志性元素。";
+      parts.materials = "材质真实但整洁：地面、墙面、织物、玻璃、木材、金属各有质感差别；**默认维护良好、干净清爽、无脏污破败**，可有少量生活化使用痕迹但不要油渍、霉斑、积尘、湿漉反光、裂墙、废弃感。只有当用户原文明确要求老旧、破败、肮脏、潮湿、废墟、贫民窟、犯罪现场等氛围时，才加入表面老化和污渍。";
+      parts.grading = "电影调色：**默认中性日光 / clean commercial cinema grade**，白平衡准确，色彩自然，低到中等对比，highlight 软卷曲，shadow 保留细节，细腻 35mm 胶片颗粒；办公室、家居、商场、医院、学校等现代室内优先明亮温和、干净专业。只有当用户原文明确要求阴郁、黑色电影、战争、80s、赛博朋克等风格时，才使用 teal-orange / ENR / bleach bypass / 暖色 push 等强情绪 grade；不要把普通室内自动做成昏暗脏乱。";
       parts.negative = "**STRICT NEGATIVE**：画面中**绝对不要**出现任何屏幕文字、字幕、可读招牌字、UI 元素、水印；**画面绝对不要出现任何人物**（除非用户原文显式要求）——包括玻璃倒影、远处剪影、镜面反射、镜头中所有反射面、屏幕里的人物均必须无；不要变形物体；不要饱和度爆表；不要 HDR halo / 锐化过度；不要 anime / cartoon；**不要 motion blur**（参考底板每像素必须清晰）。";
     } else if (asset.type === "prop") {
       parts.intent = `电影道具参考图：${asset.name || "电影道具"}。1:1 方画幅产品级 hero shot，**单一主体居中**，全部入画。`;
@@ -393,10 +393,10 @@ export function composeSeedreamAssetPrompt(
     } else if (asset.type === "scene") {
       parts.intent = `Cinematic scene establishing plate for "${asset.name || "film scene"}". 16:9 horizontal cinema-grade **wide shot empty plate**, **NO people in frame** unless the user prompt explicitly asks. Emphasize environment, light, atmosphere.`;
       parts.cinematography = "**ARRI Alexa 35 + Cooke S7/i 32mm T2.0** (or Master Anamorphic 40mm T1.9 with subtle horizontal blue lens flare when the scene calls for it), f/5.6–f/8 deep focus, slight anamorphic horizontal oval bokeh, 2.39:1 cinemascope feel composed within a 16:9 frame.";
-      parts.lighting = "**motivated practical lighting** only: window light, streetlamps, neon, candles, god rays, etc. depending on the scene. Clear key direction; readable highlight-shadow falloff; **atmospheric haze** so light beams are visible. Time-of-day matches the user prompt (golden hour / blue hour / night / overcast / dawn).";
-      parts.composition = "**Foreground / mid-ground / background depth layers** all clearly readable; rule-of-thirds or intentional symmetry; clear leading lines and vanishing points.";
-      parts.materials = "Realistic surface aging: dust, wear, wet reflections, oil stains, mildew where appropriate. Floor / wall / fabric / metal materials all texturally distinct. Avoid the everything-clean-and-new look.";
-      parts.grading = "Cinema color grade: **teal-orange** (daylight / interiors / urban night) or scene-emotion grade (noir = ENR silver retention; war = bleach bypass; 80s = warm push). Low saturation; soft highlight rolloff; retained shadow detail; 35mm film grain.";
+      parts.lighting = "**Clean readable motivated practical lighting**: prioritize scene-appropriate daylight through windows, skylight diffusion, office/commercial overhead softbox or fluorescent practicals, wall bounce, and soft ambient fill. Clear key direction with readable but not heavy falloff; **default to bright high-key, airy, properly exposed lighting**. Keep the foreground placement area clean and well exposed. Only add streetlamps, neon, candles, god rays, or atmospheric haze when the user prompt explicitly calls for night, neon, candles, ruins, horror, wetness, smoke, or similar mood. Time-of-day matches the user prompt (daylight / golden hour / blue hour / night / overcast / dawn). Avoid extreme backlit silhouettes and underexposed interiors.";
+      parts.composition = "**Foreground / mid-ground / background depth layers** all clearly readable; rule-of-thirds or intentional symmetry; clear leading lines and vanishing points. Keep the lower foreground third open as clean floor / tabletop / corridor floor for later actor placement, not cluttered.";
+      parts.materials = "Materials are realistic but tidy: floor / wall / fabric / glass / wood / metal all texturally distinct; **default to well-maintained, clean, fresh surfaces with no grime or decay**. A few subtle lived-in use marks are allowed, but avoid oil stains, mildew, dust buildup, wet grime, cracked walls, and abandoned-building cues unless the user prompt explicitly asks for old, dirty, wet, ruined, slum, crime-scene, or decayed atmosphere.";
+      parts.grading = "Cinema color grade: **default neutral daylight / clean commercial cinema grade** with accurate white balance, natural color, low-to-medium contrast, soft highlight rolloff, retained shadow detail, and fine 35mm film grain. Modern offices, homes, malls, hospitals, schools, and other contemporary interiors should look bright, clean, and professional. Use teal-orange / ENR / bleach bypass / warm push only when the user explicitly asks for moody, noir, war, 80s, cyberpunk, or similarly stylized looks. Do not automatically turn ordinary interiors dark, dirty, or broken-down.";
       parts.negative = "**STRICT NEGATIVE**: no on-screen text, subtitles, readable billboard text, UI elements, watermarks; **no people in frame** unless prompt explicitly asks; no deformed objects; no oversaturation; no HDR halos / over-sharpening; no anime/cartoon style.";
     } else if (asset.type === "prop") {
       parts.intent = `Cinema prop reference for "${asset.name || "film prop"}". 1:1 square, product-style hero shot, single subject centered, fully in frame.`;

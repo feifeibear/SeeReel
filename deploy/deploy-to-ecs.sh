@@ -49,6 +49,10 @@ required_env TOS_BUCKET
 ECS_USER="${REELYAI_ECS_USER:-root}"
 ECS_PORT="${REELYAI_ECS_PORT:-22}"
 ECS_DIR="${REELYAI_ECS_DIR:-~/reelyai-agent}"
+ssh_opts=(-p "$ECS_PORT")
+if [[ -n "${REELYAI_ECS_KEY:-}" ]]; then
+  ssh_opts=(-i "$REELYAI_ECS_KEY" -p "$ECS_PORT")
+fi
 default_public_url="https://${REELYAI_ECS_HOST}"
 if [[ "$REELYAI_ECS_HOST" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
   default_public_url="https://${REELYAI_ECS_HOST}.sslip.io"
@@ -67,8 +71,8 @@ if [[ "$PUBLIC_URL" == https://* ]]; then
 fi
 
 remote="${ECS_USER}@${REELYAI_ECS_HOST}"
-ssh_cmd=(ssh -p "$ECS_PORT" "$remote")
-rsync_cmd=(rsync -az --delete -e "ssh -p $ECS_PORT")
+ssh_cmd=(ssh "${ssh_opts[@]}" "$remote")
+rsync_cmd=(rsync -az --delete -e "ssh ${ssh_opts[*]}")
 
 shell_quote() {
   printf "%q" "$1"
@@ -89,7 +93,7 @@ echo "Forwarding backend TOS env only; Agent Plan tokens remain user-provided in
 
 if [[ "${REELYAI_DEPLOY_DRY_RUN:-}" == "1" ]]; then
   echo "Dry run only. Required env is present; no SSH, rsync, Docker, or cloud changes were made."
-  echo "Remote env keys to write: NODE_ENV PORT REELYAI_COOKIE_SECURE APP_PUBLIC_URL CADDY_SITE_ADDRESS ACME_EMAIL ARK_AGENT_PLAN_BASE SEEDREAM_AGENT_PLAN_MODEL SEEDANCE_AGENT_PLAN_MODEL SEEDANCE_AGENT_PLAN_FAST_MODEL TOS_ACCESS_KEY_ID TOS_SECRET_ACCESS_KEY TOS_REGION TOS_ENDPOINT TOS_BUCKET"
+  echo "Remote env keys to write: NODE_ENV PORT REELYAI_COOKIE_SECURE REELYAI_ACCESS_TOKEN REELYAI_SESSION_GENERATION_DAILY_CAP APP_PUBLIC_URL CADDY_SITE_ADDRESS ACME_EMAIL ARK_AGENT_PLAN_BASE SEEDREAM_AGENT_PLAN_MODEL SEEDANCE_AGENT_PLAN_MODEL SEEDANCE_AGENT_PLAN_FAST_MODEL VISION_REVIEW_* VIDEO_ANALYZE_* TOS_ACCESS_KEY_ID TOS_SECRET_ACCESS_KEY TOS_REGION TOS_ENDPOINT TOS_BUCKET"
   exit 0
 fi
 
@@ -110,6 +114,9 @@ remote_env="$(
   env_line NODE_ENV production
   env_line PORT 5173
   env_line REELYAI_COOKIE_SECURE "$COOKIE_SECURE_VALUE"
+  env_line REELYAI_ACCESS_TOKEN "${REELYAI_ACCESS_TOKEN:-}"
+  env_line REELYAI_SESSION_GENERATION_DAILY_CAP "${REELYAI_SESSION_GENERATION_DAILY_CAP:-200}"
+  env_line REELYAI_SEED_DEMO "${REELYAI_SEED_DEMO:-1}"
   env_line APP_PUBLIC_URL "$PUBLIC_URL"
   env_line CADDY_SITE_ADDRESS "$CADDY_SITE_ADDRESS"
   env_line ACME_EMAIL "${ACME_EMAIL:-}"
@@ -120,6 +127,13 @@ remote_env="$(
   env_line SEED_PROMPT_AGENT_PLAN_MODEL ""
   env_line PROMPT_REWRITE_AGENT_PLAN_MODEL ""
   env_line AGENT_PLAN_TEXT_MODEL ""
+  env_line REELYAI_VISION_REVIEW_USE_AGENT_PLAN "${REELYAI_VISION_REVIEW_USE_AGENT_PLAN:-}"
+  env_line VISION_REVIEW_AGENT_PLAN_MODEL "${VISION_REVIEW_AGENT_PLAN_MODEL:-doubao-seed-2.0-pro}"
+  env_line VIDEO_ANALYZE_AGENT_PLAN_MODEL "${VIDEO_ANALYZE_AGENT_PLAN_MODEL:-doubao-seed-2.0-pro}"
+  env_line VISION_REVIEW_API_KEY "${VISION_REVIEW_API_KEY:-}"
+  env_line VISION_REVIEW_API_BASE "${VISION_REVIEW_API_BASE:-https://ark.ap-southeast.bytepluses.com/api/v3}"
+  env_line VISION_REVIEW_MODEL "${VISION_REVIEW_MODEL:-seed-2-0-pro-260328}"
+  env_line VIDEO_ANALYZE_MODEL "${VIDEO_ANALYZE_MODEL:-}"
   env_line TOS_ACCESS_KEY_ID "$TOS_ACCESS_KEY_ID"
   env_line TOS_SECRET_ACCESS_KEY "$TOS_SECRET_ACCESS_KEY"
   env_line TOS_REGION "$TOS_REGION_VALUE"
@@ -147,3 +161,4 @@ printf "%s\n" "$remote_env" | "${ssh_cmd[@]}" "cat > $(shell_quote "$ECS_DIR")/d
 
 echo "Done. Open: $PUBLIC_URL"
 echo "Health: $PUBLIC_URL/api/healthz"
+echo "Readiness: $PUBLIC_URL/api/readyz"

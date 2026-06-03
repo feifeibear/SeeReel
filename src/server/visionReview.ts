@@ -4,23 +4,42 @@ import { MEDIA_DIR, runFfmpegCommand, probeMediaDurationSec } from "./generators
 import { fetchWithRetry } from "./fetchWithRetry";
 import type { ImageReviewScope, ImageReviewVerdict, TokenUsageBreakdown, VideoReviewCriterionScore, VideoReviewFix, VideoReviewScope, VideoReviewVerdict } from "../shared/types";
 import { tokenUsageFromRaw } from "./tokenUsage";
-import { resolveArkCredential } from "./arkCredentials";
+import { hasAgentPlanKey, resolveArkCredential, type ArkCredential } from "./arkCredentials";
 
 const BYTEPLUS_SEEDANCE_BASE = "https://ark.ap-southeast.bytepluses.com/api/v3";
 const VISION_KEY_ENVS = ["VISION_REVIEW_API_KEY", "SEED_PROMPT_API_KEY", "BP_ARK_API_KEY", "ARK_API_KEY"];
+const DEFAULT_AGENT_PLAN_VISION_MODEL = "doubao-seed-2.0-pro";
+
+function useAgentPlanForVisionReview() {
+  const value = process.env.REELYAI_VISION_REVIEW_USE_AGENT_PLAN?.trim();
+  if (!value) return true;
+  return /^(1|true|yes|on)$/i.test(value);
+}
+
+function useEnvAgentPlanForVisionReview() {
+  return /^(1|true|yes|on)$/i.test(process.env.REELYAI_VISION_REVIEW_USE_AGENT_PLAN || "");
+}
 
 const reviewCredential = () =>
   resolveArkCredential({
     keyEnvNames: VISION_KEY_ENVS,
     baseEnvNames: ["VISION_REVIEW_API_BASE", "SEED_PROMPT_API_BASE", "SEEDANCE_API_BASE"],
     defaultBase: BYTEPLUS_SEEDANCE_BASE,
-    // Vision review models currently run more reliably on the standard Responses base.
-    // Keep Agent Plan as a fallback only when no standard key is available, or when the
-    // operator explicitly opts review into Agent Plan.
-    preferAgentPlan: /^(1|true|yes|on)$/i.test(process.env.REELYAI_VISION_REVIEW_USE_AGENT_PLAN || "")
+    // Browser-provided Agent/Coding Plan keys should review through /api/plan/v3 with
+    // Plan model names such as doubao-seed-2.0-pro, not standard model ids like seed-2-0-pro-260328.
+    preferAgentPlan: useAgentPlanForVisionReview(),
+    allowRequestAgentPlan: useAgentPlanForVisionReview(),
+    allowEnvAgentPlan: useEnvAgentPlanForVisionReview()
   });
 
-const reviewModel = () => process.env.VISION_REVIEW_MODEL || "seed-2-0-pro-260328";
+export function resolveReviewModel(source: ArkCredential["source"]) {
+  if (source === "agent-plan") return process.env.VISION_REVIEW_AGENT_PLAN_MODEL || DEFAULT_AGENT_PLAN_VISION_MODEL;
+  return process.env.VISION_REVIEW_MODEL || "seed-2-0-pro-260328";
+}
+
+function missingAgentPlanReviewModelMessage() {
+  return "[skip] no Agent/Coding Plan-compatible vision review model configured";
+}
 
 const reviewDefaultEnabled = () => (process.env.VISION_REVIEW_DEFAULT || "on").toLowerCase() !== "off";
 
@@ -95,12 +114,18 @@ export async function reviewImageDetailed(
   input: ImageReviewInput,
   opts: { tolerant?: boolean } = {}
 ): Promise<ImageReviewVerdict> {
-  const { apiKey } = reviewCredential();
-  const model = reviewModel();
+  const credential = reviewCredential();
+  const { apiKey, apiBase } = credential;
+  const model = resolveReviewModel(credential.source);
   const reviewedAt = new Date().toISOString();
   if (!apiKey) {
-    if (opts.tolerant) return skippedImageVerdict(input.kind, "[skip] no API key", "skipped", reviewedAt);
+    if (opts.tolerant || hasAgentPlanKey() || useAgentPlanForVisionReview()) return skippedImageVerdict(input.kind, "[skip] no standard VLM API key configured", "skipped", reviewedAt);
     throw new Error("No VLM API key configured");
+  }
+  if (!model) {
+    const message = missingAgentPlanReviewModelMessage();
+    if (opts.tolerant || credential.source === "agent-plan") return skippedImageVerdict(input.kind, message, "skipped", reviewedAt);
+    throw new Error(`${message}; set VISION_REVIEW_AGENT_PLAN_MODEL or configure a standard VISION_REVIEW_API_KEY`);
   }
   try {
     const productImage = await imageInputContent(input.productUrl);
@@ -124,6 +149,7 @@ export async function reviewImageDetailed(
     ];
 
     const vision = await callArkVisionText({
+      apiBase,
       apiKey,
       model,
       systemPrompt: SYSTEM_PROMPT_IMAGE,
@@ -150,10 +176,19 @@ export async function reviewVideo(input: VideoReviewInput): Promise<ReviewVerdic
 }
 
 export async function reviewVideoDetailed(input: DetailedVideoReviewInput): Promise<VideoReviewVerdict> {
-  const { apiKey } = reviewCredential();
-  const model = reviewModel();
+  const credential = reviewCredential();
+  const { apiKey, apiBase } = credential;
+  const model = resolveReviewModel(credential.source);
   const reviewedAt = new Date().toISOString();
-  if (!apiKey) throw new Error("No VLM API key configured");
+  if (!apiKey) {
+    if (hasAgentPlanKey() || useAgentPlanForVisionReview()) {
+      return skippedVideoVerdict(input, "[skip] no standard VLM API key configured", "skipped", reviewedAt);
+    }
+    throw new Error("No VLM API key configured");
+  }
+  if (!model) {
+    return skippedVideoVerdict(input, missingAgentPlanReviewModelMessage(), "skipped", reviewedAt);
+  }
 
   let extracted: { dataUrls: string[]; tempPaths: string[]; timestamps: number[]; durationSec: number } | undefined;
   try {
@@ -174,7 +209,7 @@ export async function reviewVideoDetailed(input: DetailedVideoReviewInput): Prom
       { type: "input_text" as const, text: `以下是视频按时间顺序采样的 ${frames.length} 帧；帧序号从 1 开始，对应时间秒：${extracted.timestamps.map((t) => t.toFixed(1)).join(", ")}` },
       ...frames
     ];
-    const vision = await callArkVisionText({ apiKey, model, systemPrompt: SYSTEM_PROMPT_VIDEO, userContent });
+    const vision = await callArkVisionText({ apiBase, apiKey, model, systemPrompt: SYSTEM_PROMPT_VIDEO, userContent });
     const parsed = parseDetailedVideoVerdict(vision.rawText, input.scope, model, reviewedAt, extracted, input.videoSignature);
     parsed.tokenUsage = vision.tokenUsage;
     return parsed;
@@ -184,6 +219,7 @@ export async function reviewVideoDetailed(input: DetailedVideoReviewInput): Prom
 }
 
 interface CallVisionParams {
+  apiBase: string;
   apiKey: string;
   model: string;
   systemPrompt: string;
@@ -193,12 +229,12 @@ interface CallVisionParams {
   >;
 }
 
-async function callArkVisionResponses({ apiKey, model, systemPrompt, userContent }: CallVisionParams): Promise<ReviewVerdict> {
-  const first = await postArkVisionResponse({ apiKey, model, systemPrompt, userContent, imageContentShape: "input_image", tag: "ark:vision-review" });
+async function callArkVisionResponses({ apiBase, apiKey, model, systemPrompt, userContent }: CallVisionParams): Promise<ReviewVerdict> {
+  const first = await postArkVisionResponse({ apiBase, apiKey, model, systemPrompt, userContent, imageContentShape: "input_image", tag: "ark:vision-review" });
   let response = first.response;
   let text = first.text;
   if (!response.ok && shouldRetryWithImageUrlContent(text)) {
-    const retry = await postArkVisionResponse({ apiKey, model, systemPrompt, userContent, imageContentShape: "image_url", tag: "ark:vision-review:image_url" });
+    const retry = await postArkVisionResponse({ apiBase, apiKey, model, systemPrompt, userContent, imageContentShape: "image_url", tag: "ark:vision-review:image_url" });
     response = retry.response;
     text = retry.text;
   }
@@ -215,12 +251,12 @@ async function callArkVisionResponses({ apiKey, model, systemPrompt, userContent
   return { ok: true, reasons: [`[skip] verdict not parseable: ${rawText.slice(0, 300)}`], rawText, model };
 }
 
-async function callArkVisionText({ apiKey, model, systemPrompt, userContent }: CallVisionParams): Promise<{ rawText: string; tokenUsage?: TokenUsageBreakdown }> {
-  const first = await postArkVisionResponse({ apiKey, model, systemPrompt, userContent, imageContentShape: "input_image", tag: "ark:video-audit" });
+async function callArkVisionText({ apiBase, apiKey, model, systemPrompt, userContent }: CallVisionParams): Promise<{ rawText: string; tokenUsage?: TokenUsageBreakdown }> {
+  const first = await postArkVisionResponse({ apiBase, apiKey, model, systemPrompt, userContent, imageContentShape: "input_image", tag: "ark:video-audit" });
   let response = first.response;
   let text = first.text;
   if (!response.ok && shouldRetryWithImageUrlContent(text)) {
-    const retry = await postArkVisionResponse({ apiKey, model, systemPrompt, userContent, imageContentShape: "image_url", tag: "ark:video-audit:image_url" });
+    const retry = await postArkVisionResponse({ apiBase, apiKey, model, systemPrompt, userContent, imageContentShape: "image_url", tag: "ark:video-audit:image_url" });
     response = retry.response;
     text = retry.text;
   }
@@ -232,6 +268,7 @@ async function callArkVisionText({ apiKey, model, systemPrompt, userContent }: C
 type ArkImageContentShape = "input_image" | "image_url";
 
 async function postArkVisionResponse({
+  apiBase,
   apiKey,
   model,
   systemPrompt,
@@ -239,7 +276,6 @@ async function postArkVisionResponse({
   imageContentShape,
   tag
 }: CallVisionParams & { imageContentShape: ArkImageContentShape; tag: string }): Promise<{ response: Response; text: string }> {
-  const apiBase = reviewCredential().apiBase;
   const response = await fetchWithRetry(`${apiBase}/responses`, {
     method: "POST",
     timeoutMs: tag.includes("video-audit") ? 120_000 : 90_000,
@@ -337,6 +373,27 @@ function skippedImageVerdict(scope: ImageReviewScope, reason: string, model: str
     model,
     rawText: "",
     reviewedAt
+  };
+}
+
+function skippedVideoVerdict(input: DetailedVideoReviewInput, reason: string, model: string, reviewedAt: string): VideoReviewVerdict {
+  return {
+    scope: input.scope,
+    ok: true,
+    score: 100,
+    summary: reason,
+    criteria: [],
+    fatalIssues: [],
+    reasons: [],
+    fixes: [],
+    hookRetention: "",
+    audio: "not_evaluated",
+    frameEvidence: [],
+    model,
+    rawText: "",
+    reviewedAt,
+    frameCount: 0,
+    videoSignature: input.videoSignature
   };
 }
 

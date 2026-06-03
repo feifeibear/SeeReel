@@ -74,6 +74,7 @@ export function FlowView({ snapshot, session, visionReviewEnabled, defaultImageM
 
   const [nodes, setNodes] = useState<Node<FlowNodeData>[]>(derivedNodes);
   const [edges, setEdges] = useState<Edge[]>(derivedEdges);
+  const nodesRef = useRef<Node<FlowNodeData>[]>(derivedNodes);
   const [selectedNodeId, setSelectedNodeId] = useState<string | undefined>();
   // Floating "新建节点" menu position. Right-click summons it; null hides it.
   const [createMenu, setCreateMenu] = useState<{ x: number; y: number; flowPosition?: XYPosition } | null>(null);
@@ -109,7 +110,11 @@ export function FlowView({ snapshot, session, visionReviewEnabled, defaultImageM
     if (!position) return;
     const centered = { x: position.x - 160, y: position.y - 90 };
     pendingCreatedPositionsRef.current.set(nodeId, centered);
-    setNodes((prev) => prev.map((node) => (node.id === nodeId ? { ...node, position: centered } : node)));
+    setNodes((prev) => {
+      const nextNodes = prev.map((node) => (node.id === nodeId ? { ...node, position: centered } : node));
+      nodesRef.current = nextNodes;
+      return nextNodes;
+    });
   }, []);
 
   useEffect(() => {
@@ -131,7 +136,9 @@ export function FlowView({ snapshot, session, visionReviewEnabled, defaultImageM
           }
         }
       }
-      return merged.filter((node) => !pendingNodeDeletionsRef.current.has(node.id));
+      const nextNodes = merged.filter((node) => !pendingNodeDeletionsRef.current.has(node.id));
+      nodesRef.current = nextNodes;
+      return nextNodes;
     });
     setEdges(derivedEdges.filter((e) => !pendingDeletionsRef.current.has(e.id)));
   }, [derivedNodes, derivedEdges]);
@@ -145,7 +152,11 @@ export function FlowView({ snapshot, session, visionReviewEnabled, defaultImageM
   }, [onMutated]);
 
   const onNodesChange = useCallback<OnNodesChange<Node<FlowNodeData>>>((changes) => {
-    setNodes((nds) => applyNodeChanges(changes, nds));
+    setNodes((nds) => {
+      const nextNodes = applyNodeChanges(changes, nds);
+      nodesRef.current = nextNodes;
+      return nextNodes;
+    });
   }, []);
   const onEdgesChange = useCallback<OnEdgesChange>((changes) => {
     setEdges((eds) => applyEdgeChanges(changes, eds));
@@ -381,7 +392,7 @@ export function FlowView({ snapshot, session, visionReviewEnabled, defaultImageM
 
     if (src.startsWith("shot-") && tgt.startsWith("stitch-")) {
       const srcShotId = src.slice("shot-".length);
-      const target = nodes.find((node) => node.id === tgt)?.data;
+      const target = nodesRef.current.find((node) => node.id === tgt)?.data;
       if (!target || target.kind !== "stitch" || target.session.id !== session.id) return;
       const sourceShot = (session.shots || []).find((s) => s.id === srcShotId);
       if (!sourceShot) return;
@@ -941,11 +952,19 @@ export function FlowView({ snapshot, session, visionReviewEnabled, defaultImageM
           }
           if (!ok) {
             pendingNodeDeletionsRef.current.delete(node.id);
-            setNodes((prev) => prev.some((item) => item.id === node.id) ? prev : [...prev, node]);
+            setNodes((prev) => {
+              const nextNodes = prev.some((item) => item.id === node.id) ? prev : [...prev, node];
+              nodesRef.current = nextNodes;
+              return nextNodes;
+            });
           }
         } catch (error) {
           pendingNodeDeletionsRef.current.delete(node.id);
-          setNodes((prev) => prev.some((item) => item.id === node.id) ? prev : [...prev, node]);
+          setNodes((prev) => {
+            const nextNodes = prev.some((item) => item.id === node.id) ? prev : [...prev, node];
+            nodesRef.current = nextNodes;
+            return nextNodes;
+          });
           window.alert(`删除失败：${error instanceof Error ? error.message : "未知错误"}`);
         }
       }

@@ -1,0 +1,73 @@
+name: Deploy
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: Target environment
+        required: true
+        default: staging
+        type: choice
+        options:
+          - staging
+          - production
+      public_url:
+        description: Public URL to smoke test after deployment
+        required: true
+        type: string
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment }}
+    env:
+      CI: "true"
+      REELYAI_SKIP_SKILL_INSTALL: "1"
+      REELYAI_ECS_HOST: ${{ secrets.REELYAI_ECS_HOST }}
+      REELYAI_ECS_USER: ${{ secrets.REELYAI_ECS_USER }}
+      REELYAI_ECS_SSH_KEY: ${{ secrets.REELYAI_ECS_SSH_KEY }}
+      REELYAI_ECS_DIR: ${{ secrets.REELYAI_ECS_DIR }}
+      APP_PUBLIC_URL: ${{ inputs.public_url }}
+      REELYAI_ACCESS_TOKEN: ${{ secrets.REELYAI_ACCESS_TOKEN }}
+      REELYAI_SESSION_GENERATION_DAILY_CAP: ${{ vars.REELYAI_SESSION_GENERATION_DAILY_CAP }}
+      TOS_ACCESS_KEY_ID: ${{ secrets.TOS_ACCESS_KEY_ID }}
+      TOS_SECRET_ACCESS_KEY: ${{ secrets.TOS_SECRET_ACCESS_KEY }}
+      TOS_BUCKET: ${{ secrets.TOS_BUCKET }}
+      TOS_REGION: ${{ secrets.TOS_REGION }}
+      TOS_ENDPOINT: ${{ secrets.TOS_ENDPOINT }}
+      TOS_PUBLIC_BASE_URL: ${{ secrets.TOS_PUBLIC_BASE_URL }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run release verification gate (offline + guardrails)
+        run: npm run verify:release
+
+      - name: Build Docker image
+        run: docker build -t reelyai-agent:${{ github.sha }} .
+
+      - name: Prepare SSH key
+        if: ${{ env.REELYAI_ECS_SSH_KEY != '' }}
+        run: |
+          mkdir -p ~/.ssh
+          printf '%s\n' "$REELYAI_ECS_SSH_KEY" > ~/.ssh/reelyai_deploy_key
+          chmod 600 ~/.ssh/reelyai_deploy_key
+          echo "REELYAI_ECS_KEY=$HOME/.ssh/reelyai_deploy_key" >> "$GITHUB_ENV"
+
+      - name: Deploy to ECS
+        run: bash deploy/deploy-to-ecs.sh
+
+      - name: Production smoke test
+        env:
+          REELYAI_BASE_URL: ${{ inputs.public_url }}
+          REELYAI_ACCESS_TOKEN: ${{ secrets.REELYAI_ACCESS_TOKEN }}
+        run: npm run smoke:production

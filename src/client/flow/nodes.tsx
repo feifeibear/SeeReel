@@ -147,23 +147,11 @@ function DownloadButton({ href, filename, title, onTriggered }: { href: string; 
 }
 
 /**
- * In-node video thumbnail. The thumb is ALWAYS clickable — clicking opens a full-page Lightbox
- * playing through the server-proxy stream URL (range-aware, correct content-type, no TOS
- * download-vs-play surprise).
+ * In-node video thumbnail preview. Clicking the thumbnail selects the node and opens the
+ * Inspector on the right; only the bottom-right ▶ button opens the full-page Lightbox player.
  *
- * Performance UX: clicking the lightbox should feel instant. We achieve that with two tricks:
- *
- *   1. **In-viewport prefetch.** Once the thumbnail enters the viewport for ~800 ms (a debounce
- *      that protects bandwidth during rapid pan/zoom), we upgrade the inline `<video>` from
- *      `preload="metadata"` to `preload="auto"`. The browser starts buffering the actual bytes
- *      while the user is still reading the canvas — by the time they click, most of the file is
- *      in HTTP cache.
- *   2. **Resume from currentTime.** When the inline video has been buffering / playing on hover,
- *      we capture its `currentTime` before opening the lightbox and pass it along so the lightbox
- *      seeks straight to that point — no double-fetch from byte 0, no black-frame flicker.
- *
- * On video load error — TOS expired URL, network blip, codec issue — we collapse to the
- * poster image (still clickable, still opens the lightbox which has its own deeper fallback).
+ * Prefetch: once the thumbnail is in viewport for ~800 ms, upgrade preload to "auto" so the
+ * lightbox play button feels instant when the user asks for playback.
  */
 function RobustVideoThumb({ streamSrc, posterSrc, downloadUrl, downloadFilename, title }: {
   streamSrc: string;
@@ -174,9 +162,10 @@ function RobustVideoThumb({ streamSrc, posterSrc, downloadUrl, downloadFilename,
   /** Lightbox header title. */
   title?: string;
 }) {
+  const { t } = useI18n();
   const [errored, setErrored] = useState(false);
   const [open, setOpen] = useState(false);
-  // Promote preload from metadata → auto once we're confident the user will likely click. Driven
+  // Promote preload from metadata → auto once we're confident the user will likely play. Driven
   // by an IntersectionObserver-with-debounce so off-screen thumbs don't burn bandwidth.
   const [eager, setEager] = useState(false);
   const [resumeFromSec, setResumeFromSec] = useState(0);
@@ -208,11 +197,8 @@ function RobustVideoThumb({ streamSrc, posterSrc, downloadUrl, downloadFilename,
     setResumeFromSec(0);
   }, [streamSrc, posterSrc]);
 
-  const stopAndOpen = (e: React.MouseEvent) => {
-    e.stopPropagation();
+  const openLightbox = (e: React.MouseEvent) => {
     e.preventDefault();
-    // Snapshot inline playhead before unmounting so the lightbox can seek to it. Also pause the
-    // inline element so the two players don't fight over decoder.
     const v = videoRef.current;
     if (v) {
       setResumeFromSec(Number.isFinite(v.currentTime) ? v.currentTime : 0);
@@ -224,22 +210,14 @@ function RobustVideoThumb({ streamSrc, posterSrc, downloadUrl, downloadFilename,
     <>
       <div
         ref={wrapperRef}
-        className="flow-thumb-clickable"
-        role="button"
-        tabIndex={0}
-        title="点击放大查看 / 播放（已在后台预加载）"
-        onClick={stopAndOpen}
-        onMouseDown={(e) => e.stopPropagation()}
+        className="flow-thumb-preview"
         onMouseEnter={() => setEager(true)}
-        onKeyDown={(e) => {
-          if (e.key === "Enter" || e.key === " ") stopAndOpen(e as unknown as React.MouseEvent);
-        }}
       >
         {errored ? (
           posterSrc ? (
             <img src={posterSrc} alt={title || "video poster"} loading="lazy" decoding="async" />
           ) : (
-            <div className="flow-empty">▶ 点击播放</div>
+            <div className="flow-empty">{t.nodes.clickNodeForInspector}</div>
           )
         ) : (
           <video
@@ -254,7 +232,17 @@ function RobustVideoThumb({ streamSrc, posterSrc, downloadUrl, downloadFilename,
             onError={() => setErrored(true)}
           />
         )}
-        <span className="flow-thumb-play" aria-hidden>▶</span>
+        <button
+          type="button"
+          className="flow-thumb-play"
+          title={t.nodes.playVideoTitle}
+          aria-label={t.nodes.playVideoTitle}
+          onClick={openLightbox}
+          onMouseDown={(e) => e.stopPropagation()}
+          onPointerDown={(e) => e.stopPropagation()}
+        >
+          ▶
+        </button>
       </div>
       {open && (
         <Lightbox

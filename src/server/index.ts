@@ -1,5 +1,5 @@
 import "dotenv/config";
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { mkdir, readFile, stat, unlink, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { Readable } from "node:stream";
@@ -40,10 +40,14 @@ import {
   setRequestAgentPlanKey,
   userCredentialMiddleware
 } from "./userCredentials";
+import { accessGuardEnabled, accessGuardMiddleware } from "./accessGuard";
+import { generationCapMessage, generationLimitSnapshot, tryConsumeGeneration } from "./generationLimits";
 import { condenseForSeedanceR2V, probeVideo, type CondenseStrategy } from "./videoCondense";
 import { buildShotFrameAssignments, generateStoryboardGrid } from "./storyboardGrid";
 import { buildSubStoryboardAssetPayload, generateSubStoryboardGrid, generateSubStoryboardSequential, type SubStoryboardResult } from "./subStoryboard";
 import { analyzeReferenceVideo } from "./videoAnalyze";
+import { directoryStats, fileSize, productionPaths, readableFileStatus, snapshotCounts, tokenUsageSummary, writableDirectoryStatus } from "./diagnostics";
+import { metricsText, observeHttpRequest, setGauge, setHttpInflight } from "./metrics";
 import {
   composeSeedanceVideoText,
   composeSeedreamAssetPrompt,
@@ -94,6 +98,9 @@ const app = express();
 app.set("trust proxy", 1);
 const store = new CinemaStore();
 await store.load();
+const serviceStartedAt = Date.now();
+const buildVersion = process.env.REELYAI_VERSION || process.env.npm_package_version || "dev";
+const buildCommit = process.env.REELYAI_COMMIT_SHA || process.env.GITHUB_SHA || "";
 const shotGenerateSubmissions = new Map<string, Promise<{ status: number; body: unknown }>>();
 // In-process singleflight registry for stitch background workers. Keyed by sessionId + stitch job id;
 // value is the signature currently being processed. Survives concurrent /stitch POSTs but does NOT
@@ -156,8 +163,42 @@ async function resetOrphanNarrationJobs() {
 await resetOrphanStitchJobs();
 await resetOrphanNarrationJobs();
 
+const inflightByRoute = new Map<string, number>();
+function normalizeMetricRoute(req: Request) {
+  const routePath = typeof req.route?.path === "string" ? req.route.path : req.path;
+  return routePath
+    .replace(/\/api\/sessions\/[^/]+/g, "/api/sessions/:sessionId")
+    .replace(/\/api\/shots\/[^/]+/g, "/api/shots/:shotId")
+    .replace(/\/api\/assets\/[^/]+/g, "/api/assets/:assetId")
+    .replace(/\/renders\/[^/]+/g, "/renders/:renderId")
+    .replace(/\/stitch-jobs\/[^/]+/g, "/stitch-jobs/:jobId");
+}
+function setInflight(method: string, route: string, delta: number) {
+  const key = `${method} ${route}`;
+  const next = Math.max(0, (inflightByRoute.get(key) || 0) + delta);
+  inflightByRoute.set(key, next);
+  setHttpInflight({ method, route }, next);
+}
+
+app.use((req, res, next) => {
+  const requestId = req.header("x-request-id") || randomUUID();
+  res.setHeader("x-request-id", requestId);
+  res.locals.requestId = requestId;
+  const method = req.method;
+  const startRoute = normalizeMetricRoute(req);
+  const started = performance.now();
+  setInflight(method, startRoute, 1);
+  res.on("finish", () => {
+    const route = normalizeMetricRoute(req);
+    setInflight(method, startRoute, -1);
+    observeHttpRequest({ method, route, status: res.statusCode }, (performance.now() - started) / 1000);
+  });
+  next();
+});
+
 app.use(cors());
 app.use(userCredentialMiddleware);
+app.use(accessGuardMiddleware);
 app.use(express.json({ limit: "25mb" }));
 app.use("/media", express.static(path.resolve(process.cwd(), "data", "media")));
 
@@ -167,7 +208,118 @@ app.use("/media", express.static(path.resolve(process.cwd(), "data", "media")));
  * (transient — retry silently) vs "服务端不可达" (banner — tell the user to check the dev server).
  */
 app.get("/api/healthz", (_req, res) => {
-  res.json({ ok: true, ts: Date.now(), pid: process.pid });
+  res.json({
+    ok: true,
+    ts: Date.now(),
+    pid: process.pid,
+    uptimeSec: Math.round((Date.now() - serviceStartedAt) / 1000),
+    version: buildVersion,
+    commit: buildCommit || undefined
+  });
+});
+
+/**
+ * Single source of truth for readiness. Returns per-component status used by both `/api/readyz`
+ * (HTTP semantics: only hard deps block traffic) and `/metrics` (so Prometheus can alert on a
+ * degraded soft dependency even though readyz still returns 200 to keep the LB from draining).
+ */
+async function computeReadiness() {
+  const paths = productionPaths();
+  const components = {
+    dataDir: await writableDirectoryStatus(paths.dataDir),
+    storeFile: await readableFileStatus(paths.storeFile),
+    mediaDir: await writableDirectoryStatus(MEDIA_DIR),
+    tos: hasTosConfig()
+      ? { ok: true, status: "ok" as const }
+      : { ok: false, status: "warn" as const, message: "TOS is not configured; local previews work but Seedance needs public/signed media URLs." },
+    seedream: seedreamCredentialSource() === "missing"
+      ? { ok: false, status: "warn" as const, message: "Seedream credentials are not configured." }
+      : { ok: true, status: "ok" as const },
+    seedance: resolveSeedanceModel({ seedanceVariant: "standard" })
+      ? { ok: true, status: "ok" as const }
+      : { ok: false, status: "warn" as const, message: "Seedance model is not configured." }
+  };
+  const blocking = [components.dataDir, components.storeFile, components.mediaDir].some((component) => !component.ok);
+  return { components, blocking };
+}
+
+app.get("/api/readyz", async (_req, res) => {
+  const { components, blocking } = await computeReadiness();
+  res.status(blocking ? 503 : 200).json({ ok: !blocking, ts: Date.now(), components });
+});
+
+async function collectServiceMetrics() {
+  const snapshot = store.snapshot();
+  const counts = snapshotCounts(snapshot);
+  setGauge("reelyai_store_sessions", "Current number of sessions in the JSON store.", undefined, counts.sessions);
+  setGauge("reelyai_store_shots", "Current number of shots in the JSON store.", undefined, counts.shots);
+  setGauge("reelyai_store_assets", "Current number of assets in the JSON store.", undefined, counts.assets);
+  setGauge("reelyai_store_renders", "Current number of shot render rows in the JSON store.", undefined, counts.renders);
+  setGauge("reelyai_store_token_usage_events", "Current number of token usage events in the JSON store.", undefined, counts.tokenUsageEvents);
+  setGauge("reelyai_inflight_shot_generate_submissions", "In-process shot generation submissions currently in flight.", undefined, shotGenerateSubmissions.size);
+  setGauge("reelyai_inflight_stitch_jobs", "In-process stitch jobs currently in flight.", undefined, stitchInflight.size);
+  setGauge("reelyai_inflight_narration_jobs", "In-process narration jobs currently in flight.", undefined, narrationInflight.size);
+  setGauge("reelyai_inflight_review_locks", "In-process vision review locks currently in flight.", undefined, reviewLocks.size);
+  const genLimit = generationLimitSnapshot();
+  setGauge("reelyai_generation_daily_cap", "Configured per-session daily generation cap (0 = disabled).", undefined, genLimit.cap);
+  setGauge("reelyai_generation_submissions_today", "Paid generation submissions counted across sessions for the current UTC day.", undefined, genLimit.totalToday);
+  setGauge("reelyai_access_guard_enabled", "1 when the shared access token guard is active, else 0.", undefined, accessGuardEnabled() ? 1 : 0);
+  setGauge("reelyai_process_uptime_seconds", "Node.js process uptime in seconds.", undefined, process.uptime());
+  setGauge("reelyai_process_memory_rss_bytes", "Node.js process RSS memory in bytes.", undefined, process.memoryUsage().rss);
+  setGauge("reelyai_store_file_size_bytes", "cinema-store.json size in bytes.", undefined, await fileSize(productionPaths().storeFile));
+  const media = await directoryStats(MEDIA_DIR);
+  setGauge("reelyai_media_dir_size_bytes", "data/media directory size in bytes.", undefined, media.bytes);
+  setGauge("reelyai_media_file_count", "Number of files under data/media.", undefined, media.files);
+  const readiness = await computeReadiness();
+  for (const [component, status] of Object.entries(readiness.components)) {
+    setGauge("reelyai_component_up", "Per-component health: 1 ok, 0 degraded/down (includes soft deps readyz only warns on).", { component }, status.ok ? 1 : 0);
+  }
+  setGauge("reelyai_ready", "1 when all hard dependencies (store/media/data) are ready, else 0.", undefined, readiness.blocking ? 0 : 1);
+  for (const row of tokenUsageSummary(snapshot)) {
+    setGauge("reelyai_token_usage_total", "Current cumulative token usage by provider, model, and operation.", {
+      provider: row.provider,
+      model: row.model,
+      operation: row.operation
+    }, row.totalTokens);
+  }
+}
+
+app.get("/api/diagnostics", async (_req, res) => {
+  const snapshot = store.snapshot();
+  const paths = productionPaths();
+  const media = await directoryStats(MEDIA_DIR);
+  res.json({
+    ok: true,
+    ts: Date.now(),
+    runtime: runtimeInfo(),
+    version: buildVersion,
+    commit: buildCommit || undefined,
+    security: {
+      accessGuardEnabled: accessGuardEnabled(),
+      generationLimit: generationLimitSnapshot()
+    },
+    counts: snapshotCounts(snapshot),
+    inflight: {
+      shotGenerateSubmissions: shotGenerateSubmissions.size,
+      stitchJobs: stitchInflight.size,
+      narrationJobs: narrationInflight.size,
+      reviewLocks: reviewLocks.size
+    },
+    storage: {
+      dataDir: paths.dataDir,
+      storeFile: paths.storeFile,
+      storeFileBytes: await fileSize(paths.storeFile),
+      mediaDir: MEDIA_DIR,
+      mediaBytes: media.bytes,
+      mediaFiles: media.files
+    },
+    tokenUsageTop: tokenUsageSummary(snapshot)
+  });
+});
+
+app.get("/metrics", async (_req, res) => {
+  await collectServiceMetrics();
+  res.type("text/plain; version=0.0.4; charset=utf-8").send(metricsText());
 });
 
 app.get("/api/state", (_req, res) => {
@@ -1431,6 +1583,9 @@ app.post("/api/assets/:assetId/generate", async (req, res) => {
   if (!asset) return res.status(404).json({ error: "Asset not found" });
   const reqBody = (req.body as Record<string, unknown>) || {};
 
+  const assetGenCap = tryConsumeGeneration(sessionIdForAsset(asset), "asset_generate");
+  if (!assetGenCap.ok) return res.status(429).json({ error: generationCapMessage(assetGenCap), code: "generation_cap_exceeded" });
+
   try {
     const requestedModel = reqBody.model;
     const model: "gpt-image-2" | "seedream-4" | "seedream-4-5" | "seedream-5-lite" =
@@ -1636,6 +1791,9 @@ app.patch("/api/sessions/:sessionId/script", async (req, res) => {
 app.post("/api/sessions/:sessionId/cast", async (req, res) => {
   const session = store.getSession(req.params.sessionId);
   if (!session) return res.status(404).json({ error: "Session not found" });
+
+  const castCap = tryConsumeGeneration(session.id, "cast");
+  if (!castCap.ok) return res.status(429).json({ error: generationCapMessage(castCap), code: "generation_cap_exceeded" });
 
   try {
     const allAssets = store.snapshot().assets;
@@ -2865,6 +3023,9 @@ app.post("/api/sessions/:sessionId/storyboard-grid", async (req, res) => {
   const session = store.getSession(req.params.sessionId);
   if (!session) return res.status(404).json({ error: "Session not found" });
 
+  const gridCap = tryConsumeGeneration(session.id, "storyboard_grid");
+  if (!gridCap.ok) return res.status(429).json({ error: generationCapMessage(gridCap), code: "generation_cap_exceeded" });
+
   const sortedShots = (session.shots || []).slice().sort((a, b) => a.index - b.index);
   const requestedCount = Number((req.body as Record<string, unknown>)?.panelCount);
   const panelCount = Number.isFinite(requestedCount) && requestedCount > 0
@@ -3352,6 +3513,10 @@ app.post("/api/shots/:shotId/generate", async (req, res) => {
     const result = await existingSubmission;
     return res.status(result.status).json(result.body);
   }
+
+  const shotForCap = store.getShot(shotId);
+  const capResult = tryConsumeGeneration(shotForCap?.sessionId, "shot_generate");
+  if (!capResult.ok) return res.status(429).json({ error: generationCapMessage(capResult), code: "generation_cap_exceeded" });
 
   const submission = submitShotGeneration(shotId, reqBody as Partial<Shot> & Record<string, unknown>);
   shotGenerateSubmissions.set(shotId, submission);
@@ -4102,7 +4267,14 @@ app.post("/api/shots/:shotId/poll", async (req, res) => {
                 reasons: verdict.reasons.length ? verdict.reasons : ["(no reasons returned)"]
               });
 
-              if (attemptIndex < maxAttempts) {
+              const retryCap = attemptIndex < maxAttempts
+                ? tryConsumeGeneration(shot.sessionId, "shot_review_resubmit")
+                : { ok: false, count: 0, cap: 0 };
+              if (attemptIndex < maxAttempts && !retryCap.ok && retryCap.cap > 0) {
+                // Daily generation cap hit: do NOT auto-resubmit; keep the last product and note it.
+                failures.push({ attempt: attemptIndex, reasons: [generationCapMessage(retryCap)] });
+                console.warn(`[vision-review] shot ${shot.id} auto-resubmit skipped by daily generation cap`);
+              } else if (attemptIndex < maxAttempts) {
                 try {
                   const retryAssets = store.getAssets(pendingRender.assetIds || []);
                   const shotForRetry: Shot = {
@@ -5060,6 +5232,9 @@ app.post("/api/sessions/:sessionId/narration", async (req, res) => {
   const voice: string = typeof req.body?.voice === "string" && req.body.voice.trim() ? req.body.voice.trim() : DEFAULT_NARRATION_VOICE;
   const strategy: NarrationStrategy = req.body?.strategy === "natural" ? "natural" : DEFAULT_NARRATION_STRATEGY;
   if (!script.trim()) return res.status(400).json({ error: "Script is required" });
+
+  const narrationCap = tryConsumeGeneration(sessionId, "narration");
+  if (!narrationCap.ok) return res.status(429).json({ error: generationCapMessage(narrationCap), code: "generation_cap_exceeded" });
 
   const result = await triggerNarrationJob(sessionId, { script, voice, strategy });
   if ("status" in result) return res.status(result.status).json({ error: result.error });

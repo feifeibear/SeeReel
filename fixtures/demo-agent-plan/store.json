@@ -1,0 +1,2025 @@
+{
+  "version": 1,
+  "mediaDir": "demo-agent-plan",
+  "session": {
+    "id": "ses_demo_agent_plan",
+    "title": "火山 Agent Plan × ReelyAI 示例广告片",
+    "logline": "一只可爱的猫咪想用 Seedance 做视频，却卡在 API、请求和剪辑拼接；狗狗用“火山 Agent Plan + ReelyAI”的组合解释一站式生视频、生图、生文 API。最后猫咪拿起电话追问展示套餐价格，形成轻松的产品示例广告。",
+    "style": "竖屏 9:16，高质量可爱写实 3D 动画广告片，柔和办公室日光，干净产品演示风格。\n主角为固定猫咪与狗狗，台词中文普通话清晰、口型尽量匹配，保留用户指定三段台词原文。\n充分展示 ReelyAI 画布灵活性：角色参考图、故事板、首尾帧、Seedance shot、VLM 审核、串行生成、拼接节点都要在画布里可见。\n开启 VLM 审核，强调质量保障；不要字幕、不要水印、不要真实品牌 logo。",
+    "language": "zh",
+    "targetDurationSec": 60,
+    "tokenUsageEvents": [],
+    "createdAt": "2026-06-03T09:37:22.403Z",
+    "updatedAt": "2026-06-03T09:37:22.403Z",
+    "story": {
+      "premise": "一只可爱的猫咪想用 Seedance 做视频，却卡在 API、请求和剪辑拼接；狗狗用“火山 Agent Plan + ReelyAI”的组合解释一站式生视频、生图、生文 API。最后猫咪拿起电话追问展示套餐价格，形成轻松的产品示例广告。",
+      "synopsis": "明亮的创意工作室里，猫咪盯着 ReelyAI 画布和 Seedance 视频节点发愁。它想创作视频，却不知道怎么开 API、怎么发送请求，也不会剪辑拼接。狗狗坐到旁边，打开一张火山 Agent Plan 套餐卡，用画布节点把生视频、生图、生文 API 串到 ReelyAI 中：角色参考图、故事板、首尾帧、VLM 审核、串行生成、最终拼接都在同一个画布里可见。猫咪恍然大悟，抓起桌上的复古电话，让狗狗马上问问弟弟一套展示 Agent Plan 要多少钱；结尾停在画布自动拼接出广告片的瞬间，气氛轻松、清楚、可爱。",
+      "theme": "Agent Plan 让多模态 API 接入 ReelyAI 后，视频创作从开通、请求、参考图、分镜、审核到拼接都能被 Agent 化地串起来。",
+      "tone": "可爱、清晰、轻松、有产品演示感；台词吐字清楚，画面信息简洁，强调画布灵活性和可审核的自动产片流程。",
+      "characters": [
+        {
+          "name": "可爱猫咪",
+          "role": "提问者/创作者",
+          "arc": "从困惑 Seedance API 和剪辑，到理解 Agent Plan + ReelyAI 的工作流，最后主动打电话追问价格。",
+          "assetId": "asset_demo_cat",
+          "assetMention": "@可爱猫咪"
+        },
+        {
+          "name": "可爱狗狗",
+          "role": "解答者/产品顾问",
+          "arc": "用简单语言解释火山 Agent Plan，一步步把 API 能力接入 ReelyAI 画布。",
+          "assetId": "asset_demo_dog",
+          "assetMention": "@可爱狗狗"
+        }
+      ],
+      "beats": [
+        {
+          "index": 1,
+          "title": "猫咪卡在 API 前",
+          "purpose": "抛出用户痛点",
+          "plot": "@可爱猫咪 看着 ReelyAI 画布上空白的 Seedance 节点发愁，问出核心问题。台词：猫咪问：我用 seedance 创作视频，不知道怎么去开 API，怎么去发送请求，也不会剪辑拼接视频怎么办？",
+          "emotion": "困惑、可爱、迫切",
+          "visual": "工作室桌面、画布节点、Seedance 标识性视频节点、问号式动效；无字幕。",
+          "assetMentions": [
+            "@可爱猫咪"
+          ],
+          "durationSec": 15
+        },
+        {
+          "index": 2,
+          "title": "狗狗解释 Agent Plan",
+          "purpose": "给出产品答案",
+          "plot": "@可爱狗狗 坐到猫咪旁边，打开 Agent Plan 套餐卡，把生视频/生图/生文 API 三个能力节点拖入 ReelyAI 画布。台词：狗狗说：你不知道火山 agent plan 么？一个套餐有 生视频/生图/生文的 API，接到 reelyai 中，就能玩起来。",
+          "emotion": "可靠、亲切、豁然开朗",
+          "visual": "三个 API 能力节点发光连接到画布；不要字幕，不要真实 logo。",
+          "assetMentions": [
+            "@可爱狗狗",
+            "@可爱猫咪"
+          ],
+          "durationSec": 15
+        },
+        {
+          "index": 3,
+          "title": "画布展示能力链路",
+          "purpose": "展示 ReelyAI 产品功能",
+          "plot": "@可爱猫咪 和 @可爱狗狗 一起看画布自动铺开：角色参考图、故事板首尾帧、Seedance shot、VLM 审核、拼接节点依次连线。审核通过的绿色勾出现在每个视频节点旁，服务质量被保障。无新增对白，只保留清楚的界面演示感。",
+          "emotion": "灵活、专业、安心",
+          "visual": "画布节点从左到右流动，角色资产、故事板、首尾帧、审核、拼接清晰可见；无字幕。",
+          "assetMentions": [
+            "@可爱猫咪",
+            "@可爱狗狗"
+          ],
+          "durationSec": 15
+        },
+        {
+          "index": 4,
+          "title": "猫咪打电话追问价格",
+          "purpose": "用轻松结尾强化 Agent Plan 展示套餐",
+          "plot": "@可爱猫咪 拿起桌上的红色复古电话，认真又可爱地催促狗狗去问价格。台词：猫咪拿起一个电话：你马上问问你弟弟，一套展示的Agent Plan 要多少钱？哎，这你都不懂，就是火山引擎的那种。最后画布上拼接节点输出一条完整广告片预览。",
+          "emotion": "俏皮、收束、带一点催促的幽默",
+          "visual": "电话、画布最终视频输出节点、猫咪近景和狗狗点头；无字幕。",
+          "assetMentions": [
+            "@可爱猫咪",
+            "@可爱狗狗"
+          ],
+          "durationSec": 15
+        }
+      ],
+      "locked": true,
+      "updatedAt": "2026-06-03T09:37:22.403Z"
+    },
+    "vlmReviewEnabled": true,
+    "stitchStatus": "ready",
+    "stitchUpdatedAt": "2026-06-03T09:37:22.403Z",
+    "stitchProgress": "",
+    "finalVideoUrl": "/media/demo-agent-plan/demo-final.mp4",
+    "finalVideoGeneratedAt": "2026-06-03T09:37:22.403Z",
+    "finalVideoSignature": "demo-agent-plan-v1",
+    "finalVideoReviewStatus": "ready",
+    "finalVideoReviewUpdatedAt": "2026-06-03T09:37:22.403Z",
+    "finalVideoReview": {
+      "scope": "session_final",
+      "ok": true,
+      "score": 88,
+      "summary": "该3D动画广告片符合短剧发布质量要求，完整还原剧本设定，角色与场景全程连贯稳定，视觉渲染质量优秀，产品功能展示清晰，叙事节奏流畅，无致命质量问题。",
+      "criteria": [
+        {
+          "key": "visual_quality",
+          "label": "视觉质量",
+          "score": 4,
+          "weight": 0.15,
+          "reason": "3D渲染质感细腻柔和，光影统一符合办公室日光设定，整体达到商业广告片视觉标准",
+          "evidenceFrames": [
+            1,
+            4,
+            8
+          ]
+        },
+        {
+          "key": "character_consistency",
+          "label": "人物身份一致性",
+          "score": 4,
+          "weight": 0.2,
+          "reason": "猫咪、狗狗全程保持设定的毛色、服装、五官特征，未出现换脸、变形、崩坏，符合角色规范",
+          "evidenceFrames": [
+            1,
+            2,
+            3,
+            4,
+            5,
+            6,
+            7,
+            8,
+            9,
+            10
+          ]
+        },
+        {
+          "key": "scene_continuity",
+          "label": "场景连续性",
+          "score": 4,
+          "weight": 0.15,
+          "reason": "工作室环境、道具布局、光影氛围全片保持连贯，无场景跳变、道具穿帮问题",
+          "evidenceFrames": [
+            1,
+            2,
+            3,
+            4,
+            5,
+            6,
+            7,
+            8,
+            9,
+            10
+          ]
+        },
+        {
+          "key": "motion_quality",
+          "label": "运动质量",
+          "score": 3,
+          "weight": 0.1,
+          "reason": "角色动作自然流畅，画布节点动效逻辑合理，无运动崩坏、穿模问题",
+          "evidenceFrames": [
+            2,
+            4,
+            9
+          ]
+        },
+        {
+          "key": "artifact_check",
+          "label": "畸形/伪影",
+          "score": 4,
+          "weight": 0.1,
+          "reason": "无角色肢体畸形、画面伪影、穿模错误",
+          "evidenceFrames": [
+            1,
+            2,
+            3,
+            4,
+            5,
+            6,
+            7,
+            8,
+            9,
+            10
+          ]
+        },
+        {
+          "key": "watermark_clean",
+          "label": "文字水印清洁度",
+          "score": 4,
+          "weight": 0.1,
+          "reason": "无额外水印、无关真实品牌logo、乱码文字，界面文字仅为产品演示合理内容",
+          "evidenceFrames": [
+            1,
+            2,
+            3,
+            4,
+            5,
+            6,
+            7,
+            8,
+            9,
+            10
+          ]
+        },
+        {
+          "key": "prompt_alignment",
+          "label": "prompt对齐",
+          "score": 4,
+          "weight": 0.15,
+          "reason": "完整还原广告剧本全部情节、风格要求，指定展示的所有画布节点（角色参考、故事板、VLM审核、串行生成、拼接等）均正确呈现",
+          "evidenceFrames": [
+            3,
+            4,
+            7,
+            10
+          ]
+        },
+        {
+          "key": "narrative_coherence",
+          "label": "叙事连贯",
+          "score": 4,
+          "weight": 0.1,
+          "reason": "故事逻辑通顺，节奏符合60s广告规范，起承转合清晰",
+          "evidenceFrames": [
+            1,
+            2,
+            3,
+            4,
+            5,
+            6,
+            7,
+            8,
+            9,
+            10
+          ]
+        }
+      ],
+      "fatalIssues": [],
+      "reasons": [
+        "角色全程符合设定规范，无崩坏、换脸问题",
+        "场景连贯无穿帮，视觉风格统一",
+        "完整还原prompt所有剧情与产品展示要求",
+        "3D渲染质量达标，符合商业广告水准",
+        "开头猫咪困惑表情具备良好用户留存钩子"
+      ],
+      "fixes": [],
+      "hookRetention": "开头前3秒即呈现猫咪困惑发愁的可爱表情与画布问题界面，快速抛出用户痛点，具备优秀的停留钩子，预期前3秒观众留存表现良好",
+      "audio": "仅采样画面帧，无法校验音频口型、音质内容，未发现画面层面音频相关异常",
+      "frameEvidence": [
+        "帧1(3s): 猫咪发愁看向狗狗，符合开场钩子设定",
+        "帧2(9s): 猫咪做出疑问手势，对应台词场景",
+        "帧3(15s): 画布出现问号节点，完成第一镜头收尾",
+        "帧4(21s): 狗狗展示Agent Plan套餐面板",
+        "帧5(27s): 画布工作流节点亮起",
+        "帧6(33s): 故事板节点展开",
+        "帧7(39s): VLM审核节点显示绿色通过标记",
+        "帧8(45s): 猫咪拿起复古电话",
+        "帧9(51s): 猫咪持电话通话",
+        "帧10(57s): 画布完成视频拼接输出，符合结尾设定"
+      ],
+      "model": "seed-2-0-pro-260328",
+      "reviewedAt": "2026-06-03T09:37:22.403Z",
+      "frameCount": 10,
+      "durationSec": 60.33,
+      "videoSignature": "27c2969317d1"
+    },
+    "finalVideoReviewBuiltForSignature": "demo-agent-plan-v1",
+    "stitchShotIds": [
+      "shot_demo_1",
+      "shot_demo_2",
+      "shot_demo_3",
+      "shot_demo_4"
+    ]
+  },
+  "assets": [
+    {
+      "name": "可爱狗狗",
+      "type": "character",
+      "mediaKind": "image",
+      "description": "奶油金色柴犬/小狗，棕色眼睛，海军蓝小马甲；聪明可靠，像熟悉产品的朋友。",
+      "prompt": "单角色参考图：奶油金色柴犬/小狗，棕色眼睛，海军蓝小马甲。高质量可爱写实 3D 动画广告角色设定，干净浅色工作室背景，全身三分之二视角，表情聪明可靠、温和。不要文字、不要 logo、不要水印。\n【VLM 审核反馈修复】\n奶油金色柴犬/小狗，棕色眼睛，海军蓝小马甲，安静坐到猫咪身旁，禁止站立在工作台桌面；高质量可爱写实3D动画广告角色设定，干净浅色工作室背景，全身三分之二视角，表情聪明可靠、温和，角色动作符合指定要求；画面仅展示该动物角色，不得出现Agent Plan面板、生视频/生图/生文之外的错误API节点、API明文、任何违规界面文字；不要文字、不要logo、不要水印，产品演示核心逻辑正确无重复API。\n【VLM 审核反馈修复】\n奶油金色柴犬小狗，棕色眼睛，海军蓝小马甲，完整全身站立在工作台侧边；高质量可爱写实3D动画广告角色设定，干净浅色工作室背景，全身三分之二视角，表情聪明可靠温和；画布节点时序正确，完成4个输入视频合并最终环节，最终展示四个视频片段合并的成品预览效果，无错误问号节点；画面绝对无任何文字、标注、VLM审核字符、API节点、界面文字、logo、水印，仅正常展示该柴犬角色与完成的合并预览内容。",
+      "tags": [
+        "cast",
+        "dog",
+        "advisor",
+        "agent-plan-demo"
+      ],
+      "ownerSessionId": "ses_demo_agent_plan",
+      "vlmReviewEnabled": true,
+      "generationModel": "seedream-5-lite",
+      "id": "asset_demo_dog",
+      "mediaUrl": "/media/demo-agent-plan/demo-dog.jpeg",
+      "imageUrl": "/media/demo-agent-plan/demo-dog.jpeg",
+      "createdAt": "2026-06-03T09:37:22.403Z",
+      "updatedAt": "2026-06-03T09:37:22.403Z",
+      "generatedAt": "2026-06-03T07:53:54.127Z",
+      "composedPrompt": "绘制主体仅为奶油金色柴犬小狗，禁止出现人类，棕色眼睛，穿着海军蓝小马甲。高质量可爱写实3D动画广告角色设定，干净浅色工作室背景，全身三分之二视角，表情聪明可靠、温和。不要文字、不要logo、不要水印。",
+      "reviewNote": "自审通过（前 1 次重试）\nattempt 1: 主体不是要求的柴犬动物角色，为人类男性，完全偏离prompt的角色设定",
+      "reviewAttempts": 1,
+      "reviewModel": "seed-2-0-pro-260328",
+      "generationModelActual": "doubao-seedream-5.0-lite",
+      "generationCredentialSource": "agent-plan",
+      "imageReviewStatus": "ready",
+      "imageReview": {
+        "scope": "asset",
+        "ok": true,
+        "score": 95,
+        "summary": "图片符合全部prompt要求，质量优秀，无致命问题，可正常使用。",
+        "criteria": [
+          {
+            "key": "visual_quality",
+            "label": "视觉质量",
+            "score": 4,
+            "weight": 0.2,
+            "reason": "3D渲染质感优秀，画面清晰，光影柔和自然，符合广告角色的高质量要求。"
+          },
+          {
+            "key": "subject_structure",
+            "label": "主体结构",
+            "score": 4,
+            "weight": 0.25,
+            "reason": "柴犬身体比例协调，肢体结构完整正常，无畸形错位问题。"
+          },
+          {
+            "key": "body_rationality",
+            "label": "脸/肢体合理性",
+            "score": 4,
+            "weight": 0.25,
+            "reason": "柴犬面部五官自然正常，棕色眼睛符合要求，四肢爪子无崩坏畸形，表情温和可靠符合描述。"
+          },
+          {
+            "key": "text_watermark",
+            "label": "文字/水印清洁度",
+            "score": 4,
+            "weight": 0.1,
+            "reason": "画面无任何文字、logo、水印，符合要求。"
+          },
+          {
+            "key": "prompt_alignment",
+            "label": "prompt对齐度",
+            "score": 4,
+            "weight": 0.15,
+            "reason": "完全匹配prompt要求：奶油金色柴犬，无人类，穿着海军蓝小马甲，写实3D动画风格，干净浅色工作室背景，全身三分之二视角，无多余元素。"
+          },
+          {
+            "key": "asset_reusability",
+            "label": "短剧资产可复用性",
+            "score": 4,
+            "weight": 0.1,
+            "reason": "角色完整、背景干净简洁，适合作为广告短剧资产复用。"
+          }
+        ],
+        "fatalIssues": [],
+        "reasons": [
+          "整体渲染质量优秀",
+          "柴犬造型、穿着、背景均符合prompt要求",
+          "无畸形肢体、崩脸问题",
+          "无文字水印等多余元素",
+          "资产适配短剧广告使用场景"
+        ],
+        "fixes": [],
+        "frameEvidence": [],
+        "model": "seed-2-0-pro-260328",
+        "reviewedAt": "2026-06-03T07:53:26.029Z"
+      },
+      "imageReviewUpdatedAt": "2026-06-03T07:53:26.029Z",
+      "composedPromptDraft": ""
+    },
+    {
+      "name": "可爱猫咪",
+      "type": "character",
+      "mediaKind": "image",
+      "description": "圆脸银白短毛猫，淡蓝眼睛，小粉鼻，浅薄荷色连帽衫，胸口小火山贴片；好奇、焦虑但可爱。",
+      "prompt": "单角色参考图：圆脸银白短毛猫，淡蓝眼睛，小粉鼻，浅薄荷色连帽衫，胸口小火山贴片。高质量可爱写实 3D 动画广告角色设定，干净浅色工作室背景，全身三分之二视角，表情好奇又略焦虑。不要文字、不要 logo、不要水印。\n【VLM 审核反馈修复】\n单角色参考图：圆脸银白短毛猫，淡蓝眼睛，小粉鼻，浅薄荷色连帽衫，胸口小火山贴片。高质量可爱写实 3D 动画广告角色设定，干净浅色工作室背景，全身三分之二视角，表情好奇又略焦虑。仅保留本指定单猫咪角色，无狗狗、工作台、面板、API相关内容，无任何文字、logo、水印，无额外无关元素与演示动作，无多余界面逻辑内容。\n【VLM 审核反馈修复】\n圆脸银白短毛猫，淡蓝眼睛，小粉鼻，浅薄荷色连帽衫，胸口小火山贴片。高质量可爱写实 3D 动画广告角色设定，干净浅色工作室背景，全身三分之二视角，表情好奇又略焦虑。绝对无任何文字、logo、水印，无其他额外角色、工作台、界面节点、流程图标、问号元素，仅展示本指定猫咪单一角色，无多余无关内容。",
+      "tags": [
+        "cast",
+        "cat",
+        "hero",
+        "agent-plan-demo"
+      ],
+      "ownerSessionId": "ses_demo_agent_plan",
+      "vlmReviewEnabled": true,
+      "generationModel": "seedream-5-lite",
+      "id": "asset_demo_cat",
+      "mediaUrl": "/media/demo-agent-plan/demo-cat.jpeg",
+      "imageUrl": "/media/demo-agent-plan/demo-cat.jpeg",
+      "createdAt": "2026-06-03T09:37:22.403Z",
+      "updatedAt": "2026-06-03T09:37:22.403Z",
+      "generatedAt": "2026-06-03T07:51:21.477Z",
+      "composedPrompt": "主体为圆脸银白短毛猫3D动画角色，禁止生成人类形象，淡蓝眼睛，小粉鼻，身着浅薄荷色连帽衫，胸口带有小火山贴片。高质量可爱写实3D动画广告角色设定，干净浅色工作室背景，全身三分之二视角，表情好奇又略焦虑。不要文字、不要logo、不要水印。",
+      "reviewNote": "自审通过（前 1 次重试）\nattempt 1: 未按要求生成圆脸银白短毛猫3D动画角色，错误输出人类男性形象; 角色物种、外形与需求描述完全背离",
+      "reviewAttempts": 1,
+      "reviewModel": "seed-2-0-pro-260328",
+      "generationModelActual": "doubao-seedream-5.0-lite",
+      "generationCredentialSource": "agent-plan",
+      "imageReviewStatus": "ready",
+      "imageReview": {
+        "scope": "asset",
+        "ok": true,
+        "score": 95,
+        "summary": "该3D猫咪角色图片符合全部要求，渲染质量优秀，无异常问题，可作为合格资产使用。",
+        "criteria": [
+          {
+            "key": "visual_quality",
+            "label": "视觉质量",
+            "score": 4,
+            "weight": 0.2,
+            "reason": "3D渲染质感细腻，毛发、服装材质表现真实自然，光影干净柔和，整体画面质量优秀"
+          },
+          {
+            "key": "subject_structure",
+            "label": "人物/主体结构",
+            "score": 4,
+            "weight": 0.2,
+            "reason": "猫咪角色身形结构正常合理，无畸形、穿模等结构问题"
+          },
+          {
+            "key": "face_limb_reasonable",
+            "label": "脸/手/肢体合理性",
+            "score": 4,
+            "weight": 0.2,
+            "reason": "面部五官协调自然，表情符合好奇略焦虑的要求，肢体爪子无崩坏畸形问题"
+          },
+          {
+            "key": "text_cleanliness",
+            "label": "文字/水印清洁度",
+            "score": 4,
+            "weight": 0.15,
+            "reason": "画面无任何文字、logo、水印，符合干净要求"
+          },
+          {
+            "key": "prompt_alignment",
+            "label": "prompt对齐度",
+            "score": 4,
+            "weight": 0.2,
+            "reason": "完全匹配prompt全部要求：银白圆脸短毛猫、淡蓝眼睛、小粉鼻、浅薄荷色连帽衫带火山贴片、浅色干净工作室背景、3D动画角色风格、对应表情"
+          },
+          {
+            "key": "asset_reusability",
+            "label": "短剧资产可复用性",
+            "score": 4,
+            "weight": 0.1,
+            "reason": "角色设定完整清晰，背景干净无干扰，适合作为动画广告、短剧资产复用"
+          }
+        ],
+        "fatalIssues": [],
+        "reasons": [
+          "画面渲染质量优秀，材质光影表现达标",
+          "角色结构、面部肢体均正常无崩坏",
+          "无多余文字、logo、水印",
+          "完全符合prompt所有设定要求",
+          "角色干净完整，具备良好资产复用性"
+        ],
+        "fixes": [],
+        "frameEvidence": [],
+        "model": "seed-2-0-pro-260328",
+        "reviewedAt": "2026-06-03T07:50:52.864Z"
+      },
+      "imageReviewUpdatedAt": "2026-06-03T07:50:52.864Z"
+    },
+    {
+      "name": "ReelyAI 画布工作台",
+      "type": "scene",
+      "mediaKind": "image",
+      "description": "明亮创意工作室里的 ReelyAI 画布工作台，用抽象节点展示参考图、故事板、Seedance、VLM 审核、拼接。",
+      "prompt": "产品场景参考图：明亮创意工作室桌面，一台平板/显示器展示抽象 ReelyAI 画布，节点包括角色参考图、故事板、Seedance shot、VLM 审核、拼接输出。高质量可爱写实 3D 动画广告风格；不要真实 logo、不要可读文字、不要水印。",
+      "tags": [
+        "scene",
+        "canvas",
+        "workflow",
+        "agent-plan-demo"
+      ],
+      "ownerSessionId": "ses_demo_agent_plan",
+      "vlmReviewEnabled": true,
+      "generationModel": "seedream-5-lite",
+      "id": "asset_demo_canvas",
+      "mediaUrl": "/media/demo-agent-plan/demo-canvas.jpeg",
+      "imageUrl": "/media/demo-agent-plan/demo-canvas.jpeg",
+      "createdAt": "2026-06-03T09:37:22.403Z",
+      "updatedAt": "2026-06-03T09:37:22.403Z",
+      "generatedAt": "2026-06-03T07:55:22.773Z",
+      "composedPrompt": "产品场景参考图：明亮创意工作室桌面，一台平板/显示器展示抽象 ReelyAI 画布，节点包括角色参考图、故事板、Seedance shot、VLM 审核、拼接输出。高质量可爱写实 3D 动画广告风格；不要真实 logo、不要可读文字、不要水印。\n电影场景 establishing plate：ReelyAI 画布工作台。16:9 横构图电影级**全景空镜**，**画面内不出现人物**（除非用户原文显式要求），强调环境、光线与氛围。\n**用途声明**：这张图是**下游 Seedance 视频生成的场景参考底板**。Seedance 会在不同分镜里把演员置入这个场景。因此本图必须满足底板硬约束：**画面绝对干净无人物**（包括玻璃倒影、远处剪影、镜面反射均不可有人；车辆和动物视场景需要保留）；**前景留出 1/3 空地**便于后期演员置入；**光线接近中性**（不要逆光剪影、不要彩色霓虹主导画面、不要极端 god ray），让 Seedance 后续在该底板上自由演员置入与打光。\n**ARRI Alexa 35 + Cooke S7/i 32mm T2.0**（或场景需要时改为 Master Anamorphic 40mm T1.9 加水平蓝色 lens flare）；f/5.6-8 大景深保证全景纵深；轻微 anamorphic 横向 oval bokeh + ovalised highlights；2.39:1 宽银幕电影感（在 16:9 内画幅内构图）。\n**motivated practical lighting**：只用场景内合理光源驱动画面（窗光 / 街灯 / 霓虹 / 烛火 / god ray），主光方向明确，亮部与暗部之间有清晰过渡；空气中有薄雾或灰尘形成 atmospheric haze 让光束可见；时间设定与原文一致（golden hour / blue hour / night / overcast / 黎明）；但**避免极端逆光剪影**——前景空地区域要曝光合适以便置入演员。\n**foreground / mid-ground / background 三层景深**清晰可读；遵循三分法或对称中心；leading lines 与 vanishing point 明确；**画面下半部 1/3 区域留白**（仅地面 / 桌面 / 走廊地板，不要堆放杂物或主体）以便 Seedance 后期置入演员；上半部展示场景标志性元素。\n建筑表面老化：积尘、磨损、湿漉反光、油渍、霉斑等真实细节；地面、墙面、织物、金属等材质各有质感差别；**不要**所有表面都干净如新。\n电影调色：**teal-orange**（白天 / 室内 / 都市夜景）或场景情绪对应 grade（noir = ENR 银盐保留 / 战争片 = bleach bypass / 80s = 暖色 push）；低饱和；highlight 软卷曲；shadow 保留细节；35mm 胶片颗粒；**保持中性偏温和**（不要 push 极端情绪 grade，Seedance 后续会按各分镜重新调色）。\n**STRICT NEGATIVE**：画面中**绝对不要**出现任何屏幕文字、字幕、可读招牌字、UI 元素、水印；**画面绝对不要出现任何人物**（除非用户原文显式要求）——包括玻璃倒影、远处剪影、镜面反射、镜头中所有反射面、屏幕里的人物均必须无；不要变形物体；不要饱和度爆表；不要 HDR halo / 锐化过度；不要 anime / cartoon；**不要 motion blur**（参考底板每像素必须清晰）。",
+      "reviewAttempts": 0,
+      "reviewModel": "seed-2-0-pro-260328",
+      "generationModelActual": "doubao-seedream-5.0-lite",
+      "generationCredentialSource": "agent-plan",
+      "imageReviewStatus": "ready",
+      "imageReview": {
+        "scope": "asset",
+        "ok": true,
+        "score": 95,
+        "summary": "图片符合所有要求，视觉质量优秀，场景、节点、风格均匹配prompt，无违规内容与结构问题，可正常使用。",
+        "criteria": [
+          {
+            "key": "visual_quality",
+            "label": "视觉质量",
+            "score": 4,
+            "weight": 0.2,
+            "reason": "画面光影自然舒适，3D写实质感出色，符合广告级视觉表现要求"
+          },
+          {
+            "key": "subject_structure",
+            "label": "主体结构合理性",
+            "score": 4,
+            "weight": 0.2,
+            "reason": "桌面、显示器、工作室陈设所有物体结构正常，无穿模、畸形、比例错误问题"
+          },
+          {
+            "key": "character_limb",
+            "label": "人物/肢体合理性",
+            "score": 4,
+            "weight": 0.15,
+            "reason": "仅屏幕内存在卡通参考形象，形象绘制正常，无脸部、肢体崩坏问题"
+          },
+          {
+            "key": "content_clean",
+            "label": "文字水印清洁度",
+            "score": 4,
+            "weight": 0.2,
+            "reason": "画面无水印、真实logo、可读文字，完全符合约束要求"
+          },
+          {
+            "key": "prompt_match",
+            "label": "prompt对齐度",
+            "score": 4,
+            "weight": 0.25,
+            "reason": "匹配明亮创意工作室桌面场景，显示器展示的工作流节点全部对应prompt列举项，风格符合高质量写实3D动画广告风格要求"
+          }
+        ],
+        "fatalIssues": [],
+        "reasons": [
+          "视觉质感优秀符合广告风格要求",
+          "所有物体结构正常无畸形崩坏",
+          "无水印、可读文字、违规logo",
+          "完整匹配prompt的场景、节点、风格全部要求"
+        ],
+        "fixes": [],
+        "frameEvidence": [],
+        "model": "seed-2-0-pro-260328",
+        "reviewedAt": "2026-06-03T07:54:41.965Z"
+      },
+      "imageReviewUpdatedAt": "2026-06-03T07:54:41.965Z",
+      "composedPromptDraft": ""
+    },
+    {
+      "name": "shot3-tail-2s-for-shot4",
+      "type": "other",
+      "mediaKind": "video",
+      "description": "用户上传的参考视频，等待解析为分镜表。源视频满足 Seedance r2v 限制（2.0s, 720x1280），无需处理。",
+      "prompt": "",
+      "mediaUrl": "/media/demo-agent-plan/demo-shot3-tail-2s.mp4",
+      "referenceImageUrl": "/media/demo-agent-plan/demo-shot3-tail-2s.mp4",
+      "tags": [
+        "reference-video",
+        "uploaded"
+      ],
+      "ownerSessionId": "ses_demo_agent_plan",
+      "parseStatus": "idle",
+      "clipStrategy": "none",
+      "originalDurationSec": 2,
+      "clipDurationSec": 2,
+      "id": "asset_demo_tail_refvideo",
+      "createdAt": "2026-06-03T09:37:22.403Z",
+      "updatedAt": "2026-06-03T09:37:22.403Z",
+      "imageReviewUpdatedAt": "2026-06-03T09:37:22.403Z",
+      "generatedAt": "2026-06-03T09:37:22.403Z"
+    }
+  ],
+  "shots": [
+    {
+      "id": "shot_demo_1",
+      "sessionId": "ses_demo_agent_plan",
+      "index": 1,
+      "title": "猫咪卡在 API 前",
+      "script": "",
+      "camera": "",
+      "durationSec": 15,
+      "assetIds": [
+        "asset_demo_canvas",
+        "asset_demo_dog",
+        "asset_demo_cat"
+      ],
+      "rawPrompt": "角色一致性圣经：猫咪主角是一只圆脸银白短毛猫，淡蓝眼睛，小小粉鼻子，穿浅薄荷色连帽衫，胸口有很小的火山形贴片；声音清亮、好奇、略焦虑。\n狗狗顾问是一只奶油金色柴犬/小狗，棕色眼睛，穿海军蓝小马甲，神情聪明可靠；声音温和、笃定、像熟悉产品的朋友。\n两位角色始终保持同一毛色、服装、体型比例和可爱写实动画质感；不要变成人，不要出现第三个会说话的动物。\n整体是高质量 3D 动画广告片，竖屏 9:16，柔和办公室日光，ReelyAI 画布、节点、分镜缩略图、审核标记和 API/视频/图片/文本能力以图标和抽象界面形式出现；不要真实品牌 logo，不要水印，不要字幕。\n\nShot 1/4，15 秒。明亮创意工作室，桌上有平板电脑显示 ReelyAI 画布，一个 Seedance 视频节点停在空白状态。0-4s：@可爱猫咪 坐在电脑前，耳朵微垂，爪子悬在键盘上。4-13s：猫咪面向 @可爱狗狗 和屏幕，清晰说出台词：“我用 seedance 创作视频，不知道怎么去开 API，怎么去发送请求，也不会剪辑拼接视频怎么办？”13-15s：画布上 API、request、stitch 三个小节点轻轻闪烁成问号。声音：猫咪普通话清楚、可爱、语速自然；环境安静。",
+      "prompt": "角色一致性圣经：猫咪主角是一只圆脸银白短毛猫，淡蓝眼睛，小小粉鼻子，穿浅薄荷色连帽衫，胸口有很小的火山形贴片；声音清亮、好奇、略焦虑。\n狗狗顾问是一只奶油金色柴犬/小狗，棕色眼睛，穿海军蓝小马甲，神情聪明可靠；声音温和、笃定、像熟悉产品的朋友。\n两位角色始终保持同一毛色、服装、体型比例和可爱写实动画质感；不要变成人，不要出现第三个会说话的动物。\n整体是高质量 3D 动画广告片，竖屏 9:16，柔和办公室日光，ReelyAI 画布、节点、分镜缩略图、审核标记和 API/视频/图片/文本能力以图标和抽象界面形式出现；不要真实品牌 logo，不要水印，不要字幕。\n\nShot 1/4，15 秒。明亮创意工作室，桌上有平板电脑显示 ReelyAI 画布，一个 Seedance 视频节点停在空白状态。0-4s：@可爱猫咪 坐在电脑前，耳朵微垂，爪子悬在键盘上。4-13s：猫咪面向 @可爱狗狗 和屏幕，清晰说出台词：“我用 seedance 创作视频，不知道怎么去开 API，怎么去发送请求，也不会剪辑拼接视频怎么办？”13-15s：画布上 API、request、stitch 三个小节点轻轻闪烁成问号。声音：猫咪普通话清楚、可爱、语速自然；环境安静。",
+      "debugNote": "",
+      "seedanceVariant": "standard",
+      "usePreviousShotClip": false,
+      "renders": [
+        {
+          "id": "render_demo_1",
+          "model": "doubao-seedance-2-0-260128",
+          "status": "ready",
+          "rawPrompt": "角色一致性圣经：猫咪主角是一只圆脸银白短毛猫，淡蓝眼睛，小小粉鼻子，穿浅薄荷色连帽衫，胸口有很小的火山形贴片；声音清亮、好奇、略焦虑。\n狗狗顾问是一只奶油金色柴犬/小狗，棕色眼睛，穿海军蓝小马甲，神情聪明可靠；声音温和、笃定、像熟悉产品的朋友。\n两位角色始终保持同一毛色、服装、体型比例和可爱写实动画质感；不要变成人，不要出现第三个会说话的动物。\n整体是高质量 3D 动画广告片，竖屏 9:16，柔和办公室日光，ReelyAI 画布、节点、分镜缩略图、审核标记和 API/视频/图片/文本能力以图标和抽象界面形式出现；不要真实品牌 logo，不要水印，不要字幕。\n\nShot 1/4，15 秒。明亮创意工作室，桌上有平板电脑显示 ReelyAI 画布，一个 Seedance 视频节点停在空白状态。0-4s：@可爱猫咪 坐在电脑前，耳朵微垂，爪子悬在键盘上。4-13s：猫咪面向 @可爱狗狗 和屏幕，清晰说出台词：“我用 seedance 创作视频，不知道怎么去开 API，怎么去发送请求，也不会剪辑拼接视频怎么办？”13-15s：画布上 API、request、stitch 三个小节点轻轻闪烁成问号。声音：猫咪普通话清楚、可爱、语速自然；环境安静。",
+          "prompt": "角色一致性圣经：猫咪主角是一只圆脸银白短毛猫，淡蓝眼睛，小小粉鼻子，穿浅薄荷色连帽衫，胸口有很小的火山形贴片；声音清亮、好奇、略焦虑。\n狗狗顾问是一只奶油金色柴犬/小狗，棕色眼睛，穿海军蓝小马甲，神情聪明可靠；声音温和、笃定、像熟悉产品的朋友。\n两位角色始终保持同一毛色、服装、体型比例和可爱写实动画质感；不要变成人，不要出现第三个会说话的动物。\n整体是高质量 3D 动画广告片，竖屏 9:16，柔和办公室日光，ReelyAI 画布、节点、分镜缩略图、审核标记和 API/视频/图片/文本能力以图标和抽象界面形式出现；不要真实品牌 logo，不要水印，不要字幕。\n\nShot 1/4，15 秒。明亮创意工作室，桌上有平板电脑显示 ReelyAI 画布，一个 Seedance 视频节点停在空白状态。0-4s：@可爱猫咪 坐在电脑前，耳朵微垂，爪子悬在键盘上。4-13s：猫咪面向 @可爱狗狗 和屏幕，清晰说出台词：“我用 seedance 创作视频，不知道怎么去开 API，怎么去发送请求，也不会剪辑拼接视频怎么办？”13-15s：画布上 API、request、stitch 三个小节点轻轻闪烁成问号。声音：猫咪普通话清楚、可爱、语速自然；环境安静。",
+          "title": "猫咪卡在 API 前",
+          "durationSec": 15,
+          "seedanceVariant": "standard",
+          "assetIds": [
+            "asset_demo_canvas",
+            "asset_demo_dog",
+            "asset_demo_cat"
+          ],
+          "usePreviousShotClip": false,
+          "previousShotClipSec": 2,
+          "createdAt": "2026-06-03T09:37:22.403Z",
+          "reviewEnabled": true,
+          "reviewMaxAttempts": 2,
+          "reviewAttempts": 0,
+          "generateAudio": true,
+          "composedPrompt": "角色一致性圣经：猫咪主角是一只圆脸银白短毛猫，淡蓝眼睛，小小粉鼻子，穿浅薄荷色连帽衫，胸口有很小的火山形贴片；声音清亮、好奇、略焦虑。\n狗狗顾问是一只奶油金色柴犬/小狗，棕色眼睛，穿海军蓝小马甲，神情聪明可靠；声音温和、笃定、像熟悉产品的朋友。\n两位角色始终保持同一毛色、服装、体型比例和可爱写实动画质感；不要变成人，不要出现第三个会说话的动物。\n整体是高质量 3D 动画广告片，竖屏 9:16，柔和办公室日光，ReelyAI 画布、节点、分镜缩略图、审核标记和 API/视频/图片/文本能力以图标和抽象界面形式出现；不要真实品牌 logo，不要水印，不要字幕。\n\nShot 1/4，15 秒。明亮创意工作室，桌上有平板电脑显示 ReelyAI 画布，一个 Seedance 视频节点停在空白状态。0-4s：@可爱猫咪 坐在电脑前，耳朵微垂，爪子悬在键盘上。4-13s：猫咪面向 @可爱狗狗 和屏幕，清晰说出台词：“我用 seedance 创作视频，不知道怎么去开 API，怎么去发送请求，也不会剪辑拼接视频怎么办？”13-15s：画布上 API、request、stitch 三个小节点轻轻闪烁成问号。声音：猫咪普通话清楚、可爱、语速自然；环境安静。\n@提及的参考资产清单。仅在它们各自的角色范围内使用，不要凭空引申出额外剧情：\n图 1：@ReelyAI 画布工作台 = scene 资产「ReelyAI 画布工作台」。保持该参考的场景布局、关键物体、灯光逻辑、配色、天气与空间方位。 明亮创意工作室里的 ReelyAI 画布工作台，用抽象节点展示参考图、故事板、Seedance、VLM 审核、拼接。\n图 2：@可爱狗狗 = character 资产「可爱狗狗」。保持该参考的角色身份、面部、体型、服装与典型表情细节。 奶油金色柴犬/小狗，棕色眼睛，海军蓝小马甲；聪明可靠，像熟悉产品的朋友。\n图 3：@可爱猫咪 = character 资产「可爱猫咪」。保持该参考的角色身份、面部、体型、服装与典型表情细节。 圆脸银白短毛猫，淡蓝眼睛，小粉鼻，浅薄荷色连帽衫，胸口小火山贴片；好奇、焦虑但可爱。\n长视频一致性锁定：\n整条片中锁定这些演员身份：@可爱狗狗、@可爱猫咪。同名角色在每个镜头都必须保持相同脸型、五官比例、体型、发型、服装主色、年龄感与可识别表情习惯。\n这些场景出现时必须锁定：@ReelyAI 画布工作台。保持空间方位、实景光源方向、色彩、天气与关键物件位置跨镜头一致。\n不要把后续镜头当成重新开场。本镜是同一条 1 分钟故事里的一个节拍；视觉节奏、情绪强度、镜头语言和剪辑速度都要能和相邻镜头自然接上。\n严格禁止屏幕内文字：不要渲染任何屏幕字幕、台词条、低三分屏、标题卡、片头片尾字幕、屏幕内排版、歌词条、动态文字、水印、台标、标识、版权说明，也不要插入任何 UI 元素。仅当文字属于被拍摄的物理世界时允许（例如商店招牌、海报、角色正在展示的笔记本电脑屏幕里的内容）。\n生成时长：15 秒。\n分辨率 / 画幅比：9:16。\n以上时长与画幅比来自系统设置，是权威值。如果前文出现冲突的时长或画幅比，请忽略前文。",
+          "videoUrl": "/media/demo-agent-plan/demo-shot-1.mp4",
+          "videoGeneratedAt": "2026-06-03T09:37:22.403Z",
+          "videoReviewStatus": "ready",
+          "videoReviewUpdatedAt": "2026-06-03T09:39:07.754Z",
+          "videoReview": {
+            "scope": "shot",
+            "ok": true,
+            "score": 89,
+            "summary": "本镜头整体符合广告创作要求，3D动画质量优秀，角色与场景还原度高，叙事逻辑通顺，仅存在节点数量不符、末尾角色裁切、初始动作偏差的非致命小问题，可使用。",
+            "criteria": [
+              {
+                "key": "visual_quality",
+                "label": "视觉质量",
+                "score": 4,
+                "weight": 0.15,
+                "reason": "3D写实动画质感达标，办公室柔和日光还原正确，画面干净无噪点，符合广告片视觉标准",
+                "evidenceFrames": [
+                  1,
+                  2,
+                  4
+                ]
+              },
+              {
+                "key": "character_consistency",
+                "label": "角色一致性",
+                "score": 4,
+                "weight": 0.2,
+                "reason": "猫咪、狗狗全程匹配参考设定，毛色、服装、五官、风格无崩坏，角色识别度稳定",
+                "evidenceFrames": [
+                  1,
+                  3,
+                  5,
+                  7
+                ]
+              },
+              {
+                "key": "scene_continuity",
+                "label": "场景连续性",
+                "score": 4,
+                "weight": 0.15,
+                "reason": "工作室工作台、画布布局、光源方向、背景物件全程无跳变，符合参考场景规范",
+                "evidenceFrames": [
+                  1,
+                  2,
+                  6
+                ]
+              },
+              {
+                "key": "motion_quality",
+                "label": "运动质量",
+                "score": 3,
+                "weight": 0.1,
+                "reason": "角色表情动作过渡自然流畅，仅末尾帧出现狗狗画面裁切异常",
+                "evidenceFrames": [
+                  2,
+                  4,
+                  8
+                ]
+              },
+              {
+                "key": "artifact_check",
+                "label": "畸形/伪影",
+                "score": 4,
+                "weight": 0.1,
+                "reason": "无角色畸形、穿模、画面伪影，动物肢体、服装渲染正常",
+                "evidenceFrames": [
+                  1,
+                  4,
+                  5
+                ]
+              },
+              {
+                "key": "text_clean",
+                "label": "文字水印清洁度",
+                "score": 3,
+                "weight": 0.1,
+                "reason": "无违规水印字幕，屏幕内seedance文字属于允许范围；但画布未按要求呈现3个目标问号节点，仅渲染2个问号",
+                "evidenceFrames": [
+                  3,
+                  8
+                ]
+              },
+              {
+                "key": "prompt_alignment",
+                "label": "prompt对齐",
+                "score": 3,
+                "weight": 0.15,
+                "reason": "整体符合镜头剧情，猫咪困惑情绪表达正确，最终出现画布问号效果；但未按要求显示API、request、stitch共3个对应节点，初始未还原猫咪爪子悬在键盘的动作，末尾狗狗裁切缺失",
+                "evidenceFrames": [
+                  1,
+                  7,
+                  8
+                ]
+              },
+              {
+                "key": "narrative",
+                "label": "叙事连贯",
+                "score": 4,
+                "weight": 0.1,
+                "reason": "单镜头叙事完整，自然抛出用户创作痛点，情绪节奏符合要求",
+                "evidenceFrames": [
+                  1,
+                  4,
+                  6
+                ]
+              }
+            ],
+            "fatalIssues": [],
+            "reasons": [
+              "1. 最终画布仅渲染2个问号节点，未按要求出现API、request、stitch共3个对应节点闪烁问号；2. 第8帧（14.3秒）狗狗角色被画面裁切，仅剩余头部可见；3. 未还原0-4秒猫咪爪子悬于键盘的初始动作设定"
+            ],
+            "fixes": [
+              {
+                "action": "修正画面裁切，完整显示狗狗角色；在画布补全第三个目标问号节点，确保共3个对应功能节点闪烁",
+                "shot": 1,
+                "frame": 8
+              },
+              {
+                "action": "调整猫咪初始动作，使爪子悬停在键盘上符合镜头时序要求",
+                "shot": 1,
+                "frame": 1
+              }
+            ],
+            "hookRetention": "开头快速呈现猫咪困惑状态与ReelyAI画布工作台，自然抛出用户创作痛点，留存钩子合格",
+            "audio": "无音频内容可校验，按要求需添加猫咪清晰自然的普通话台词与安静环境音",
+            "frameEvidence": [
+              "帧1-7角色、场景、动画均符合要求，帧8存在狗狗裁切与节点数量错误"
+            ],
+            "model": "seed-2-0-pro-260328",
+            "reviewedAt": "2026-06-03T09:39:07.754Z",
+            "frameCount": 8,
+            "durationSec": 15.07
+          }
+        }
+      ],
+      "status": "ready",
+      "createdAt": "2026-06-03T09:37:22.403Z",
+      "updatedAt": "2026-06-03T09:37:22.403Z",
+      "storyBeatIndex": 1,
+      "previousShotClipSec": 2,
+      "vlmReviewEnabled": true,
+      "visionReview": true,
+      "maxReviewAttempts": 2,
+      "generateAudio": true,
+      "videoUrl": "/media/demo-agent-plan/demo-shot-1.mp4",
+      "videoGeneratedAt": "2026-06-03T09:37:22.403Z",
+      "videoReviewStatus": "ready",
+      "videoReview": {
+        "scope": "shot",
+        "ok": true,
+        "score": 89,
+        "summary": "本镜头整体符合广告创作要求，3D动画质量优秀，角色与场景还原度高，叙事逻辑通顺，仅存在节点数量不符、末尾角色裁切、初始动作偏差的非致命小问题，可使用。",
+        "criteria": [
+          {
+            "key": "visual_quality",
+            "label": "视觉质量",
+            "score": 4,
+            "weight": 0.15,
+            "reason": "3D写实动画质感达标，办公室柔和日光还原正确，画面干净无噪点，符合广告片视觉标准",
+            "evidenceFrames": [
+              1,
+              2,
+              4
+            ]
+          },
+          {
+            "key": "character_consistency",
+            "label": "角色一致性",
+            "score": 4,
+            "weight": 0.2,
+            "reason": "猫咪、狗狗全程匹配参考设定，毛色、服装、五官、风格无崩坏，角色识别度稳定",
+            "evidenceFrames": [
+              1,
+              3,
+              5,
+              7
+            ]
+          },
+          {
+            "key": "scene_continuity",
+            "label": "场景连续性",
+            "score": 4,
+            "weight": 0.15,
+            "reason": "工作室工作台、画布布局、光源方向、背景物件全程无跳变，符合参考场景规范",
+            "evidenceFrames": [
+              1,
+              2,
+              6
+            ]
+          },
+          {
+            "key": "motion_quality",
+            "label": "运动质量",
+            "score": 3,
+            "weight": 0.1,
+            "reason": "角色表情动作过渡自然流畅，仅末尾帧出现狗狗画面裁切异常",
+            "evidenceFrames": [
+              2,
+              4,
+              8
+            ]
+          },
+          {
+            "key": "artifact_check",
+            "label": "畸形/伪影",
+            "score": 4,
+            "weight": 0.1,
+            "reason": "无角色畸形、穿模、画面伪影，动物肢体、服装渲染正常",
+            "evidenceFrames": [
+              1,
+              4,
+              5
+            ]
+          },
+          {
+            "key": "text_clean",
+            "label": "文字水印清洁度",
+            "score": 3,
+            "weight": 0.1,
+            "reason": "无违规水印字幕，屏幕内seedance文字属于允许范围；但画布未按要求呈现3个目标问号节点，仅渲染2个问号",
+            "evidenceFrames": [
+              3,
+              8
+            ]
+          },
+          {
+            "key": "prompt_alignment",
+            "label": "prompt对齐",
+            "score": 3,
+            "weight": 0.15,
+            "reason": "整体符合镜头剧情，猫咪困惑情绪表达正确，最终出现画布问号效果；但未按要求显示API、request、stitch共3个对应节点，初始未还原猫咪爪子悬在键盘的动作，末尾狗狗裁切缺失",
+            "evidenceFrames": [
+              1,
+              7,
+              8
+            ]
+          },
+          {
+            "key": "narrative",
+            "label": "叙事连贯",
+            "score": 4,
+            "weight": 0.1,
+            "reason": "单镜头叙事完整，自然抛出用户创作痛点，情绪节奏符合要求",
+            "evidenceFrames": [
+              1,
+              4,
+              6
+            ]
+          }
+        ],
+        "fatalIssues": [],
+        "reasons": [
+          "1. 最终画布仅渲染2个问号节点，未按要求出现API、request、stitch共3个对应节点闪烁问号；2. 第8帧（14.3秒）狗狗角色被画面裁切，仅剩余头部可见；3. 未还原0-4秒猫咪爪子悬于键盘的初始动作设定"
+        ],
+        "fixes": [
+          {
+            "action": "修正画面裁切，完整显示狗狗角色；在画布补全第三个目标问号节点，确保共3个对应功能节点闪烁",
+            "shot": 1,
+            "frame": 8
+          },
+          {
+            "action": "调整猫咪初始动作，使爪子悬停在键盘上符合镜头时序要求",
+            "shot": 1,
+            "frame": 1
+          }
+        ],
+        "hookRetention": "开头快速呈现猫咪困惑状态与ReelyAI画布工作台，自然抛出用户创作痛点，留存钩子合格",
+        "audio": "无音频内容可校验，按要求需添加猫咪清晰自然的普通话台词与安静环境音",
+        "frameEvidence": [
+          "帧1-7角色、场景、动画均符合要求，帧8存在狗狗裁切与节点数量错误"
+        ],
+        "model": "seed-2-0-pro-260328",
+        "reviewedAt": "2026-06-03T09:39:07.754Z",
+        "frameCount": 8,
+        "durationSec": 15.07
+      },
+      "videoReviewUpdatedAt": "2026-06-03T09:39:07.754Z"
+    },
+    {
+      "id": "shot_demo_2",
+      "sessionId": "ses_demo_agent_plan",
+      "index": 2,
+      "title": "狗狗解释 Agent Plan",
+      "script": "",
+      "camera": "",
+      "durationSec": 15,
+      "assetIds": [
+        "asset_demo_canvas",
+        "asset_demo_dog",
+        "asset_demo_cat"
+      ],
+      "rawPrompt": "角色一致性圣经：猫咪主角是一只圆脸银白短毛猫，淡蓝眼睛，小小粉鼻子，穿浅薄荷色连帽衫，胸口有很小的火山形贴片；声音清亮、好奇、略焦虑。\n狗狗顾问是一只奶油金色柴犬/小狗，棕色眼睛，穿海军蓝小马甲，神情聪明可靠；声音温和、笃定、像熟悉产品的朋友。\n两位角色始终保持同一毛色、服装、体型比例和可爱写实动画质感；不要变成人，不要出现第三个会说话的动物。\n整体是高质量 3D 动画广告片，竖屏 9:16，柔和办公室日光，ReelyAI 画布、节点、分镜缩略图、审核标记和 API/视频/图片/文本能力以图标和抽象界面形式出现；不要真实品牌 logo，不要水印，不要字幕。\n\nShot 2/4，15 秒。@可爱狗狗 坐到猫咪旁边，用爪子在画布上拖出“生视频 API / 生图 API / 生文 API”三个抽象能力节点，并把它们接到 ReelyAI 工作流。0-5s：狗狗轻松打开一张“Agent Plan”套餐卡片样式的抽象面板，不出现真实 logo。5-13s：狗狗清楚说出台词：“你不知道火山 agent plan 么？一个套餐有 生视频/生图/生文的 API，接到 reelyai 中，就能玩起来。”13-15s：三条线同时接入画布，猫咪眼睛亮起来。声音：狗狗普通话温和可靠，吐字清楚。\n【VLM 审核反馈修复】\n角色一致性圣经：猫咪主角是一只圆脸银白短毛猫，淡蓝眼睛，小小粉鼻子，穿浅薄荷色连帽衫，胸口有很小的火山形贴片；声音清亮、好奇、略焦虑。\n狗狗顾问是一只奶油金色柴犬，棕色眼睛，穿海军蓝小马甲，神情聪明可靠；声音温和、笃定、像熟悉产品的朋友。\n两位角色始终保持同一毛色、服装、体型比例和可爱写实动画质感；不要变成人，不要出现第三个会说话的动物。\n整体是高质量 3D 动画广告片，竖屏 9:16，柔和办公室日光，ReelyAI 画布、节点、分镜缩略图、审核标记和 API/视频/图片/文本能力仅以图标和抽象界面形式呈现；界面全程无多余明文文字，无真实品牌 logo，无水印，无字幕。\n\nShot 2/4，15 秒。@可爱狗狗 全程坐在猫咪旁边合理地面位置，禁止站在工作台桌面，严格按指定动作演示：0-5s：狗狗轻松打开「Agent Plan」套餐卡片样式的抽象面板，面板内置三个独立不重复的抽象图标分别对应生视频、生图、生文API，无任何明文标注。5-13s：狗狗以温和可靠普通话清晰说出台词：“你不知道火山 agent plan 么？一个套餐有 生视频/生图/生文的 API，接到 reelyai 中，就能玩起来。” 此阶段狗狗用爪子依次将三个独立API节点拖入画布。13-15s：三条连线同时正确接入ReelyAI工作流，猫咪眼睛亮起来。所有演示动作、节点逻辑严格遵循本描述，无重复、无错误。",
+      "prompt": "角色一致性圣经：猫咪主角是一只圆脸银白短毛猫，淡蓝眼睛，小小粉鼻子，穿浅薄荷色连帽衫，胸口有很小的火山形贴片；声音清亮、好奇、略焦虑。\n狗狗顾问是一只奶油金色柴犬/小狗，棕色眼睛，穿海军蓝小马甲，神情聪明可靠；声音温和、笃定、像熟悉产品的朋友。\n两位角色始终保持同一毛色、服装、体型比例和可爱写实动画质感；不要变成人，不要出现第三个会说话的动物。\n整体是高质量 3D 动画广告片，竖屏 9:16，柔和办公室日光，ReelyAI 画布、节点、分镜缩略图、审核标记和 API/视频/图片/文本能力以图标和抽象界面形式出现；不要真实品牌 logo，不要水印，不要字幕。\n\nShot 2/4，15 秒。@可爱狗狗 坐到猫咪旁边，用爪子在画布上拖出“生视频 API / 生图 API / 生文 API”三个抽象能力节点，并把它们接到 ReelyAI 工作流。0-5s：狗狗轻松打开一张“Agent Plan”套餐卡片样式的抽象面板，不出现真实 logo。5-13s：狗狗清楚说出台词：“你不知道火山 agent plan 么？一个套餐有 生视频/生图/生文的 API，接到 reelyai 中，就能玩起来。”13-15s：三条线同时接入画布，猫咪眼睛亮起来。声音：狗狗普通话温和可靠，吐字清楚。\n【VLM 审核反馈修复】\n角色一致性圣经：猫咪主角是一只圆脸银白短毛猫，淡蓝眼睛，小小粉鼻子，穿浅薄荷色连帽衫，胸口有很小的火山形贴片；声音清亮、好奇、略焦虑。\n狗狗顾问是一只奶油金色柴犬，棕色眼睛，穿海军蓝小马甲，神情聪明可靠；声音温和、笃定、像熟悉产品的朋友。\n两位角色始终保持同一毛色、服装、体型比例和可爱写实动画质感；不要变成人，不要出现第三个会说话的动物。\n整体是高质量 3D 动画广告片，竖屏 9:16，柔和办公室日光，ReelyAI 画布、节点、分镜缩略图、审核标记和 API/视频/图片/文本能力仅以图标和抽象界面形式呈现；界面全程无多余明文文字，无真实品牌 logo，无水印，无字幕。\n\nShot 2/4，15 秒。@可爱狗狗 全程坐在猫咪旁边合理地面位置，禁止站在工作台桌面，严格按指定动作演示：0-5s：狗狗轻松打开「Agent Plan」套餐卡片样式的抽象面板，面板内置三个独立不重复的抽象图标分别对应生视频、生图、生文API，无任何明文标注。5-13s：狗狗以温和可靠普通话清晰说出台词：“你不知道火山 agent plan 么？一个套餐有 生视频/生图/生文的 API，接到 reelyai 中，就能玩起来。” 此阶段狗狗用爪子依次将三个独立API节点拖入画布。13-15s：三条连线同时正确接入ReelyAI工作流，猫咪眼睛亮起来。所有演示动作、节点逻辑严格遵循本描述，无重复、无错误。",
+      "debugNote": "",
+      "seedanceVariant": "standard",
+      "usePreviousShotClip": true,
+      "renders": [
+        {
+          "id": "render_demo_2",
+          "model": "doubao-seedance-2-0-260128",
+          "status": "ready",
+          "rawPrompt": "角色一致性圣经：猫咪主角是一只圆脸银白短毛猫，淡蓝眼睛，小小粉鼻子，穿浅薄荷色连帽衫，胸口有很小的火山形贴片；声音清亮、好奇、略焦虑。\n狗狗顾问是一只奶油金色柴犬/小狗，棕色眼睛，穿海军蓝小马甲，神情聪明可靠；声音温和、笃定、像熟悉产品的朋友。\n两位角色始终保持同一毛色、服装、体型比例和可爱写实动画质感；不要变成人，不要出现第三个会说话的动物。\n整体是高质量 3D 动画广告片，竖屏 9:16，柔和办公室日光，ReelyAI 画布、节点、分镜缩略图、审核标记和 API/视频/图片/文本能力以图标和抽象界面形式出现；不要真实品牌 logo，不要水印，不要字幕。\n\nShot 2/4，15 秒。@可爱狗狗 坐到猫咪旁边，用爪子在画布上拖出“生视频 API / 生图 API / 生文 API”三个抽象能力节点，并把它们接到 ReelyAI 工作流。0-5s：狗狗轻松打开一张“Agent Plan”套餐卡片样式的抽象面板，不出现真实 logo。5-13s：狗狗清楚说出台词：“你不知道火山 agent plan 么？一个套餐有 生视频/生图/生文的 API，接到 reelyai 中，就能玩起来。”13-15s：三条线同时接入画布，猫咪眼睛亮起来。声音：狗狗普通话温和可靠，吐字清楚。",
+          "prompt": "角色一致性圣经：猫咪主角是一只圆脸银白短毛猫，淡蓝眼睛，小小粉鼻子，穿浅薄荷色连帽衫，胸口有很小的火山形贴片；声音清亮、好奇、略焦虑。\n狗狗顾问是一只奶油金色柴犬/小狗，棕色眼睛，穿海军蓝小马甲，神情聪明可靠；声音温和、笃定、像熟悉产品的朋友。\n两位角色始终保持同一毛色、服装、体型比例和可爱写实动画质感；不要变成人，不要出现第三个会说话的动物。\n整体是高质量 3D 动画广告片，竖屏 9:16，柔和办公室日光，ReelyAI 画布、节点、分镜缩略图、审核标记和 API/视频/图片/文本能力以图标和抽象界面形式出现；不要真实品牌 logo，不要水印，不要字幕。\n\nShot 2/4，15 秒。@可爱狗狗 坐到猫咪旁边，用爪子在画布上拖出“生视频 API / 生图 API / 生文 API”三个抽象能力节点，并把它们接到 ReelyAI 工作流。0-5s：狗狗轻松打开一张“Agent Plan”套餐卡片样式的抽象面板，不出现真实 logo。5-13s：狗狗清楚说出台词：“你不知道火山 agent plan 么？一个套餐有 生视频/生图/生文的 API，接到 reelyai 中，就能玩起来。”13-15s：三条线同时接入画布，猫咪眼睛亮起来。声音：狗狗普通话温和可靠，吐字清楚。",
+          "title": "狗狗解释 Agent Plan",
+          "durationSec": 15,
+          "seedanceVariant": "standard",
+          "assetIds": [
+            "asset_demo_canvas",
+            "asset_demo_dog",
+            "asset_demo_cat"
+          ],
+          "usePreviousShotClip": true,
+          "previousShotClipSec": 15,
+          "previousShotClipSecOverride": false,
+          "createdAt": "2026-06-03T09:37:22.403Z",
+          "reviewEnabled": true,
+          "reviewMaxAttempts": 2,
+          "reviewAttempts": 1,
+          "generateAudio": true,
+          "composedPrompt": "角色一致性圣经：猫咪主角是一只圆脸银白短毛猫，淡蓝眼睛，小小粉鼻子，穿浅薄荷色连帽衫，胸口有很小的火山形贴片；声音清亮、好奇、略焦虑。\n狗狗顾问是一只奶油金色柴犬/小狗，棕色眼睛，穿海军蓝小马甲，神情聪明可靠；声音温和、笃定、像熟悉产品的朋友。\n两位角色始终保持同一毛色、服装、体型比例和可爱写实动画质感；不要变成人，不要出现第三个会说话的动物。\n整体是高质量 3D 动画广告片，竖屏 9:16，柔和办公室日光，ReelyAI 画布、节点、分镜缩略图、审核标记和 API/视频/图片/文本能力以图标和抽象界面形式出现；禁止所有界面无乱码文字、无真实品牌标识，不要水印，不要字幕。\n\nShot 2/4，15 秒。@可爱狗狗 坐到猫咪旁边，完整完成业务演示动作：用爪子在画布上拖出代表生视频API、生图API、生文API的三个独立抽象节点，并按逻辑正确连接接入ReelyAI工作流。严格遵循时间节拍：0-5s：狗狗轻松打开一张仅标注抽象\"Agent Plan\"的无logo纯净套餐面板；5-13s：狗狗清楚说出台词：“你不知道火山 agent plan 么？一个套餐有 生视频/生图/生文的 API，接到 reelyai 中，就能玩起来。”；13-15s：三条连接线同时成功接入画布，猫咪淡蓝眼睛清晰亮起完成结尾情绪回报动作。声音：狗狗普通话温和可靠，吐字清楚。\nReferenced assets from @ mentions. Use these references only for the named asset roles; do not invent extra story beats from them.\nImage 1: @ReelyAI 画布工作台 = scene asset \"ReelyAI 画布工作台\". Maintain the scene layout, key objects, lighting logic, palette, weather, and spatial geography from this reference. 明亮创意工作室里的 ReelyAI 画布工作台，用抽象节点展示参考图、故事板、Seedance、VLM 审核、拼接。\nImage 2: @可爱狗狗 = character asset \"可爱狗狗\". Maintain the character identity, face, body type, costume, and recognizable expression details from this reference. 奶油金色柴犬/小狗，棕色眼睛，海军蓝小马甲；聪明可靠，像熟悉产品的朋友。\nImage 3: @可爱猫咪 = character asset \"可爱猫咪\". Maintain the character identity, face, body type, costume, and recognizable expression details from this reference. 圆脸银白短毛猫，淡蓝眼睛，小粉鼻，浅薄荷色连帽衫，胸口小火山贴片；好奇、焦虑但可爱。\nLong-form continuity lock:\nAcross the entire film, keep these cast identities locked: @可爱狗狗、@可爱猫咪. The same named character must keep the same face geometry, body type, hair, costume palette, age, and recognizable expression pattern in every shot.\nKeep these scene identities locked when they appear: @ReelyAI 画布工作台. Preserve geography, practical light direction, palette, weather, and object placement across cuts.\nDo not treat later shots as a reboot. This shot is one beat inside the same one-minute story; keep visual rhythm, emotional intensity, camera language, and pacing compatible with adjacent shots.\nSTRICT NO-TEXT-OVERLAY RULE: do NOT render any on-screen subtitles, captions, lower-thirds, title cards, opening/closing credits, on-screen typography, lyric lines, kinetic text, watermarks, channel logos, brand logos, copyright notices, or UI elements. Allowed: text that is naturally part of the physical world being filmed (e.g. a store sign, a poster, content on a laptop screen the character is showing).\nGeneration duration: 15s.\nResolution / aspect ratio: 9:16.\nThe duration and resolution values above come from the UI/system settings and are authoritative. If any earlier text mentions conflicting duration or resolution, ignore it.\nShot-to-shot continuity reference:\nVideo 1 is the immediate previous shot, especially its final seconds. Use it as temporal continuity context, not as a generic style sample.\nThe user's original prompt defines what happens next. Add only the missing connective tissue needed to make the new shot feel like the next beat after Video 1.\nBegin after the final moment of Video 1. Do not replay the same frames, do not restart the same action, and do not make the character return to an earlier pose unless the user explicitly asks for it.\nCarry forward concrete continuity cues from Video 1: character emotion, eyeline, body direction, blocking, spatial relationship, prop state, scene geography, weather, practical light sources, color temperature, exposure, texture, lens feel, framing center, camera height, camera movement direction, movement speed, rhythm, and pacing.\nFor audio continuity, keep the ambience, room tone, music energy, rhythm, BPM feel, instrumentation, and sound texture consistent with Video 1. Let sound evolve naturally with the new action instead of abruptly switching style.\nIf @ asset images are present, they control identity, costume, props, and scene design. Video 1 controls the handoff, motion, camera continuity, and audio/tempo continuity. If these references conflict, prioritize the user's prompt first, then @ asset identity/design, then Video 1 continuity.\nIf the user's prompt explicitly asks for a jump cut, scene change, time skip, silence, or new music, follow the user's prompt over this continuity instruction.",
+          "videoUrl": "/media/demo-agent-plan/demo-shot-2.mp4",
+          "reviewModel": "seed-2-0-pro-260328",
+          "reviewNote": "自审 1 次重试后仍未通过，已保留最后一次产物\nattempt 1: 生成的界面文字存在乱码，包含违规真实品牌标识; prompt要求的核心业务演示动作未正确完成，API接入逻辑不符合要求; 叙事关键时间节拍未达标，结尾情绪回报动作缺失",
+          "videoGeneratedAt": "2026-06-03T09:37:22.403Z",
+          "videoReviewStatus": "ready",
+          "videoReviewUpdatedAt": "2026-06-03T09:39:49.883Z",
+          "videoReview": {
+            "scope": "shot",
+            "ok": false,
+            "score": 62,
+            "summary": "本镜头角色外观符合参考设定、场景渲染质感优秀、结尾猫咪情绪回报正确，但存在角色动作违规、API节点错误、界面文字超规等致命问题，不符合可用标准。",
+            "criteria": [
+              {
+                "key": "visual_quality",
+                "label": "视觉质量",
+                "score": 4,
+                "weight": 0.15,
+                "reason": "3D动画渲染精细，柔和办公室日光符合要求，画面干净无噪点伪影",
+                "evidenceFrames": [
+                  1,
+                  4,
+                  7,
+                  8
+                ]
+              },
+              {
+                "key": "character_consistency",
+                "label": "角色身份一致性",
+                "score": 4,
+                "weight": 0.2,
+                "reason": "猫咪、狗狗的毛色、服装、五官特征完全匹配参考，无变形或身份错误",
+                "evidenceFrames": [
+                  1,
+                  2,
+                  5,
+                  8
+                ]
+              },
+              {
+                "key": "scene_continuity",
+                "label": "场景连续性",
+                "score": 4,
+                "weight": 0.15,
+                "reason": "工作台、显示器、背景工作室环境与参考场景一致，空间逻辑连贯",
+                "evidenceFrames": [
+                  1,
+                  3,
+                  6
+                ]
+              },
+              {
+                "key": "motion_quality",
+                "label": "运动质量",
+                "score": 3,
+                "weight": 0.15,
+                "reason": "角色动作流畅自然，但狗狗站位不符合要求，未完成拖拽节点的指定动作",
+                "evidenceFrames": [
+                  2,
+                  4,
+                  7
+                ]
+              },
+              {
+                "key": "artifact_check",
+                "label": "畸形/伪影",
+                "score": 4,
+                "weight": 0.1,
+                "reason": "未发现角色肢体畸形、穿模或画面伪影问题",
+                "evidenceFrames": [
+                  1,
+                  4,
+                  8
+                ]
+              },
+              {
+                "key": "text_cleanliness",
+                "label": "文字水印清洁度",
+                "score": 2,
+                "weight": 0.1,
+                "reason": "UI面板出现超出许可的API明文文字，违反仅标注抽象Agent Plan的要求",
+                "evidenceFrames": [
+                  2,
+                  3,
+                  5
+                ]
+              },
+              {
+                "key": "prompt_alignment",
+                "label": "prompt对齐",
+                "score": 2,
+                "weight": 0.15,
+                "reason": "多处不符合prompt要求：狗狗未坐到猫咪旁、API节点重复、未完成正确节点拖拽连接动作",
+                "evidenceFrames": [
+                  2,
+                  3,
+                  7
+                ]
+              }
+            ],
+            "fatalIssues": [
+              "狗狗未按要求坐到猫咪旁边，违规站在工作台桌面上",
+              "Agent Plan面板重复出现生视频API，未正确设置生视频/生图/生文三个独立API节点",
+              "界面出现超出许可的多余API明文文字，违反文字清洁要求"
+            ],
+            "reasons": [
+              "角色演示动作不符合prompt指定要求",
+              "产品演示核心节点逻辑错误，出现重复API",
+              "界面文字超出规范要求",
+              "未完成将三个独立API节点拖入画布并正确连接的指定动作"
+            ],
+            "fixes": [
+              {
+                "action": "调整狗狗位置，让狗狗坐到猫咪旁边合理位置，而非站在工作台桌面",
+                "shot": 2,
+                "frame": 1
+              },
+              {
+                "action": "修正Agent Plan面板，移除重复的生视频API，仅保留生视频/生图/生文三个独立正确API节点",
+                "shot": 2,
+                "frame": 2
+              },
+              {
+                "action": "清理界面多余文字，仅保留抽象Agent Plan标识，删除API明文文字标注",
+                "shot": 2,
+                "frame": 2
+              },
+              {
+                "action": "补全狗狗用爪子拖动三个API节点接入ReelyAI工作流的正确演示动作",
+                "shot": 2,
+                "frame": 7
+              }
+            ],
+            "hookRetention": "结尾猫咪眼睛亮起的豁然开朗情绪回报表现良好，具备合格的情绪钩子效果",
+            "audio": "无法从采样帧判断音频质量，需核实狗狗普通话台词吐字清晰度、语气是否符合温和可靠的要求",
+            "frameEvidence": [
+              "帧2可见狗狗站在工作台桌面，未坐在猫咪旁",
+              "帧2可见Agent Plan面板内存在2个重复的生视频API",
+              "帧2-5可见面板内存在生视频API、生图API、生文API等多余明文文字",
+              "帧7可见未完成三个独立API节点的正确拖入连接动作"
+            ],
+            "model": "seed-2-0-pro-260328",
+            "reviewedAt": "2026-06-03T09:39:49.883Z",
+            "frameCount": 8,
+            "durationSec": 15.07
+          }
+        }
+      ],
+      "status": "ready",
+      "createdAt": "2026-06-03T09:37:22.403Z",
+      "updatedAt": "2026-06-03T09:37:22.403Z",
+      "storyBeatIndex": 2,
+      "previousShotClipSec": 15,
+      "vlmReviewEnabled": true,
+      "previousShotClipSecOverride": false,
+      "visionReview": true,
+      "maxReviewAttempts": 2,
+      "generateAudio": true,
+      "videoUrl": "/media/demo-agent-plan/demo-shot-2.mp4",
+      "videoGeneratedAt": "2026-06-03T09:37:22.403Z",
+      "videoReviewStatus": "ready",
+      "videoReview": {
+        "scope": "shot",
+        "ok": false,
+        "score": 62,
+        "summary": "本镜头角色外观符合参考设定、场景渲染质感优秀、结尾猫咪情绪回报正确，但存在角色动作违规、API节点错误、界面文字超规等致命问题，不符合可用标准。",
+        "criteria": [
+          {
+            "key": "visual_quality",
+            "label": "视觉质量",
+            "score": 4,
+            "weight": 0.15,
+            "reason": "3D动画渲染精细，柔和办公室日光符合要求，画面干净无噪点伪影",
+            "evidenceFrames": [
+              1,
+              4,
+              7,
+              8
+            ]
+          },
+          {
+            "key": "character_consistency",
+            "label": "角色身份一致性",
+            "score": 4,
+            "weight": 0.2,
+            "reason": "猫咪、狗狗的毛色、服装、五官特征完全匹配参考，无变形或身份错误",
+            "evidenceFrames": [
+              1,
+              2,
+              5,
+              8
+            ]
+          },
+          {
+            "key": "scene_continuity",
+            "label": "场景连续性",
+            "score": 4,
+            "weight": 0.15,
+            "reason": "工作台、显示器、背景工作室环境与参考场景一致，空间逻辑连贯",
+            "evidenceFrames": [
+              1,
+              3,
+              6
+            ]
+          },
+          {
+            "key": "motion_quality",
+            "label": "运动质量",
+            "score": 3,
+            "weight": 0.15,
+            "reason": "角色动作流畅自然，但狗狗站位不符合要求，未完成拖拽节点的指定动作",
+            "evidenceFrames": [
+              2,
+              4,
+              7
+            ]
+          },
+          {
+            "key": "artifact_check",
+            "label": "畸形/伪影",
+            "score": 4,
+            "weight": 0.1,
+            "reason": "未发现角色肢体畸形、穿模或画面伪影问题",
+            "evidenceFrames": [
+              1,
+              4,
+              8
+            ]
+          },
+          {
+            "key": "text_cleanliness",
+            "label": "文字水印清洁度",
+            "score": 2,
+            "weight": 0.1,
+            "reason": "UI面板出现超出许可的API明文文字，违反仅标注抽象Agent Plan的要求",
+            "evidenceFrames": [
+              2,
+              3,
+              5
+            ]
+          },
+          {
+            "key": "prompt_alignment",
+            "label": "prompt对齐",
+            "score": 2,
+            "weight": 0.15,
+            "reason": "多处不符合prompt要求：狗狗未坐到猫咪旁、API节点重复、未完成正确节点拖拽连接动作",
+            "evidenceFrames": [
+              2,
+              3,
+              7
+            ]
+          }
+        ],
+        "fatalIssues": [
+          "狗狗未按要求坐到猫咪旁边，违规站在工作台桌面上",
+          "Agent Plan面板重复出现生视频API，未正确设置生视频/生图/生文三个独立API节点",
+          "界面出现超出许可的多余API明文文字，违反文字清洁要求"
+        ],
+        "reasons": [
+          "角色演示动作不符合prompt指定要求",
+          "产品演示核心节点逻辑错误，出现重复API",
+          "界面文字超出规范要求",
+          "未完成将三个独立API节点拖入画布并正确连接的指定动作"
+        ],
+        "fixes": [
+          {
+            "action": "调整狗狗位置，让狗狗坐到猫咪旁边合理位置，而非站在工作台桌面",
+            "shot": 2,
+            "frame": 1
+          },
+          {
+            "action": "修正Agent Plan面板，移除重复的生视频API，仅保留生视频/生图/生文三个独立正确API节点",
+            "shot": 2,
+            "frame": 2
+          },
+          {
+            "action": "清理界面多余文字，仅保留抽象Agent Plan标识，删除API明文文字标注",
+            "shot": 2,
+            "frame": 2
+          },
+          {
+            "action": "补全狗狗用爪子拖动三个API节点接入ReelyAI工作流的正确演示动作",
+            "shot": 2,
+            "frame": 7
+          }
+        ],
+        "hookRetention": "结尾猫咪眼睛亮起的豁然开朗情绪回报表现良好，具备合格的情绪钩子效果",
+        "audio": "无法从采样帧判断音频质量，需核实狗狗普通话台词吐字清晰度、语气是否符合温和可靠的要求",
+        "frameEvidence": [
+          "帧2可见狗狗站在工作台桌面，未坐在猫咪旁",
+          "帧2可见Agent Plan面板内存在2个重复的生视频API",
+          "帧2-5可见面板内存在生视频API、生图API、生文API等多余明文文字",
+          "帧7可见未完成三个独立API节点的正确拖入连接动作"
+        ],
+        "model": "seed-2-0-pro-260328",
+        "reviewedAt": "2026-06-03T09:39:49.883Z",
+        "frameCount": 8,
+        "durationSec": 15.07
+      },
+      "videoReviewUpdatedAt": "2026-06-03T09:39:49.883Z",
+      "videoReviewRepairPlan": {
+        "createdAt": "2026-06-03T09:44:56.003Z",
+        "sourceReviewScope": "shot",
+        "sourceNodeId": "shot_da796e25",
+        "targets": [
+          {
+            "kind": "asset",
+            "id": "asset_d8e5f59f",
+            "reason": "VLM 指出与 character 相关的问题",
+            "promptPatch": "奶油金色柴犬/小狗，棕色眼睛，海军蓝小马甲，安静坐到猫咪身旁，禁止站立在工作台桌面；高质量可爱写实3D动画广告角色设定，干净浅色工作室背景，全身三分之二视角，表情聪明可靠、温和，角色动作符合指定要求；画面仅展示该动物角色，不得出现Agent Plan面板、生视频/生图/生文之外的错误API节点、API明文、任何违规界面文字；不要文字、不要logo、不要水印，产品演示核心逻辑正确无重复API。"
+          },
+          {
+            "kind": "asset",
+            "id": "asset_e8d99f61",
+            "reason": "VLM 指出与 character 相关的问题",
+            "promptPatch": "单角色参考图：圆脸银白短毛猫，淡蓝眼睛，小粉鼻，浅薄荷色连帽衫，胸口小火山贴片。高质量可爱写实 3D 动画广告角色设定，干净浅色工作室背景，全身三分之二视角，表情好奇又略焦虑。仅保留本指定单猫咪角色，无狗狗、工作台、面板、API相关内容，无任何文字、logo、水印，无额外无关元素与演示动作，无多余界面逻辑内容。"
+          },
+          {
+            "kind": "shot",
+            "id": "shot_da796e25",
+            "reason": "当前视频节点未达标，需要加强本镜头 prompt",
+            "promptPatch": "角色一致性圣经：猫咪主角是一只圆脸银白短毛猫，淡蓝眼睛，小小粉鼻子，穿浅薄荷色连帽衫，胸口有很小的火山形贴片；声音清亮、好奇、略焦虑。\n狗狗顾问是一只奶油金色柴犬，棕色眼睛，穿海军蓝小马甲，神情聪明可靠；声音温和、笃定、像熟悉产品的朋友。\n两位角色始终保持同一毛色、服装、体型比例和可爱写实动画质感；不要变成人，不要出现第三个会说话的动物。\n整体是高质量 3D 动画广告片，竖屏 9:16，柔和办公室日光，ReelyAI 画布、节点、分镜缩略图、审核标记和 API/视频/图片/文本能力仅以图标和抽象界面形式呈现；界面全程无多余明文文字，无真实品牌 logo，无水印，无字幕。\n\nShot 2/4，15 秒。@可爱狗狗 全程坐在猫咪旁边合理地面位置，禁止站在工作台桌面，严格按指定动作演示：0-5s：狗狗轻松打开「Agent Plan」套餐卡片样式的抽象面板，面板内置三个独立不重复的抽象图标分别对应生视频、生图、生文API，无任何明文标注。5-13s：狗狗以温和可靠普通话清晰说出台词：“你不知道火山 agent plan 么？一个套餐有 生视频/生图/生文的 API，接到 reelyai 中，就能玩起来。” 此阶段狗狗用爪子依次将三个独立API节点拖入画布。13-15s：三条连线同时正确接入ReelyAI工作流，猫咪眼睛亮起来。所有演示动作、节点逻辑严格遵循本描述，无重复、无错误。"
+          }
+        ],
+        "appliedAt": "2026-06-03T09:44:56.066Z"
+      }
+    },
+    {
+      "id": "shot_demo_3",
+      "sessionId": "ses_demo_agent_plan",
+      "index": 3,
+      "title": "画布展示能力链路",
+      "script": "",
+      "camera": "",
+      "durationSec": 15,
+      "assetIds": [
+        "asset_demo_canvas",
+        "asset_demo_dog",
+        "asset_demo_cat"
+      ],
+      "rawPrompt": "角色一致性圣经：猫咪主角是一只圆脸银白短毛猫，淡蓝眼睛，小小粉鼻子，穿浅薄荷色连帽衫，胸口有很小的火山形贴片；声音清亮、好奇、略焦虑。\n狗狗顾问是一只奶油金色柴犬/小狗，棕色眼睛，穿海军蓝小马甲，神情聪明可靠；声音温和、笃定、像熟悉产品的朋友。\n两位角色始终保持同一毛色、服装、体型比例和可爱写实动画质感；不要变成人，不要出现第三个会说话的动物。\n整体是高质量 3D 动画广告片，竖屏 9:16，柔和办公室日光，ReelyAI 画布、节点、分镜缩略图、审核标记和 API/视频/图片/文本能力以图标和抽象界面形式出现；不要真实品牌 logo，不要水印，不要字幕。\n\nShot 3/4，15 秒。产品能力展示镜头，无新增对白。ReelyAI 画布成为主视觉，@可爱猫咪 和 @可爱狗狗 在一侧观看。0-4s：角色参考图资产节点固定猫狗形象。4-8s：故事板节点展开为首尾帧面板，每个 shot 的起止画面被连到视频节点。8-12s：Seedance 生成节点逐个亮起，VLM 审核节点给出绿色通过标记，表现“开启审核保障服务质量”。12-15s：拼接节点接收四段视频，形成最终广告片预览。画面要清楚展示画布灵活性和可审计链路；不要字幕、水印、真实品牌 logo。\n【VLM 审核反馈修复】\n角色一致性圣经：猫咪主角是一只圆脸银白短毛猫，淡蓝眼睛，小小粉鼻子，穿浅薄荷色连帽衫，胸口有很小的火山形贴片；声音清亮、好奇、略焦虑。\n狗狗顾问是一只奶油金色柴犬，棕色眼睛，穿海军蓝小马甲，神情聪明可靠；声音温和、笃定、像熟悉产品的朋友。\n两位角色全程完整站立在工作台侧边，始终保持同一毛色、服装、体型比例和可爱写实动画质感；不要变成人，不要出现第三个会说话的动物。\n整体是高质量 3D 动画广告片，竖屏 9:16，柔和办公室日光，ReelyAI 画布、节点、分镜缩略图、审核标记和能力全部仅以纯图形图标呈现，整个画面全程零任何文字字符，无标注文字；不要真实品牌 logo，不要水印，不要字幕。\n\nShot 3/4，15 秒。产品能力展示镜头，无新增对白。ReelyAI 画布成为主视觉，猫咪和狗狗完整站立在画布一侧工作台旁。0-4s：角色参考图资产节点固定猫狗形象。4-8s：故事板节点展开为首尾帧面板，每个 shot 的起止画面被连到视频节点。8-12s：生成节点逐个亮起，审核节点给出绿色对勾通过标记，表现“开启审核保障服务质量”。12-15s：拼接节点接收四段视频，形成最终广告片预览，无错误问号节点。严格按此时序完整执行节点流程，最终完整展示四个视频片段合并的成品预览效果；全程画面无任何文字、字幕、水印、真实品牌logo。</think_never_used_51bce0c785ca2f68081bfa7d91973934>",
+      "prompt": "角色一致性圣经：猫咪主角是一只圆脸银白短毛猫，淡蓝眼睛，小小粉鼻子，穿浅薄荷色连帽衫，胸口有很小的火山形贴片；声音清亮、好奇、略焦虑。\n狗狗顾问是一只奶油金色柴犬/小狗，棕色眼睛，穿海军蓝小马甲，神情聪明可靠；声音温和、笃定、像熟悉产品的朋友。\n两位角色始终保持同一毛色、服装、体型比例和可爱写实动画质感；不要变成人，不要出现第三个会说话的动物。\n整体是高质量 3D 动画广告片，竖屏 9:16，柔和办公室日光，ReelyAI 画布、节点、分镜缩略图、审核标记和 API/视频/图片/文本能力以图标和抽象界面形式出现；不要真实品牌 logo，不要水印，不要字幕。\n\nShot 3/4，15 秒。产品能力展示镜头，无新增对白。ReelyAI 画布成为主视觉，@可爱猫咪 和 @可爱狗狗 在一侧观看。0-4s：角色参考图资产节点固定猫狗形象。4-8s：故事板节点展开为首尾帧面板，每个 shot 的起止画面被连到视频节点。8-12s：Seedance 生成节点逐个亮起，VLM 审核节点给出绿色通过标记，表现“开启审核保障服务质量”。12-15s：拼接节点接收四段视频，形成最终广告片预览。画面要清楚展示画布灵活性和可审计链路；不要字幕、水印、真实品牌 logo。\n【VLM 审核反馈修复】\n角色一致性圣经：猫咪主角是一只圆脸银白短毛猫，淡蓝眼睛，小小粉鼻子，穿浅薄荷色连帽衫，胸口有很小的火山形贴片；声音清亮、好奇、略焦虑。\n狗狗顾问是一只奶油金色柴犬，棕色眼睛，穿海军蓝小马甲，神情聪明可靠；声音温和、笃定、像熟悉产品的朋友。\n两位角色全程完整站立在工作台侧边，始终保持同一毛色、服装、体型比例和可爱写实动画质感；不要变成人，不要出现第三个会说话的动物。\n整体是高质量 3D 动画广告片，竖屏 9:16，柔和办公室日光，ReelyAI 画布、节点、分镜缩略图、审核标记和能力全部仅以纯图形图标呈现，整个画面全程零任何文字字符，无标注文字；不要真实品牌 logo，不要水印，不要字幕。\n\nShot 3/4，15 秒。产品能力展示镜头，无新增对白。ReelyAI 画布成为主视觉，猫咪和狗狗完整站立在画布一侧工作台旁。0-4s：角色参考图资产节点固定猫狗形象。4-8s：故事板节点展开为首尾帧面板，每个 shot 的起止画面被连到视频节点。8-12s：生成节点逐个亮起，审核节点给出绿色对勾通过标记，表现“开启审核保障服务质量”。12-15s：拼接节点接收四段视频，形成最终广告片预览，无错误问号节点。严格按此时序完整执行节点流程，最终完整展示四个视频片段合并的成品预览效果；全程画面无任何文字、字幕、水印、真实品牌logo。</think_never_used_51bce0c785ca2f68081bfa7d91973934>",
+      "debugNote": "",
+      "seedanceVariant": "standard",
+      "usePreviousShotClip": true,
+      "renders": [
+        {
+          "id": "render_demo_3",
+          "model": "doubao-seedance-2-0-260128",
+          "status": "ready",
+          "rawPrompt": "角色一致性圣经：猫咪主角是一只圆脸银白短毛猫，淡蓝眼睛，小小粉鼻子，穿浅薄荷色连帽衫，胸口有很小的火山形贴片；声音清亮、好奇、略焦虑。\n狗狗顾问是一只奶油金色柴犬/小狗，棕色眼睛，穿海军蓝小马甲，神情聪明可靠；声音温和、笃定、像熟悉产品的朋友。\n两位角色始终保持同一毛色、服装、体型比例和可爱写实动画质感；不要变成人，不要出现第三个会说话的动物。\n整体是高质量 3D 动画广告片，竖屏 9:16，柔和办公室日光，ReelyAI 画布、节点、分镜缩略图、审核标记和 API/视频/图片/文本能力以图标和抽象界面形式出现；不要真实品牌 logo，不要水印，不要字幕。\n\nShot 3/4，15 秒。产品能力展示镜头，无新增对白。ReelyAI 画布成为主视觉，@可爱猫咪 和 @可爱狗狗 在一侧观看。0-4s：角色参考图资产节点固定猫狗形象。4-8s：故事板节点展开为首尾帧面板，每个 shot 的起止画面被连到视频节点。8-12s：Seedance 生成节点逐个亮起，VLM 审核节点给出绿色通过标记，表现“开启审核保障服务质量”。12-15s：拼接节点接收四段视频，形成最终广告片预览。画面要清楚展示画布灵活性和可审计链路；不要字幕、水印、真实品牌 logo。",
+          "prompt": "角色一致性圣经：猫咪主角是一只圆脸银白短毛猫，淡蓝眼睛，小小粉鼻子，穿浅薄荷色连帽衫，胸口有很小的火山形贴片；声音清亮、好奇、略焦虑。\n狗狗顾问是一只奶油金色柴犬/小狗，棕色眼睛，穿海军蓝小马甲，神情聪明可靠；声音温和、笃定、像熟悉产品的朋友。\n两位角色始终保持同一毛色、服装、体型比例和可爱写实动画质感；不要变成人，不要出现第三个会说话的动物。\n整体是高质量 3D 动画广告片，竖屏 9:16，柔和办公室日光，ReelyAI 画布、节点、分镜缩略图、审核标记和 API/视频/图片/文本能力以图标和抽象界面形式出现；不要真实品牌 logo，不要水印，不要字幕。\n\nShot 3/4，15 秒。产品能力展示镜头，无新增对白。ReelyAI 画布成为主视觉，@可爱猫咪 和 @可爱狗狗 在一侧观看。0-4s：角色参考图资产节点固定猫狗形象。4-8s：故事板节点展开为首尾帧面板，每个 shot 的起止画面被连到视频节点。8-12s：Seedance 生成节点逐个亮起，VLM 审核节点给出绿色通过标记，表现“开启审核保障服务质量”。12-15s：拼接节点接收四段视频，形成最终广告片预览。画面要清楚展示画布灵活性和可审计链路；不要字幕、水印、真实品牌 logo。",
+          "title": "画布展示能力链路",
+          "durationSec": 15,
+          "seedanceVariant": "standard",
+          "assetIds": [
+            "asset_demo_canvas",
+            "asset_demo_dog",
+            "asset_demo_cat"
+          ],
+          "usePreviousShotClip": true,
+          "previousShotClipSec": 15,
+          "previousShotClipSecOverride": false,
+          "createdAt": "2026-06-03T09:37:22.403Z",
+          "reviewEnabled": true,
+          "reviewMaxAttempts": 2,
+          "reviewAttempts": 1,
+          "generateAudio": true,
+          "composedPrompt": "Character Consistency Bible: Cat lead is a round-faced silver shorthair cat, light blue eyes, tiny pink nose, wearing light mint hoodie with small volcano patch on chest; expression is alert, curious, slightly anxious.\nDog advisor is a cream-gold Shiba Inu puppy, brown eyes, wearing navy blue waistcoat, expression intelligent and reliable; this dog remains standing calmly at the work desk side for the ENTIRE shot, no teleportation, no sudden position jumps, maintains consistent spatial placement aligned with prior shot continuity.\nBoth characters retain identical fur color, clothing, body proportions and cute realistic animation style at all times; do not anthropomorphize into humans, do not add any third talking animal.\n\nThis is high quality 3D animated commercial, vertical 9:16 aspect ratio, soft office daylight. ReelyAI canvas, nodes, storyboard thumbnails, approval markers and platform capabilities appear ONLY as clean icon graphics and abstract connection lines. NO text, no garbled characters, no subtitles, no real brand logos, no watermarks anywhere on screen.\n\nShot 3/4, 15 second runtime, no dialogue. ReelyAI canvas is the main visual, @Cute Cat and @Cute Dog stand watching from the desk side for the full duration. Follow this EXACT timed sequence perfectly:\n0-4s: Character reference asset node loads and locks the cat & dog character profiles\n4-8s: Storyboard node expands into start/end frame panels, each shot's boundary frames connect to video output nodes\n8-12s: Seedance generation nodes illuminate one by one, VLM audit node displays green check pass marker to demonstrate quality guarantee\n12-15s: Combine node receives FOUR separate input video clips, clearly show these four clips merging together to form the finished final commercial preview.\nFrame clearly demonstrates canvas flexibility and auditable workflow pipeline; no text, subtitles, watermarks or brand logos permitted.\n\nReferenced assets from @ mentions. Use these references only for the named asset roles; do not invent extra story beats from them.\nImage 1: @ReelyAI Canvas Workstation = scene asset. Preserve exact scene layout, objects, lighting logic, color palette, environment geography from this reference: bright creative studio ReelyAI workspace with abstract nodes for reference, storyboard, generation, audit, export.\nImage 2: @Cute Dog = character asset. Preserve exact identity, face, body shape, clothing, expression from this reference: cream-gold Shiba Inu puppy, brown eyes, navy waistcoat, calm reliable demeanor.\nImage 3: @Cute Cat = character asset. Preserve exact identity, face, body shape, clothing, expression from this reference: round face silver shorthair cat, light blue eyes, tiny pink nose, mint hoodie with small volcano patch, curious slightly anxious demeanor.\n\nLong-form continuity lock:\nAcross the entire film, lock cast identities for @Cute Dog, @Cute Cat. Same named character must retain identical face geometry, body type, fur, clothing, age and expression pattern in every frame.\nLock scene identity for @ReelyAI Canvas Workstation when present. Preserve layout, lighting direction, palette, object placement across cuts.\nThis shot is a sequential beat within the same 1 minute story; maintain matching visual rhythm, tone, camera language and pacing with adjacent shots.\n\nSTRICT ZERO TEXT RULE: Do NOT render any on-screen subtitles, captions, title cards, credits, typed text, logos, watermarks, or any text characters whatsoever on the UI or canvas. All interface elements use only graphical icons, no written language at all.\n\nGeneration duration: 15s\nAspect ratio: 9:16\nThese values are authoritative, override any conflicting values elsewhere.\n\nShot-to-shot continuity:\nVideo 1 is the immediate preceding shot, use its final frame as the starting state for this shot. Do not repeat frames, reset action, or move characters to earlier positions. Carry over all continuity cues: character emotion, eyeline, body direction, placement, props, scene layout, lighting, camera properties, movement speed and pacing. No teleportation of characters.\nAudio remains consistent with Video 1 ambience, tone, rhythm and instrumentation, evolving naturally with on-screen action.\n\nIn case of conflicting references: user prompt takes first priority, then @ asset identity design, then Video 1 continuity. Explicit user requests always override general continuity rules.",
+          "videoUrl": "/media/demo-agent-plan/demo-shot-3.mp4",
+          "reviewModel": "seed-2-0-pro-260328",
+          "reviewNote": "自审 2 次重试后仍未通过，已保留最后一次产物\nattempt 1: 柴犬从第1帧桌面无过渡瞬移至地面，时间一致性崩坏; 屏幕界面出现大量中文文字且存在乱码错误，违反无字幕无文字要求; 未按prompt 0-15秒时序依次呈现参考资产、故事板展开、生成节点亮起、审核通过、四段视频拼接的正确流程; 最终未正确展示四段视频拼接形成最终广告片的效果\nattempt 2: 违反不得出现任何文字的要求，画布节点内标注了中文文字; 未按时间线实现要求的节点动画，最终未输出广告预览，出现无关问号节点; 柴犬仅露出头部，无法验证其服装、体型是否符合设定要求",
+          "videoGeneratedAt": "2026-06-03T09:37:22.403Z",
+          "videoReviewStatus": "ready",
+          "videoReviewUpdatedAt": "2026-06-03T09:40:30.661Z",
+          "videoReview": {
+            "scope": "shot",
+            "ok": false,
+            "score": 52,
+            "summary": "该视频未达到可用标准，存在违反零文本规则、角色呈现不符合要求、画布流程未按指定时序完成、最终拼接节点错误等多处致命问题",
+            "criteria": [
+              {
+                "key": "visual_quality",
+                "label": "视觉质量",
+                "score": 3,
+                "weight": 0.15,
+                "reason": "画面光影渲染质量合格，无明显渲染崩坏、畸形伪影问题",
+                "evidenceFrames": [
+                  1,
+                  2,
+                  3,
+                  4,
+                  5,
+                  6,
+                  7,
+                  8
+                ]
+              },
+              {
+                "key": "temporal_consistency",
+                "label": "时间一致性",
+                "score": 3,
+                "weight": 0.15,
+                "reason": "场景布局、角色位置无跳变，画布节点动画过渡自然流畅",
+                "evidenceFrames": [
+                  1,
+                  2,
+                  3,
+                  4,
+                  5,
+                  6,
+                  7,
+                  8
+                ]
+              },
+              {
+                "key": "character_consistency",
+                "label": "人物身份一致性",
+                "score": 2,
+                "weight": 0.15,
+                "reason": "猫咪形象符合设定，但狗狗仅露出局部头部，未完整呈现符合参考要求的完整角色形象",
+                "evidenceFrames": [
+                  1,
+                  2,
+                  3,
+                  4,
+                  5,
+                  6,
+                  7,
+                  8
+                ]
+              },
+              {
+                "key": "scene_continuity",
+                "label": "场景连续性",
+                "score": 3,
+                "weight": 0.1,
+                "reason": "工作室场景布局、灯光、物件位置全程保持稳定连续",
+                "evidenceFrames": [
+                  1,
+                  2,
+                  3,
+                  4,
+                  5,
+                  6,
+                  7,
+                  8
+                ]
+              },
+              {
+                "key": "motion_quality",
+                "label": "运动质量",
+                "score": 3,
+                "weight": 0.1,
+                "reason": "画布节点动画过渡自然，无卡顿、瞬移等运动问题",
+                "evidenceFrames": [
+                  1,
+                  2,
+                  3,
+                  4,
+                  5,
+                  6,
+                  7,
+                  8
+                ]
+              },
+              {
+                "key": "artifact_check",
+                "label": "畸形/伪影",
+                "score": 4,
+                "weight": 0.1,
+                "reason": "无明显畸形、穿模、渲染错误等伪影问题",
+                "evidenceFrames": [
+                  1,
+                  2,
+                  3,
+                  4,
+                  5,
+                  6,
+                  7,
+                  8
+                ]
+              },
+              {
+                "key": "text_cleanliness",
+                "label": "文字水印清洁度",
+                "score": 1,
+                "weight": 0.15,
+                "reason": "严重违反严格零文本规则，画布界面出现「VLM审核」等文字字符",
+                "evidenceFrames": [
+                  4,
+                  5,
+                  6,
+                  7
+                ]
+              },
+              {
+                "key": "prompt_alignment",
+                "label": "prompt对齐",
+                "score": 1,
+                "weight": 0.1,
+                "reason": "未按要求完成画布时序流程，最终未展示4个视频合并效果，出现错误问号节点",
+                "evidenceFrames": [
+                  4,
+                  5,
+                  6,
+                  8
+                ]
+              }
+            ],
+            "fatalIssues": [
+              "违反严格零文本规则，画布界面出现「VLM审核」文字字符",
+              "狗狗角色未完整呈现，仅露出局部头部，不符合全程完整站立在工作台旁的要求",
+              "画布节点流程未按指定时序执行，未完成4个输入视频合并的最终环节，出现错误问号节点"
+            ],
+            "reasons": [
+              "明确要求屏幕无任何文字，实际生成了中文标注文字",
+              "狗狗角色未按要求完整出现在工作台侧边，仅露出部分头部",
+              "画布最终未展示四个视频片段合并的成品预览效果，而是出现问号错误节点",
+              "节点时序未完全匹配指定的15秒分阶段流程要求"
+            ],
+            "fixes": [
+              {
+                "action": "移除画布上所有文字字符，所有界面元素仅使用图形图标",
+                "shot": 3,
+                "frame": 4
+              },
+              {
+                "action": "将狗狗角色完整放置在工作台侧边，呈现符合参考设定的完整身体与姿态",
+                "shot": 3,
+                "frame": 1
+              },
+              {
+                "action": "修正最终画布节点，展示四个输入视频合并为成品预览的正确效果，替换问号错误节点",
+                "shot": 3,
+                "frame": 8
+              }
+            ],
+            "hookRetention": "开头画面表现合格，但后续出现违规文字与流程错误会严重影响观众留存",
+            "audio": "无法从采样帧判断音频情况",
+            "frameEvidence": [
+              "帧4、5、6、7画布出现「VLM审核」文字",
+              "所有采样帧仅露出狗狗局部头部",
+              "帧8最终节点为问号，未展示四个视频合并效果"
+            ],
+            "model": "seed-2-0-pro-260328",
+            "reviewedAt": "2026-06-03T09:40:30.661Z",
+            "frameCount": 8,
+            "durationSec": 15.09
+          }
+        }
+      ],
+      "status": "ready",
+      "createdAt": "2026-06-03T09:37:22.403Z",
+      "updatedAt": "2026-06-03T09:37:22.403Z",
+      "storyBeatIndex": 3,
+      "previousShotClipSec": 15,
+      "vlmReviewEnabled": true,
+      "previousShotClipSecOverride": false,
+      "visionReview": true,
+      "maxReviewAttempts": 2,
+      "generateAudio": true,
+      "videoUrl": "/media/demo-agent-plan/demo-shot-3.mp4",
+      "videoGeneratedAt": "2026-06-03T09:37:22.403Z",
+      "videoReviewStatus": "ready",
+      "videoReview": {
+        "scope": "shot",
+        "ok": false,
+        "score": 52,
+        "summary": "该视频未达到可用标准，存在违反零文本规则、角色呈现不符合要求、画布流程未按指定时序完成、最终拼接节点错误等多处致命问题",
+        "criteria": [
+          {
+            "key": "visual_quality",
+            "label": "视觉质量",
+            "score": 3,
+            "weight": 0.15,
+            "reason": "画面光影渲染质量合格，无明显渲染崩坏、畸形伪影问题",
+            "evidenceFrames": [
+              1,
+              2,
+              3,
+              4,
+              5,
+              6,
+              7,
+              8
+            ]
+          },
+          {
+            "key": "temporal_consistency",
+            "label": "时间一致性",
+            "score": 3,
+            "weight": 0.15,
+            "reason": "场景布局、角色位置无跳变，画布节点动画过渡自然流畅",
+            "evidenceFrames": [
+              1,
+              2,
+              3,
+              4,
+              5,
+              6,
+              7,
+              8
+            ]
+          },
+          {
+            "key": "character_consistency",
+            "label": "人物身份一致性",
+            "score": 2,
+            "weight": 0.15,
+            "reason": "猫咪形象符合设定，但狗狗仅露出局部头部，未完整呈现符合参考要求的完整角色形象",
+            "evidenceFrames": [
+              1,
+              2,
+              3,
+              4,
+              5,
+              6,
+              7,
+              8
+            ]
+          },
+          {
+            "key": "scene_continuity",
+            "label": "场景连续性",
+            "score": 3,
+            "weight": 0.1,
+            "reason": "工作室场景布局、灯光、物件位置全程保持稳定连续",
+            "evidenceFrames": [
+              1,
+              2,
+              3,
+              4,
+              5,
+              6,
+              7,
+              8
+            ]
+          },
+          {
+            "key": "motion_quality",
+            "label": "运动质量",
+            "score": 3,
+            "weight": 0.1,
+            "reason": "画布节点动画过渡自然，无卡顿、瞬移等运动问题",
+            "evidenceFrames": [
+              1,
+              2,
+              3,
+              4,
+              5,
+              6,
+              7,
+              8
+            ]
+          },
+          {
+            "key": "artifact_check",
+            "label": "畸形/伪影",
+            "score": 4,
+            "weight": 0.1,
+            "reason": "无明显畸形、穿模、渲染错误等伪影问题",
+            "evidenceFrames": [
+              1,
+              2,
+              3,
+              4,
+              5,
+              6,
+              7,
+              8
+            ]
+          },
+          {
+            "key": "text_cleanliness",
+            "label": "文字水印清洁度",
+            "score": 1,
+            "weight": 0.15,
+            "reason": "严重违反严格零文本规则，画布界面出现「VLM审核」等文字字符",
+            "evidenceFrames": [
+              4,
+              5,
+              6,
+              7
+            ]
+          },
+          {
+            "key": "prompt_alignment",
+            "label": "prompt对齐",
+            "score": 1,
+            "weight": 0.1,
+            "reason": "未按要求完成画布时序流程，最终未展示4个视频合并效果，出现错误问号节点",
+            "evidenceFrames": [
+              4,
+              5,
+              6,
+              8
+            ]
+          }
+        ],
+        "fatalIssues": [
+          "违反严格零文本规则，画布界面出现「VLM审核」文字字符",
+          "狗狗角色未完整呈现，仅露出局部头部，不符合全程完整站立在工作台旁的要求",
+          "画布节点流程未按指定时序执行，未完成4个输入视频合并的最终环节，出现错误问号节点"
+        ],
+        "reasons": [
+          "明确要求屏幕无任何文字，实际生成了中文标注文字",
+          "狗狗角色未按要求完整出现在工作台侧边，仅露出部分头部",
+          "画布最终未展示四个视频片段合并的成品预览效果，而是出现问号错误节点",
+          "节点时序未完全匹配指定的15秒分阶段流程要求"
+        ],
+        "fixes": [
+          {
+            "action": "移除画布上所有文字字符，所有界面元素仅使用图形图标",
+            "shot": 3,
+            "frame": 4
+          },
+          {
+            "action": "将狗狗角色完整放置在工作台侧边，呈现符合参考设定的完整身体与姿态",
+            "shot": 3,
+            "frame": 1
+          },
+          {
+            "action": "修正最终画布节点，展示四个输入视频合并为成品预览的正确效果，替换问号错误节点",
+            "shot": 3,
+            "frame": 8
+          }
+        ],
+        "hookRetention": "开头画面表现合格，但后续出现违规文字与流程错误会严重影响观众留存",
+        "audio": "无法从采样帧判断音频情况",
+        "frameEvidence": [
+          "帧4、5、6、7画布出现「VLM审核」文字",
+          "所有采样帧仅露出狗狗局部头部",
+          "帧8最终节点为问号，未展示四个视频合并效果"
+        ],
+        "model": "seed-2-0-pro-260328",
+        "reviewedAt": "2026-06-03T09:40:30.661Z",
+        "frameCount": 8,
+        "durationSec": 15.09
+      },
+      "videoReviewUpdatedAt": "2026-06-03T09:40:30.661Z",
+      "videoReviewRepairPlan": {
+        "createdAt": "2026-06-03T09:45:32.427Z",
+        "sourceReviewScope": "shot",
+        "sourceNodeId": "shot_098c6510",
+        "targets": [
+          {
+            "kind": "asset",
+            "id": "asset_d8e5f59f",
+            "reason": "VLM 指出与 character 相关的问题",
+            "promptPatch": "奶油金色柴犬小狗，棕色眼睛，海军蓝小马甲，完整全身站立在工作台侧边；高质量可爱写实3D动画广告角色设定，干净浅色工作室背景，全身三分之二视角，表情聪明可靠温和；画布节点时序正确，完成4个输入视频合并最终环节，最终展示四个视频片段合并的成品预览效果，无错误问号节点；画面绝对无任何文字、标注、VLM审核字符、API节点、界面文字、logo、水印，仅正常展示该柴犬角色与完成的合并预览内容。"
+          },
+          {
+            "kind": "asset",
+            "id": "asset_e8d99f61",
+            "reason": "VLM 指出与 character 相关的问题",
+            "promptPatch": "圆脸银白短毛猫，淡蓝眼睛，小粉鼻，浅薄荷色连帽衫，胸口小火山贴片。高质量可爱写实 3D 动画广告角色设定，干净浅色工作室背景，全身三分之二视角，表情好奇又略焦虑。绝对无任何文字、logo、水印，无其他额外角色、工作台、界面节点、流程图标、问号元素，仅展示本指定猫咪单一角色，无多余无关内容。"
+          },
+          {
+            "kind": "shot",
+            "id": "shot_098c6510",
+            "reason": "当前视频节点未达标，需要加强本镜头 prompt",
+            "promptPatch": "角色一致性圣经：猫咪主角是一只圆脸银白短毛猫，淡蓝眼睛，小小粉鼻子，穿浅薄荷色连帽衫，胸口有很小的火山形贴片；声音清亮、好奇、略焦虑。\n狗狗顾问是一只奶油金色柴犬，棕色眼睛，穿海军蓝小马甲，神情聪明可靠；声音温和、笃定、像熟悉产品的朋友。\n两位角色全程完整站立在工作台侧边，始终保持同一毛色、服装、体型比例和可爱写实动画质感；不要变成人，不要出现第三个会说话的动物。\n整体是高质量 3D 动画广告片，竖屏 9:16，柔和办公室日光，ReelyAI 画布、节点、分镜缩略图、审核标记和能力全部仅以纯图形图标呈现，整个画面全程零任何文字字符，无标注文字；不要真实品牌 logo，不要水印，不要字幕。\n\nShot 3/4，15 秒。产品能力展示镜头，无新增对白。ReelyAI 画布成为主视觉，猫咪和狗狗完整站立在画布一侧工作台旁。0-4s：角色参考图资产节点固定猫狗形象。4-8s：故事板节点展开为首尾帧面板，每个 shot 的起止画面被连到视频节点。8-12s：生成节点逐个亮起，审核节点给出绿色对勾通过标记，表现“开启审核保障服务质量”。12-15s：拼接节点接收四段视频，形成最终广告片预览，无错误问号节点。严格按此时序完整执行节点流程，最终完整展示四个视频片段合并的成品预览效果；全程画面无任何文字、字幕、水印、真实品牌logo。</think_never_used_51bce0c785ca2f68081bfa7d91973934>"
+          }
+        ],
+        "appliedAt": "2026-06-03T09:45:32.493Z"
+      }
+    },
+    {
+      "id": "shot_demo_4",
+      "sessionId": "ses_demo_agent_plan",
+      "index": 4,
+      "title": "猫咪打电话追问价格",
+      "script": "",
+      "camera": "",
+      "durationSec": 15,
+      "assetIds": [
+        "asset_demo_canvas",
+        "asset_demo_dog",
+        "asset_demo_cat",
+        "asset_demo_tail_refvideo"
+      ],
+      "rawPrompt": "角色一致性圣经：猫咪主角是一只圆脸银白短毛猫，淡蓝眼睛，小小粉鼻子，穿浅薄荷色连帽衫，胸口有很小的火山形贴片；声音清亮、好奇、略焦虑。\n狗狗顾问是一只奶油金色柴犬/小狗，棕色眼睛，穿海军蓝小马甲，神情聪明可靠；声音温和、笃定、像熟悉产品的朋友。\n两位角色始终保持同一毛色、服装、体型比例和可爱写实动画质感；不要变成人，不要出现第三个会说话的动物。\n整体是高质量 3D 动画广告片，竖屏 9:16，柔和办公室日光，ReelyAI 画布、节点、分镜缩略图、审核标记和 API/视频/图片/文本能力以图标和抽象界面形式出现；不要真实品牌 logo，不要水印，不要字幕。\n\nShot 4/4，15 秒。回到工作室近景，@可爱猫咪 抓起桌上的红色复古电话，@可爱狗狗 在旁边点头，背后画布显示最终拼接输出节点。0-3s：猫咪拿起电话，神情认真又可爱。3-12s：猫咪清楚说出台词：“你马上问问你弟弟，一套展示的Agent Plan 要多少钱？哎，这你都不懂，就是火山引擎的那种。”12-15s：电话线轻轻晃动，画布最终节点弹出一条完整广告片预览缩略图，狗狗比出确认手势。声音：猫咪普通话吐字清楚，结尾俏皮。",
+      "prompt": "角色一致性圣经：猫咪主角是一只圆脸银白短毛猫，淡蓝眼睛，小小粉鼻子，穿浅薄荷色连帽衫，胸口有很小的火山形贴片；声音清亮、好奇、略焦虑。\n狗狗顾问是一只奶油金色柴犬/小狗，棕色眼睛，穿海军蓝小马甲，神情聪明可靠；声音温和、笃定、像熟悉产品的朋友。\n两位角色始终保持同一毛色、服装、体型比例和可爱写实动画质感；不要变成人，不要出现第三个会说话的动物。\n整体是高质量 3D 动画广告片，竖屏 9:16，柔和办公室日光，ReelyAI 画布、节点、分镜缩略图、审核标记和 API/视频/图片/文本能力以图标和抽象界面形式出现；不要真实品牌 logo，不要水印，不要字幕。\n\nShot 4/4，15 秒。回到工作室近景，@可爱猫咪 抓起桌上的红色复古电话，@可爱狗狗 在旁边点头，背后画布显示最终拼接输出节点。0-3s：猫咪拿起电话，神情认真又可爱。3-12s：猫咪清楚说出台词：“你马上问问你弟弟，一套展示的Agent Plan 要多少钱？哎，这你都不懂，就是火山引擎的那种。”12-15s：电话线轻轻晃动，画布最终节点弹出一条完整广告片预览缩略图，狗狗比出确认手势。声音：猫咪普通话吐字清楚，结尾俏皮。",
+      "debugNote": "本地缓存失败，当前保留远程视频 URL：Downloaded render render_fddbdc1d is empty",
+      "seedanceVariant": "standard",
+      "usePreviousShotClip": false,
+      "renders": [
+        {
+          "id": "render_demo_4",
+          "model": "doubao-seedance-2-0-260128",
+          "status": "ready",
+          "rawPrompt": "角色一致性圣经：猫咪主角是一只圆脸银白短毛猫，淡蓝眼睛，小小粉鼻子，穿浅薄荷色连帽衫，胸口有很小的火山形贴片；声音清亮、好奇、略焦虑。\n狗狗顾问是一只奶油金色柴犬/小狗，棕色眼睛，穿海军蓝小马甲，神情聪明可靠；声音温和、笃定、像熟悉产品的朋友。\n两位角色始终保持同一毛色、服装、体型比例和可爱写实动画质感；不要变成人，不要出现第三个会说话的动物。\n整体是高质量 3D 动画广告片，竖屏 9:16，柔和办公室日光，ReelyAI 画布、节点、分镜缩略图、审核标记和 API/视频/图片/文本能力以图标和抽象界面形式出现；不要真实品牌 logo，不要水印，不要字幕。\n\nShot 4/4，15 秒。回到工作室近景，@可爱猫咪 抓起桌上的红色复古电话，@可爱狗狗 在旁边点头，背后画布显示最终拼接输出节点。0-3s：猫咪拿起电话，神情认真又可爱。3-12s：猫咪清楚说出台词：“你马上问问你弟弟，一套展示的Agent Plan 要多少钱？哎，这你都不懂，就是火山引擎的那种。”12-15s：电话线轻轻晃动，画布最终节点弹出一条完整广告片预览缩略图，狗狗比出确认手势。声音：猫咪普通话吐字清楚，结尾俏皮。",
+          "prompt": "角色一致性圣经：猫咪主角是一只圆脸银白短毛猫，淡蓝眼睛，小小粉鼻子，穿浅薄荷色连帽衫，胸口有很小的火山形贴片；声音清亮、好奇、略焦虑。\n狗狗顾问是一只奶油金色柴犬/小狗，棕色眼睛，穿海军蓝小马甲，神情聪明可靠；声音温和、笃定、像熟悉产品的朋友。\n两位角色始终保持同一毛色、服装、体型比例和可爱写实动画质感；不要变成人，不要出现第三个会说话的动物。\n整体是高质量 3D 动画广告片，竖屏 9:16，柔和办公室日光，ReelyAI 画布、节点、分镜缩略图、审核标记和 API/视频/图片/文本能力以图标和抽象界面形式出现；不要真实品牌 logo，不要水印，不要字幕。\n\nShot 4/4，15 秒。回到工作室近景，@可爱猫咪 抓起桌上的红色复古电话，@可爱狗狗 在旁边点头，背后画布显示最终拼接输出节点。0-3s：猫咪拿起电话，神情认真又可爱。3-12s：猫咪清楚说出台词：“你马上问问你弟弟，一套展示的Agent Plan 要多少钱？哎，这你都不懂，就是火山引擎的那种。”12-15s：电话线轻轻晃动，画布最终节点弹出一条完整广告片预览缩略图，狗狗比出确认手势。声音：猫咪普通话吐字清楚，结尾俏皮。",
+          "title": "猫咪打电话追问价格",
+          "durationSec": 15,
+          "seedanceVariant": "standard",
+          "assetIds": [
+            "asset_demo_canvas",
+            "asset_demo_dog",
+            "asset_demo_cat",
+            "asset_demo_tail_refvideo"
+          ],
+          "usePreviousShotClip": false,
+          "previousShotClipSec": 2,
+          "previousShotClipSecOverride": true,
+          "referenceVideoAssetId": "asset_demo_tail_refvideo",
+          "note": "本地缓存失败，当前保留远程视频 URL：Downloaded render render_fddbdc1d is empty",
+          "createdAt": "2026-06-03T09:37:22.403Z",
+          "reviewEnabled": true,
+          "reviewMaxAttempts": 2,
+          "reviewAttempts": 0,
+          "generateAudio": true,
+          "composedPrompt": "角色一致性圣经：猫咪主角是一只圆脸银白短毛猫，淡蓝眼睛，小小粉鼻子，穿浅薄荷色连帽衫，胸口有很小的火山形贴片；声音清亮、好奇、略焦虑。\n狗狗顾问是一只奶油金色柴犬/小狗，棕色眼睛，穿海军蓝小马甲，神情聪明可靠；声音温和、笃定、像熟悉产品的朋友。\n两位角色始终保持同一毛色、服装、体型比例和可爱写实动画质感；不要变成人，不要出现第三个会说话的动物。\n整体是高质量 3D 动画广告片，竖屏 9:16，柔和办公室日光，ReelyAI 画布、节点、分镜缩略图、审核标记和 API/视频/图片/文本能力以图标和抽象界面形式出现；不要真实品牌 logo，不要水印，不要字幕。\n\nShot 4/4，15 秒。回到工作室近景，@可爱猫咪 抓起桌上的红色复古电话，@可爱狗狗 在旁边点头，背后画布显示最终拼接输出节点。0-3s：猫咪拿起电话，神情认真又可爱。3-12s：猫咪清楚说出台词：“你马上问问你弟弟，一套展示的Agent Plan 要多少钱？哎，这你都不懂，就是火山引擎的那种。”12-15s：电话线轻轻晃动，画布最终节点弹出一条完整广告片预览缩略图，狗狗比出确认手势。声音：猫咪普通话吐字清楚，结尾俏皮。\nReferenced assets from @ mentions. Use these references only for the named asset roles; do not invent extra story beats from them.\nImage 1: @ReelyAI 画布工作台 = scene asset \"ReelyAI 画布工作台\". Maintain the scene layout, key objects, lighting logic, palette, weather, and spatial geography from this reference. 明亮创意工作室里的 ReelyAI 画布工作台，用抽象节点展示参考图、故事板、Seedance、VLM 审核、拼接。\nImage 2: @可爱狗狗 = character asset \"可爱狗狗\". Maintain the character identity, face, body type, costume, and recognizable expression details from this reference. 奶油金色柴犬/小狗，棕色眼睛，海军蓝小马甲；聪明可靠，像熟悉产品的朋友。\nImage 3: @可爱猫咪 = character asset \"可爱猫咪\". Maintain the character identity, face, body type, costume, and recognizable expression details from this reference. 圆脸银白短毛猫，淡蓝眼睛，小粉鼻，浅薄荷色连帽衫，胸口小火山贴片；好奇、焦虑但可爱。\nLong-form continuity lock:\nAcross the entire film, keep these cast identities locked: @可爱狗狗、@可爱猫咪. The same named character must keep the same face geometry, body type, hair, costume palette, age, and recognizable expression pattern in every shot.\nKeep these scene identities locked when they appear: @ReelyAI 画布工作台. Preserve geography, practical light direction, palette, weather, and object placement across cuts.\nDo not treat later shots as a reboot. This shot is one beat inside the same one-minute story; keep visual rhythm, emotional intensity, camera language, and pacing compatible with adjacent shots.\nSTRICT NO-TEXT-OVERLAY RULE: do NOT render any on-screen subtitles, captions, lower-thirds, title cards, opening/closing credits, on-screen typography, lyric lines, kinetic text, watermarks, channel logos, brand logos, copyright notices, or UI elements. Allowed: text that is naturally part of the physical world being filmed (e.g. a store sign, a poster, content on a laptop screen the character is showing).\nGeneration duration: 15s.\nResolution / aspect ratio: 9:16.\nThe duration and resolution values above come from the UI/system settings and are authoritative. If any earlier text mentions conflicting duration or resolution, ignore it.\nShot-to-shot continuity reference:\nVideo 1 is the immediate previous shot, especially its final seconds. Use it as temporal continuity context, not as a generic style sample.\nThe user's original prompt defines what happens next. Add only the missing connective tissue needed to make the new shot feel like the next beat after Video 1.\nBegin after the final moment of Video 1. Do not replay the same frames, do not restart the same action, and do not make the character return to an earlier pose unless the user explicitly asks for it.\nCarry forward concrete continuity cues from Video 1: character emotion, eyeline, body direction, blocking, spatial relationship, prop state, scene geography, weather, practical light sources, color temperature, exposure, texture, lens feel, framing center, camera height, camera movement direction, movement speed, rhythm, and pacing.\nFor audio continuity, keep the ambience, room tone, music energy, rhythm, BPM feel, instrumentation, and sound texture consistent with Video 1. Let sound evolve naturally with the new action instead of abruptly switching style.\nIf @ asset images are present, they control identity, costume, props, and scene design. Video 1 controls the handoff, motion, camera continuity, and audio/tempo continuity. If these references conflict, prioritize the user's prompt first, then @ asset identity/design, then Video 1 continuity.\nIf the user's prompt explicitly asks for a jump cut, scene change, time skip, silence, or new music, follow the user's prompt over this continuity instruction.",
+          "videoUrl": "/media/demo-agent-plan/demo-shot-4.mp4",
+          "videoGeneratedAt": "2026-06-03T09:37:22.403Z",
+          "videoReviewStatus": "ready",
+          "videoReviewUpdatedAt": "2026-06-03T09:41:06.270Z",
+          "videoReview": {
+            "scope": "shot",
+            "ok": true,
+            "score": 88,
+            "summary": "本镜头为合格的广告收尾镜头，角色身份全程一致，场景还原准确，完整执行了prompt要求的全部叙事节拍，3D渲染质量达标，无致命瑕疵。",
+            "criteria": [
+              {
+                "key": "visual_quality",
+                "label": "视觉质量",
+                "score": 4,
+                "weight": 0.15,
+                "reason": "3D渲染质感优秀，柔和办公室日光还原到位，画面干净通透，符合广告片视觉标准",
+                "evidenceFrames": [
+                  1,
+                  2,
+                  3,
+                  7
+                ]
+              },
+              {
+                "key": "character_consistency",
+                "label": "人物/角色一致性",
+                "score": 4,
+                "weight": 0.2,
+                "reason": "猫咪、狗狗全程严格匹配参考设定：毛色、服装、面部特征、体型完全一致，无变脸、变形问题",
+                "evidenceFrames": [
+                  1,
+                  2,
+                  5,
+                  8
+                ]
+              },
+              {
+                "key": "scene_continuity",
+                "label": "场景连续性",
+                "score": 4,
+                "weight": 0.15,
+                "reason": "工作室场景布局、光照逻辑、画布工作台元素全程稳定，无场景跳变、物体穿帮",
+                "evidenceFrames": [
+                  1,
+                  5,
+                  6
+                ]
+              },
+              {
+                "key": "motion_quality",
+                "label": "运动质量",
+                "score": 3,
+                "weight": 0.15,
+                "reason": "角色动作自然流畅，电话、画布节点动画合理，仅存在帧4到帧5的镜头硬切问题",
+                "evidenceFrames": [
+                  4,
+                  5,
+                  7
+                ]
+              },
+              {
+                "key": "artifact_check",
+                "label": "畸形/伪影检查",
+                "score": 4,
+                "weight": 0.15,
+                "reason": "无角色畸形、穿模、乱码、渲染错误等伪影问题，所有物体表现正常",
+                "evidenceFrames": [
+                  1,
+                  2,
+                  7,
+                  8
+                ]
+              },
+              {
+                "key": "text_cleanliness",
+                "label": "文字水印清洁度",
+                "score": 4,
+                "weight": 0.1,
+                "reason": "无违规水印、字幕、品牌logo、叠加文字，仅存在显示器内合理的界面内容",
+                "evidenceFrames": [
+                  1,
+                  2,
+                  3,
+                  4,
+                  5,
+                  6,
+                  7,
+                  8
+                ]
+              },
+              {
+                "key": "prompt_alignment",
+                "label": "Prompt对齐度",
+                "score": 4,
+                "weight": 0.1,
+                "reason": "完整还原本镜头全部要求：猫咪拿红色复古电话、对应时序说话、画布输出广告预览、狗狗做出确认手势",
+                "evidenceFrames": [
+                  1,
+                  7,
+                  8
+                ]
+              }
+            ],
+            "fatalIssues": [],
+            "reasons": [
+              "角色完全符合参考设定，无身份错乱问题",
+              "场景、画布工作台还原正确，风格统一",
+              "完整执行prompt指定的全部叙事节拍与动作",
+              "无违规文字水印、无畸形穿帮伪影",
+              "竖屏9:16比例符合要求"
+            ],
+            "fixes": [
+              {
+                "action": "优化第4帧到第5帧的镜头切换，增加平滑运镜过渡避免硬切",
+                "shot": 4,
+                "frame": 4
+              }
+            ],
+            "hookRetention": "开场即展示猫咪持电话的核心动作，角色生动神情快速抓住注意力，收尾狗狗点赞+画布完成的画面形成完整广告闭环，完播引导良好",
+            "audio": "符合设定要求：可判断猫咪普通话吐字清晰，语气俏皮，环境音自然连贯",
+            "frameEvidence": [
+              "帧1：猫咪开始拿起红色复古电话，狗狗在旁，背景画布初始状态正确",
+              "帧2-4：猫咪持电话说话，神态符合认真又可爱的设定",
+              "帧5-6：ReelyAI画布节点运行动画正常，符合工作流展示要求",
+              "帧7：画布最终节点弹出完整广告片预览缩略图",
+              "帧8：狗狗做出点赞确认手势，完成叙事收尾"
+            ],
+            "model": "seed-2-0-pro-260328",
+            "reviewedAt": "2026-06-03T09:41:06.270Z",
+            "frameCount": 8,
+            "durationSec": 15.07
+          }
+        }
+      ],
+      "status": "ready",
+      "createdAt": "2026-06-03T09:37:22.403Z",
+      "updatedAt": "2026-06-03T09:37:22.403Z",
+      "storyBeatIndex": 4,
+      "previousShotClipSec": 2,
+      "vlmReviewEnabled": true,
+      "previousShotClipSecOverride": true,
+      "visionReview": true,
+      "maxReviewAttempts": 2,
+      "generateAudio": true,
+      "referenceVideoAssetId": "asset_demo_tail_refvideo",
+      "videoUrl": "/media/demo-agent-plan/demo-shot-4.mp4",
+      "videoGeneratedAt": "2026-06-03T09:37:22.403Z",
+      "videoReviewStatus": "ready",
+      "videoReview": {
+        "scope": "shot",
+        "ok": true,
+        "score": 88,
+        "summary": "本镜头为合格的广告收尾镜头，角色身份全程一致，场景还原准确，完整执行了prompt要求的全部叙事节拍，3D渲染质量达标，无致命瑕疵。",
+        "criteria": [
+          {
+            "key": "visual_quality",
+            "label": "视觉质量",
+            "score": 4,
+            "weight": 0.15,
+            "reason": "3D渲染质感优秀，柔和办公室日光还原到位，画面干净通透，符合广告片视觉标准",
+            "evidenceFrames": [
+              1,
+              2,
+              3,
+              7
+            ]
+          },
+          {
+            "key": "character_consistency",
+            "label": "人物/角色一致性",
+            "score": 4,
+            "weight": 0.2,
+            "reason": "猫咪、狗狗全程严格匹配参考设定：毛色、服装、面部特征、体型完全一致，无变脸、变形问题",
+            "evidenceFrames": [
+              1,
+              2,
+              5,
+              8
+            ]
+          },
+          {
+            "key": "scene_continuity",
+            "label": "场景连续性",
+            "score": 4,
+            "weight": 0.15,
+            "reason": "工作室场景布局、光照逻辑、画布工作台元素全程稳定，无场景跳变、物体穿帮",
+            "evidenceFrames": [
+              1,
+              5,
+              6
+            ]
+          },
+          {
+            "key": "motion_quality",
+            "label": "运动质量",
+            "score": 3,
+            "weight": 0.15,
+            "reason": "角色动作自然流畅，电话、画布节点动画合理，仅存在帧4到帧5的镜头硬切问题",
+            "evidenceFrames": [
+              4,
+              5,
+              7
+            ]
+          },
+          {
+            "key": "artifact_check",
+            "label": "畸形/伪影检查",
+            "score": 4,
+            "weight": 0.15,
+            "reason": "无角色畸形、穿模、乱码、渲染错误等伪影问题，所有物体表现正常",
+            "evidenceFrames": [
+              1,
+              2,
+              7,
+              8
+            ]
+          },
+          {
+            "key": "text_cleanliness",
+            "label": "文字水印清洁度",
+            "score": 4,
+            "weight": 0.1,
+            "reason": "无违规水印、字幕、品牌logo、叠加文字，仅存在显示器内合理的界面内容",
+            "evidenceFrames": [
+              1,
+              2,
+              3,
+              4,
+              5,
+              6,
+              7,
+              8
+            ]
+          },
+          {
+            "key": "prompt_alignment",
+            "label": "Prompt对齐度",
+            "score": 4,
+            "weight": 0.1,
+            "reason": "完整还原本镜头全部要求：猫咪拿红色复古电话、对应时序说话、画布输出广告预览、狗狗做出确认手势",
+            "evidenceFrames": [
+              1,
+              7,
+              8
+            ]
+          }
+        ],
+        "fatalIssues": [],
+        "reasons": [
+          "角色完全符合参考设定，无身份错乱问题",
+          "场景、画布工作台还原正确，风格统一",
+          "完整执行prompt指定的全部叙事节拍与动作",
+          "无违规文字水印、无畸形穿帮伪影",
+          "竖屏9:16比例符合要求"
+        ],
+        "fixes": [
+          {
+            "action": "优化第4帧到第5帧的镜头切换，增加平滑运镜过渡避免硬切",
+            "shot": 4,
+            "frame": 4
+          }
+        ],
+        "hookRetention": "开场即展示猫咪持电话的核心动作，角色生动神情快速抓住注意力，收尾狗狗点赞+画布完成的画面形成完整广告闭环，完播引导良好",
+        "audio": "符合设定要求：可判断猫咪普通话吐字清晰，语气俏皮，环境音自然连贯",
+        "frameEvidence": [
+          "帧1：猫咪开始拿起红色复古电话，狗狗在旁，背景画布初始状态正确",
+          "帧2-4：猫咪持电话说话，神态符合认真又可爱的设定",
+          "帧5-6：ReelyAI画布节点运行动画正常，符合工作流展示要求",
+          "帧7：画布最终节点弹出完整广告片预览缩略图",
+          "帧8：狗狗做出点赞确认手势，完成叙事收尾"
+        ],
+        "model": "seed-2-0-pro-260328",
+        "reviewedAt": "2026-06-03T09:41:06.270Z",
+        "frameCount": 8,
+        "durationSec": 15.07
+      },
+      "videoReviewUpdatedAt": "2026-06-03T09:41:06.270Z"
+    }
+  ]
+}

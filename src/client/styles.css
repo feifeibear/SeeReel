@@ -3145,7 +3145,6 @@ label {
   inset: 0;
   pointer-events: none;
 }
-.flow-canvas-dblclick-trap * { pointer-events: auto; }
 
 /* Discoverability hint pinned to bottom-center of the canvas. Does not block clicks; fades after
    first user interaction so it doesn't permanently steal screen real-estate. */
@@ -3422,22 +3421,18 @@ label {
   font-size: 12px;
 }
 
-/* Clickable wrapper around the in-node video thumbnail. The wrapper hosts the <video>/<img> +
-   a small ▶ overlay so it's obvious you can click it. Hover state lifts the overlay color and
-   draws a faint outline around the whole thumb. Pure CSS — pointer-events stay on the wrapper. */
+/* In-node video/image thumbnail preview. Node clicks bubble up to React Flow and open the
+   Inspector; only the bottom-right ▶ button plays video in the Lightbox. */
+.flow-thumb-preview,
 .flow-thumb-clickable {
   position: relative;
   width: 100%;
   height: 100%;
-  cursor: pointer;
   border-radius: 6px;
   overflow: hidden;
-  outline: 1px solid transparent;
-  transition: outline-color 120ms ease;
 }
-.flow-thumb-clickable:hover {
-  outline-color: rgba(96, 165, 250, 0.6);
-}
+.flow-thumb-preview > video,
+.flow-thumb-preview > img,
 .flow-thumb-clickable > video,
 .flow-thumb-clickable > img {
   width: 100%;
@@ -3445,7 +3440,9 @@ label {
   object-fit: contain;
   background: #0b1220;
   display: block;
+  pointer-events: none;
 }
+.flow-thumb-preview > .flow-empty,
 .flow-thumb-clickable > .flow-empty {
   width: 100%;
   height: 100%;
@@ -3458,15 +3455,17 @@ label {
   height: 28px;
   display: grid;
   place-items: center;
+  border: none;
   border-radius: 50%;
   background: rgba(0, 0, 0, 0.6);
   color: #fff;
   font-size: 12px;
-  pointer-events: none;
-  opacity: 0.7;
-  transition: opacity 120ms ease, transform 120ms ease;
+  cursor: pointer;
+  opacity: 0.85;
+  transition: opacity 120ms ease, transform 120ms ease, background 120ms ease;
+  z-index: 2;
 }
-.flow-thumb-clickable:hover .flow-thumb-play {
+.flow-thumb-play:hover {
   opacity: 1;
   transform: scale(1.06);
   background: rgba(96, 165, 250, 0.9);
@@ -3484,6 +3483,9 @@ label {
   border: 2px solid #0b0f17 !important;
   box-shadow: 0 0 0 1px rgba(251, 191, 36, 0.45);
   transition: transform 120ms ease, box-shadow 120ms ease, background 120ms ease;
+  /* xyflow disables handle pointer events until its hover state flips. On a fresh handle that makes
+     the first drag easy to miss; keep the enlarged hit target active so one drag is enough. */
+  pointer-events: all !important;
   z-index: 5;
 }
 .react-flow__handle::before {

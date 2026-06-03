@@ -24,7 +24,7 @@
 
 ReelyAI lets you create a short video by talking to an agent in **Codex, Claude Code, Cursor Agent, or any AGENTS.md-compatible runtime**. The agent turns your creative instruction into a visible canvas workflow: character and scene assets, storyboard boards, Seedance video nodes, review nodes, stitch jobs, and the final downloadable cut.
 
-**ReelyAI is built to showcase [Volcengine Agent Plan](https://www.volcengine.com/docs/82379/2366394?lang=zh).** One Agent Plan subscription can fuel the full short-film loop — **Seedream** reference images, **Seedance 2.0** shot videos, and **Seed** / VLM review — through a single API key and the dedicated `/api/plan/v3` route, with session-level token usage visible in the canvas.
+**ReelyAI is built to showcase [Volcengine Agent Plan](https://www.volcengine.com/docs/82379/2366394?lang=zh).** One Agent Plan subscription can fuel the core short-film generation loop — **Seedream** reference images and **Seedance 2.0** shot videos — through a single API key and the dedicated `/api/plan/v3` route, with session-level token usage visible in the canvas.
 
 The canvas is not just a progress screen. It is the human takeover surface. You can pause in the middle, edit prompts, reconnect references, regenerate weak nodes, inspect VLM feedback, and change the final result before the agent continues.
 
@@ -41,7 +41,7 @@ The canvas is not just a progress screen. It is the human takeover surface. You 
 | **Doubao-Seedance 2.0** / **2.0-fast** | Multi-shot short-film video generation |
 | **Harness tools** | Web search, embeddings, and other agent-side capabilities documented in the [Agent Plan guide](https://www.volcengine.com/docs/82379/2366394?lang=zh) |
 
-**We recommend Agent Plan as the default way to run ReelyAI in production.** The project routes Seedream, Seedance, and VLM review calls through one `ARK_AGENT_PLAN_KEY`, tracks usage per canvas node, and keeps the UI aligned with the models your plan actually exposes.
+**We recommend Agent Plan as the default way to run ReelyAI generation in production.** The project routes Seedream, Seedance, and VLM review calls through Plan-compatible model names, tracks usage per canvas node, and keeps the UI aligned with the models your plan actually exposes. Standard Ark VLM credentials remain available as a fallback when no browser Plan key is present.
 
 **Quick path**
 
@@ -54,6 +54,9 @@ ARK_AGENT_PLAN_KEY=<your-agent-plan-key>
 REELYAI_USE_AGENT_PLAN=1
 ARK_AGENT_PLAN_BASE=https://ark.cn-beijing.volces.com/api/plan/v3
 SEEDREAM_AGENT_PLAN_MODEL=doubao-seedream-5.0-lite
+REELYAI_VISION_REVIEW_USE_AGENT_PLAN=
+VISION_REVIEW_AGENT_PLAN_MODEL=doubao-seed-2.0-pro
+VIDEO_ANALYZE_AGENT_PLAN_MODEL=doubao-seed-2.0-pro
 SEEDANCE_AGENT_PLAN_MODEL=doubao-seedance-2-0-260128
 SEEDANCE_AGENT_PLAN_FAST_MODEL=doubao-seedance-2-0-fast-260128
 ```
@@ -179,11 +182,14 @@ ARK_AGENT_PLAN_KEY=<your-agent-plan-key>
 REELYAI_USE_AGENT_PLAN=1
 ARK_AGENT_PLAN_BASE=https://ark.cn-beijing.volces.com/api/plan/v3
 SEEDREAM_AGENT_PLAN_MODEL=doubao-seedream-5.0-lite
+REELYAI_VISION_REVIEW_USE_AGENT_PLAN=
+VISION_REVIEW_AGENT_PLAN_MODEL=doubao-seed-2.0-pro
+VIDEO_ANALYZE_AGENT_PLAN_MODEL=doubao-seed-2.0-pro
 SEEDANCE_AGENT_PLAN_MODEL=doubao-seedance-2-0-260128
 SEEDANCE_AGENT_PLAN_FAST_MODEL=doubao-seedance-2-0-fast-260128
 ```
 
-In Agent Plan mode, Seedream defaults to Seedream 5 Lite. The UI shows the same model that is actually used, so users do not see “Seedream 4.5” when the backend is running `doubao-seedream-5.0-lite`.
+In Agent Plan mode, Seedream defaults to Seedream 5 Lite. VLM review defaults to the Plan model name `doubao-seed-2.0-pro`. The UI shows the same model that is actually used, so users do not see “Seedream 4.5” when the backend is running `doubao-seedream-5.0-lite`. Do not send standard VLM models such as `seed-2-0-pro-260328` to `/api/plan/v3`.
 
 ## Media Reference Rule
 
@@ -281,6 +287,10 @@ see [deploy/volcengine.md](deploy/volcengine.md) for the full runbook.
 Do not set your own `ARK_AGENT_PLAN_KEY` on a public server. Visitors enter their own Agent Plan
 token in the top bar; the backend keeps it in process memory and never returns it from `/api/state`.
 TOS remains a backend-only server credential, preferably with a private bucket and signed URLs.
+
+Fresh stores automatically show the built-in “火山 Agent Plan × ReelyAI 示例广告片” session so new
+visitors can inspect a finished canvas, reference assets, VLM review, and final stitch. Set
+`REELYAI_SEED_DEMO=0` only if a private deployment should start empty.
 
 Health check:
 

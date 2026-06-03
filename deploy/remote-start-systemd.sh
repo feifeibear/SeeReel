@@ -50,6 +50,8 @@ EnvironmentFile=$APP_DIR/deploy/.env.production
 ExecStart=$(command -v npm) run start
 Restart=always
 RestartSec=5
+TimeoutStopSec=30
+LimitNOFILE=65535
 User=root
 
 [Install]
@@ -59,6 +61,16 @@ SERVICE
 cat >/etc/caddy/Caddyfile <<CADDY
 $PUBLIC_URL {
   encode zstd gzip
+  log {
+    output stdout
+    format json
+  }
+
+  @private path /metrics /api/diagnostics
+  handle @private {
+    respond "not found" 404
+  }
+
   reverse_proxy 127.0.0.1:5173
 }
 CADDY
@@ -69,7 +81,7 @@ systemctl enable --now caddy
 systemctl reload caddy
 
 for _ in {1..60}; do
-  if curl -fsS http://127.0.0.1:5173/api/healthz >/dev/null; then
+  if curl -fsS http://127.0.0.1:5173/api/healthz >/dev/null && curl -fsS http://127.0.0.1:5173/api/readyz >/dev/null; then
     systemctl is-active reelyai-agent
     systemctl is-active caddy
     exit 0

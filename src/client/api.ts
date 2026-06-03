@@ -28,16 +28,51 @@ import { networkDownMessage } from "./i18n";
  *  3. **Better error messages**: `Failed to fetch` becomes "网络中断 / 服务端可能挂了 — 重启后再试一次"
  *     so the user knows the action is to restart the dev server, not retry the same click.
  */
+const ACCESS_TOKEN_STORAGE_KEY = "reelyai_access_token";
+
+function readAccessToken() {
+  if (typeof window === "undefined") return "";
+  try {
+    return window.localStorage.getItem(ACCESS_TOKEN_STORAGE_KEY) || "";
+  } catch {
+    return "";
+  }
+}
+
+/**
+ * Prompt the operator once for the shared access token and persist it. Used only when the backend
+ * has `REELYAI_ACCESS_TOKEN` configured and answers 401; local dev without the env never hits this.
+ */
+function promptForAccessToken() {
+  if (typeof window === "undefined") return "";
+  const entered = window.prompt("需要访问令牌（access token）才能继续。请粘贴部署方提供的 token：")?.trim() || "";
+  if (entered) {
+    try {
+      window.localStorage.setItem(ACCESS_TOKEN_STORAGE_KEY, entered);
+    } catch {
+      /* ignore storage failures */
+    }
+  }
+  return entered;
+}
+
+function accessHeaders(): Record<string, string> {
+  const token = readAccessToken();
+  return token ? { "x-reelyai-access": token } : {};
+}
+
 async function request<T>(url: string, options?: RequestInit): Promise<T> {
   const method = (options?.method || "GET").toUpperCase();
   const idempotent = method === "GET" || method === "HEAD";
   let lastErr: unknown;
+  let promptedForToken = false;
   for (let attempt = 0; attempt < (idempotent ? 2 : 1); attempt++) {
     try {
       const response = await fetch(url, {
         ...options,
         headers: {
           "Content-Type": "application/json",
+          ...accessHeaders(),
           ...(options?.headers ?? {})
         }
       });
@@ -45,6 +80,14 @@ async function request<T>(url: string, options?: RequestInit): Promise<T> {
       if (typeof window !== "undefined") window.dispatchEvent(new CustomEvent("api-network-up"));
       if (!response.ok) {
         const body = await response.json().catch(() => ({}));
+        // The shared access gate rejected us: prompt once for the token and retry this request.
+        if (response.status === 401 && body?.code === "access_token_required" && !promptedForToken) {
+          promptedForToken = true;
+          if (promptForAccessToken()) {
+            attempt -= 1;
+            continue;
+          }
+        }
         throw new Error(body.error || `${response.status} ${response.statusText}`);
       }
       return response.json() as Promise<T>;

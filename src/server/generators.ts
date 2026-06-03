@@ -49,6 +49,17 @@ const SEED_PROMPT_KEY_ENVS = ["SEED_PROMPT_API_KEY", "BP_ARK_API_KEY", "ARK_API_
 const SEEDREAM_KEY_ENVS = ["SEEDREAM_API_KEY", "BP_ARK_API_KEY", "ARK_API_KEY"];
 const SEEDANCE_KEY_ENVS = ["BP_ARK_API_KEY", "SEEDANCE_API_KEY", "ARK_API_KEY"];
 
+/**
+ * Guard against "silent fake success": when a paid model key is missing the dev paths return a
+ * placeholder image/video URL so the canvas still renders something. In production that would make a
+ * misconfigured deployment look like it is generating real media. Refuse explicitly instead.
+ */
+function refuseFakeSuccessInProduction(label: string, keyEnvs: string[]): void {
+  if (process.env.NODE_ENV === "production") {
+    throw new Error(arkMissingKeyMessage(label, keyEnvs));
+  }
+}
+
 function seedPromptCredential() {
   return resolveArkCredential({
     keyEnvNames: SEED_PROMPT_KEY_ENVS,
@@ -687,6 +698,7 @@ async function generateAssetImageViaSeedream(
 ) {
   const credential = seedreamCredential();
   if (!credential.apiKey) {
+    refuseFakeSuccessInProduction("Seedream image generation", SEEDREAM_KEY_ENVS);
     return {
       url: `https://placehold.co/2048x2048/1f2937/f8fafc?text=${encodeURIComponent(asset.name)}`,
       composedPrompt: "",
@@ -855,7 +867,10 @@ export async function generateShotVideo(shot: Shot, assets: Asset[], opts: Build
   }
 
   const credential = seedanceCredential();
-  if (!credential.apiKey) return `https://placehold.co/1280x720/111827/f8fafc?text=${encodeURIComponent(`Video ${shot.index}`)}`;
+  if (!credential.apiKey) {
+    refuseFakeSuccessInProduction("Seedance video generation", SEEDANCE_KEY_ENVS);
+    return `https://placehold.co/1280x720/111827/f8fafc?text=${encodeURIComponent(`Video ${shot.index}`)}`;
+  }
   return generateShotVideoViaBytePlusArk(shot, assets, credential, opts);
 }
 
@@ -1560,13 +1575,13 @@ function buildAssetPromptExpansionInstruction(asset: Partial<Asset>) {
   if (asset.type === "scene") {
     return [
       "请把用户原始场景描述扩写成 Seedream 4.5 文生图最终 prompt。语言：中文。最长不超过 800 字。结构必须按下面骨架填充。",
-      "**用途声明（写到 prompt 前部）**：这张图是下游 Seedance 视频生成的**场景参考底板**，Seedance 会在不同分镜把演员置入这个场景。因此扩写必须强制：**画面绝对干净无人物**（包括玻璃倒影、远处剪影、镜面反射、屏幕里、橱窗内均不可有人）；**前景下半部 1/3 留白**（仅地面/桌面/走廊地板，不堆放主体），便于演员置入；**光线偏中性**（避免逆光剪影、彩色霓虹主导、极端 god ray），让 Seedance 在该底板上自由演员置入与打光；**中性调色**（不要 push 极端情绪 grade）。即便用户原文写「氛围紧张」「梦幻光晕」，也只能转化为氛围细节（雾、灰尘、轻微光斑），不能转化为吞掉前景的强对比光或剪影构图。",
+      "**用途声明（写到 prompt 前部）**：这张图是下游 Seedance 视频生成的**场景参考底板**，Seedance 会在不同分镜把演员置入这个场景。因此扩写必须强制：**画面绝对干净无人物**（包括玻璃倒影、远处剪影、镜面反射、屏幕里、橱窗内均不可有人）；**前景下半部 1/3 留白**（仅干净地面/桌面/走廊地板，不堆放主体），便于演员置入；**光线默认明亮中性、曝光充足、干净通透**（避免逆光剪影、彩色霓虹主导、极端 god ray、低照度脏暗氛围），让 Seedance 在该底板上自由演员置入与打光；**中性调色**（不要 push 极端情绪 grade）。必须尊重用户原文的清洁度与明暗：普通办公室、家居、学校、医院、商场等现代室内默认干净、维护良好、专业明亮；只有用户原文明确要求老旧、破败、肮脏、潮湿、恐怖、夜晚、犯罪现场等，才加入脏污、霉斑、烟雾或低调光。",
       "硬性输出：16:9 横构图电影级**全景空镜 establishing plate**，**画面内不出现任何人物**（除非用户原文显式要求），重点是环境、光线、氛围。",
       "摄影规格：**ARRI Alexa 35 + Cooke S7/i 32mm T2.0**（场景需要时改 Master Anamorphic 40mm T1.9 加水平蓝色 lens flare）；f/5.6-8 大景深保证全景纵深；轻微 anamorphic 横向 oval bokeh；2.39:1 cinemascope feel 在 16:9 内构图。",
-      "光线：**motivated practical lighting**——只用场景内合理光源驱动画面（窗光 / 街灯 / 霓虹 / 烛火 / god ray），主光方向明确；空气中有薄雾或微尘形成 atmospheric haze 让光束可见；时间设定与原文一致（golden hour / blue hour / night / overcast / 黎明）。",
+      "光线：**干净可读的 motivated practical lighting**——优先使用与场景匹配的自然窗光、天窗漫射、办公/商业空间 overhead softbox / fluorescent practicals、墙面反弹光、柔和环境补光；默认高键、明亮、通透、曝光充足，主光方向明确，前景留白区域明亮干净。仅当用户原文明确要求夜晚、霓虹、烛火、废墟、恐怖、潮湿、烟雾等氛围时，才加入街灯 / 霓虹 / 烛火 / god ray / atmospheric haze；时间设定与原文一致（daylight / golden hour / blue hour / night / overcast / 黎明）。",
       "构图：**foreground / mid-ground / background 三层景深**清晰可读；三分法或对称中心；leading lines 与 vanishing point 明确。",
-      "材质：建筑表面老化（积尘、磨损、湿漉反光、油渍、霉斑），地面 / 墙面 / 织物 / 金属各有质感差别；不要所有表面都干净如新。",
-      "调色：cinema 调色——**teal-orange**（白天 / 室内 / 都市夜景）或情绪对应 grade（noir = ENR 银盐保留 / 战争片 = bleach bypass / 80s = 暖色 push）；低饱和，highlight 软卷曲，shadow 保留细节，35mm 胶片颗粒。",
+      "材质：真实但整洁——地面 / 墙面 / 织物 / 玻璃 / 木材 / 金属各有质感差别；默认维护良好、干净清爽、无脏污破败，可有少量生活化使用痕迹；只有用户原文明确要求老旧、破败、肮脏、潮湿、废墟、贫民窟、犯罪现场等，才加入表面老化、积尘、油渍、霉斑、湿漉反光。",
+      "调色：cinema 调色——默认**中性日光 / clean commercial cinema grade**，白平衡准确，色彩自然，低到中等对比，highlight 软卷曲，shadow 保留细节，细腻 35mm 胶片颗粒；办公室、家居、商场、医院、学校等现代室内优先明亮温和、干净专业。只有用户原文明确要求阴郁、黑色电影、战争、80s、赛博朋克等风格时，才使用 teal-orange / ENR / bleach bypass / 暖色 push。",
       "结尾负面（必须放在 prompt 最后）：**STRICT NEGATIVE**——不要任何屏幕文字 / 字幕 / 可读招牌字 / UI / 水印；**不要任何人物**（除非原文显式要求）；不要变形物体；不要饱和度爆表；不要 HDR halo / 锐化过度；不要 anime / cartoon。",
       `用户原始描述：${rawPrompt}`
     ].join("\n");
@@ -1625,10 +1640,10 @@ function buildLocalExpandedAssetPrompt(asset: Partial<Asset>) {
       `电影场景 establishing plate：${rawPrompt}。`,
       "16:9 横构图电影级**全景空镜**，**画面内不出现任何人物**（除非描述显式要求）。",
       "**ARRI Alexa 35 + Cooke S7/i 32mm T2.0**（或 Master Anamorphic 40mm T1.9 加水平蓝色 lens flare），f/5.6-8 大景深，轻微 anamorphic 横向 oval bokeh，2.39:1 cinemascope feel 在 16:9 内构图。",
-      "**motivated practical lighting**：窗光 / 街灯 / 霓虹 / 烛火 / god ray 等场景内合理光源驱动画面，主光方向明确；atmospheric haze 让光束可见；时间设定（golden hour / blue hour / night / overcast / 黎明）与描述一致。",
+      "干净可读的 motivated practical lighting：优先自然窗光、天窗漫射、办公/商业空间 overhead softbox / fluorescent practicals、墙面反弹光、柔和环境补光；默认高键、明亮、通透、曝光充足。仅当描述明确要求夜晚、霓虹、烛火、废墟、恐怖、潮湿、烟雾等氛围时，才加入街灯 / 霓虹 / 烛火 / god ray / atmospheric haze；时间设定与描述一致。",
       "**foreground / mid-ground / background 三层景深**清晰可读；三分法或对称中心；leading lines 与 vanishing point 明确。",
-      "材质真实老化：积尘、磨损、湿漉反光、油渍、霉斑；地面 / 墙面 / 织物 / 金属质感各有差别。",
-      "cinema 调色：**teal-orange**（或情绪对应 grade：noir = ENR / 战争 = bleach bypass / 80s = 暖色 push），低饱和，35mm 胶片颗粒。",
+      "材质真实但整洁：地面 / 墙面 / 织物 / 玻璃 / 木材 / 金属质感各有差别；默认维护良好、干净清爽、无脏污破败，可有少量生活化使用痕迹；只有描述明确要求老旧、破败、肮脏、潮湿、废墟、贫民窟、犯罪现场等，才加入积尘、油渍、霉斑、湿漉反光。",
+      "cinema 调色：默认中性日光 / clean commercial cinema grade，白平衡准确，色彩自然，低到中等对比，highlight 软卷曲，shadow 保留细节，细腻 35mm 胶片颗粒；办公室、家居、商场、医院、学校等现代室内优先明亮温和、干净专业；只有描述明确要求阴郁、黑色电影、战争、80s、赛博朋克等风格时，才使用 teal-orange / ENR / bleach bypass / 暖色 push。",
       "**STRICT NEGATIVE**：不要任何屏幕文字 / 字幕 / 可读招牌字 / UI / 水印；**不要任何人物**（除非描述显式要求）；不要变形物体；不要饱和度爆表；不要 HDR halo；不要 anime / cartoon。"
     ].join(" ");
   }

@@ -56,7 +56,13 @@ https://<your-domain>
 ```
 
 The user should click "配置 Agent Plan" in the top bar and paste their own Agent Plan token before
-calling Seedream / Seedance / Seed review models.
+calling Seedream / Seedance models.
+
+By default, browser-provided Agent/Coding Plan tokens are used for VLM review and reference video
+analysis through the Plan base URL (`/api/plan/v3`) with `doubao-seed-2.0-pro`. Standard Ark
+credentials (`VISION_REVIEW_API_KEY` / `VISION_REVIEW_MODEL`) remain available as a fallback when
+no browser Plan key is present. Do not send `seed-2-0-pro-260328` to `/api/plan/v3`; that is a
+standard Ark model id.
 
 ## Manual Docker Compose On ECS
 
@@ -141,6 +147,8 @@ edge/proxy layers for the first release. Keep `APP_PUBLIC_URL=https://reelyai.ap
 
 - Run one replica. The built-in JSON store and in-memory user-token map are not multi-replica safe.
 - Restarting the container clears user Agent Plan tokens; users can paste them again.
+- Browser Agent/Coding Plan tokens are scoped per user and can run Seedream / Seedance plus VLM
+  review by default. VLM review uses Plan model names such as `doubao-seed-2.0-pro`.
 - Generated media and the JSON store live in the Docker volume `reelyai-data`.
 
 ## Later High-Concurrency Upgrade
