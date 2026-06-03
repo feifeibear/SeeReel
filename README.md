@@ -14,6 +14,14 @@
   <strong>English</strong> · <a href="README.zh-CN.md">中文文档</a>
 </p>
 
+<p align="center">
+  <a href="https://reelyai.app/"><strong>🎬 Live demo → reelyai.app</strong></a>
+</p>
+
+<p align="center">
+  <sub>Public canvas — bring your own <a href="https://www.volcengine.com/activity/agentplan">Agent Plan</a> key in the top bar</sub>
+</p>
+
 ReelyAI lets you create a short video by talking to an agent in **Codex, Claude Code, Cursor Agent, or any AGENTS.md-compatible runtime**. The agent turns your creative instruction into a visible canvas workflow: character and scene assets, storyboard boards, Seedance video nodes, review nodes, stitch jobs, and the final downloadable cut.
 
 **ReelyAI is built to showcase [Volcengine Agent Plan](https://www.volcengine.com/docs/82379/2366394?lang=zh).** One Agent Plan subscription can fuel the full short-film loop — **Seedream** reference images, **Seedance 2.0** shot videos, and **Seed** / VLM review — through a single API key and the dedicated `/api/plan/v3` route, with session-level token usage visible in the canvas.

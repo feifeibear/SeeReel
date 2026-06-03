@@ -2,6 +2,12 @@
 
 **[中文](README.zh-CN.md)** | [English](README.md)
 
+<br />
+
+### [**🎬 在线体验 → reelyai.app**](https://reelyai.app/)
+
+<sub>公网画布工作台 — 在顶栏配置你自己的 <a href="https://www.volcengine.com/activity/agentplan">Agent Plan</a> Key 即可开拍</sub>
+
 </div>
 
 # reelyai-agent
