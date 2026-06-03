@@ -1,6 +1,7 @@
 import type {
   Asset,
   AssetImageModel,
+  AdminAgentPlanStatus,
   AgentPlanCredentialStatus,
   CreateSessionPayload,
   ExpandAssetPromptResult,
@@ -121,6 +122,21 @@ export const api = {
     }),
   clearAgentPlanCredential: () =>
     request<AgentPlanCredentialStatus>("/api/credentials/agent-plan", { method: "DELETE" }),
+  adminLogin: (payload: { username: string; password: string }) =>
+    request<{ ok: true; adminAgentPlan: AdminAgentPlanStatus }>("/api/admin/login", {
+      method: "POST",
+      body: JSON.stringify(payload)
+    }),
+  adminSettings: () =>
+    request<{ adminAgentPlan: AdminAgentPlanStatus }>("/api/admin/settings"),
+  saveAdminAgentPlan: (apiKey: string) =>
+    request<{ adminAgentPlan: AdminAgentPlanStatus }>("/api/admin/settings/agent-plan", {
+      method: "PUT",
+      body: JSON.stringify({ apiKey })
+    }),
+  clearAdminAgentPlan: () =>
+    request<{ adminAgentPlan: AdminAgentPlanStatus }>("/api/admin/settings/agent-plan", { method: "DELETE" }),
+  adminLogout: () => request<{ ok: true }>("/api/admin/logout", { method: "POST" }),
   createSession: (payload: CreateSessionPayload) =>
     request<SessionWithShots>("/api/sessions", { method: "POST", body: JSON.stringify(payload) }),
   updateSession: (sessionId: string, patch: Partial<SessionWithShots>) =>
@@ -421,7 +437,7 @@ export const api = {
       body: JSON.stringify({ jobId })
     }),
   /**
-   * Kick off a narration + subtitle job. Mirrors stitch shape: fire-and-forget on the server,
+   * Kick off a voiceover-only narration job. Mirrors stitch shape: fire-and-forget on the server,
    * we poll `/narration/poll` every 3s until status leaves `running`.
    */
   narrate: async (
@@ -442,8 +458,7 @@ export const api = {
   },
   pollNarrationOnce: (sessionId: string) =>
     request<SessionWithShots>(`/api/sessions/${sessionId}/narration/poll`, { method: "POST" }),
-  downloadNarrationVideoUrl: (sessionId: string) => `/api/sessions/${sessionId}/narration/download?kind=video`,
-  downloadNarrationSubtitleUrl: (sessionId: string) => `/api/sessions/${sessionId}/narration/download?kind=srt`
+  downloadNarrationVideoUrl: (sessionId: string) => `/api/sessions/${sessionId}/narration/download?kind=video`
 };
 
 async function pollStitch(

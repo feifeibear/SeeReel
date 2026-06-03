@@ -1,4 +1,5 @@
-import { getRequestAgentPlanKey } from "./userCredentials";
+import { getRequestAgentPlanKey, hasRequestAgentPlanKey } from "./userCredentials";
+import { getAdminAgentPlanKey, hasAdminAgentPlanKey } from "./adminSettings";
 
 export const ARK_AGENT_PLAN_BASE = "https://ark.cn-beijing.volces.com/api/plan/v3";
 
@@ -19,6 +20,7 @@ export interface ResolveArkCredentialOpts {
 
 export function resolveArkCredential(opts: ResolveArkCredentialOpts): ArkCredential {
   const requestAgentPlanKey = getRequestAgentPlanKey();
+  const adminTrialAgentPlanKey = getAdminAgentPlanKey();
   const agentPlanKey = env("ARK_AGENT_PLAN_KEY", "AGENT_PLAN_API_KEY", "VOLCENGINE_AGENT_PLAN_KEY");
   const standardKey = env(...opts.keyEnvNames);
   const standardBase = (env(...opts.baseEnvNames) || opts.defaultBase).replace(/\/$/, "");
@@ -28,6 +30,9 @@ export function resolveArkCredential(opts: ResolveArkCredentialOpts): ArkCredent
 
   if (allowRequestAgentPlan && requestAgentPlanKey) {
     return { apiKey: requestAgentPlanKey, apiBase: agentPlanBase(), source: "agent-plan" };
+  }
+  if (allowEnvAgentPlan && adminTrialAgentPlanKey) {
+    return { apiKey: adminTrialAgentPlanKey, apiBase: agentPlanBase(), source: "agent-plan" };
   }
   if (allowEnvAgentPlan && preferAgentPlan && agentPlanKey) {
     return { apiKey: agentPlanKey, apiBase: agentPlanBase(), source: "agent-plan" };
@@ -42,7 +47,11 @@ export function resolveArkCredential(opts: ResolveArkCredentialOpts): ArkCredent
 }
 
 export function hasAgentPlanKey() {
-  return Boolean(getRequestAgentPlanKey() || env("ARK_AGENT_PLAN_KEY", "AGENT_PLAN_API_KEY", "VOLCENGINE_AGENT_PLAN_KEY"));
+  return Boolean(getRequestAgentPlanKey() || hasAdminAgentPlanKey() || env("ARK_AGENT_PLAN_KEY", "AGENT_PLAN_API_KEY", "VOLCENGINE_AGENT_PLAN_KEY"));
+}
+
+export function isUsingAdminTrialAgentPlan() {
+  return Boolean(!hasRequestAgentPlanKey() && hasAdminAgentPlanKey());
 }
 
 export function arkMissingKeyMessage(service: string, existingEnvNames: string[]) {

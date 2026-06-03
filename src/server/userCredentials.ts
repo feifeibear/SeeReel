@@ -7,6 +7,7 @@ const MAX_AGE_MS = 1000 * 60 * 60 * 24 * 30;
 
 interface RequestCredentialContext {
   userId: string;
+  ipHash: string;
 }
 
 interface StoredCredential {
@@ -28,7 +29,7 @@ export function userCredentialMiddleware(req: Request, res: Response, next: Next
       path: "/"
     });
   }
-  requestContext.run({ userId }, next);
+  requestContext.run({ userId, ipHash: requestIpHash(req) }, next);
 }
 
 export function setRequestAgentPlanKey(apiKey: string) {
@@ -57,8 +58,16 @@ export function requestAgentPlanStatus() {
   };
 }
 
-function currentUserId() {
+export function currentUserId() {
   return requestContext.getStore()?.userId;
+}
+
+export function currentIpHash() {
+  return requestContext.getStore()?.ipHash;
+}
+
+export function hasRequestAgentPlanKey() {
+  return Boolean(getRequestAgentPlanKey());
 }
 
 function readUserId(req: Request) {
@@ -83,6 +92,13 @@ function parseCookies(header: string) {
 
 function keyFingerprint(apiKey: string) {
   return createHash("sha256").update(apiKey).digest("hex").slice(0, 10);
+}
+
+function requestIpHash(req: Request) {
+  const forwarded = (req.headers["x-forwarded-for"] || "").toString().split(",")[0]?.trim();
+  const rawIp = forwarded || req.ip || req.socket.remoteAddress || "unknown";
+  const salt = process.env.REELYAI_RATE_LIMIT_SALT || "reelyai-demo";
+  return createHash("sha256").update(`${salt}|${rawIp}`).digest("hex").slice(0, 20);
 }
 
 function shouldUseSecureCookie() {

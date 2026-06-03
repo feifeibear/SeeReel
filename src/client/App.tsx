@@ -1,7 +1,7 @@
-import { Archive, BarChart3, CircleHelp, KeyRound, Loader2, Plus, RefreshCw, Trash2 } from "lucide-react";
+import { Archive, BarChart3, CircleHelp, KeyRound, Loader2, Plus, RefreshCw, ShieldCheck, Trash2 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { api } from "./api";
-import type { AgentPlanCredentialStatus, Asset, AssetType, CreateSessionPayload, Session, Shot, StitchJob, StoreSnapshot, TokenUsageEvent, TokenUsageModelFamily } from "../shared/types";
+import type { AdminAgentPlanStatus, AgentPlanCredentialStatus, Asset, AssetType, CreateSessionPayload, Session, Shot, StitchJob, StoreSnapshot, TokenUsageEvent, TokenUsageModelFamily } from "../shared/types";
 import { FlowView } from "./flow/FlowView";
 import { PendingGenerationsProvider } from "./flow/PendingGenerations";
 import { useUndoKeyboardShortcut, useUndoStack } from "./flow/useUndoStack";
@@ -358,6 +358,12 @@ export function App() {
   const [showTokenUsage, setShowTokenUsage] = useState(false);
   const [showAgentPlanKey, setShowAgentPlanKey] = useState(false);
   const [agentPlanDraft, setAgentPlanDraft] = useState("");
+  const [showAdminPanel, setShowAdminPanel] = useState(false);
+  const [adminUsernameDraft, setAdminUsernameDraft] = useState("admin");
+  const [adminPasswordDraft, setAdminPasswordDraft] = useState("");
+  const [adminAgentPlanDraft, setAdminAgentPlanDraft] = useState("");
+  const [adminAgentPlanStatus, setAdminAgentPlanStatus] = useState<AdminAgentPlanStatus | undefined>();
+  const [adminLoggedIn, setAdminLoggedIn] = useState(false);
   const [busy, setBusy] = useState<string>("");
   const [error, setError] = useState<string>("");
   // Network-status banner: flips to true when api.ts emits "api-network-down" (a fetch threw a
@@ -429,6 +435,7 @@ export function App() {
 
   const sessions = state.sessions;
   const agentPlanCredential = state.runtime?.agentPlanCredential;
+  const freeTrial = state.runtime?.freeTrial;
   const latestSession = sessions[0];
   const archivedSessions = sessions.slice(1);
   const selectedSession = sessions.find((session) => session.id === selectedSessionId);
@@ -674,6 +681,45 @@ export function App() {
     });
   };
 
+  const loginAdmin = () => {
+    run("admin-login", async () => {
+      const result = await api.adminLogin({ username: adminUsernameDraft.trim(), password: adminPasswordDraft });
+      setAdminLoggedIn(true);
+      setAdminAgentPlanStatus(result.adminAgentPlan);
+      setAdminPasswordDraft("");
+      setAdminAgentPlanDraft("");
+    });
+  };
+
+  const saveAdminAgentPlanKey = () => {
+    const apiKey = adminAgentPlanDraft.trim();
+    if (!apiKey) return;
+    run("save-admin-agent-plan-key", async () => {
+      const result = await api.saveAdminAgentPlan(apiKey);
+      setAdminAgentPlanStatus(result.adminAgentPlan);
+      setAdminAgentPlanDraft("");
+      await refresh();
+    });
+  };
+
+  const clearAdminAgentPlanKey = () => {
+    run("clear-admin-agent-plan-key", async () => {
+      const result = await api.clearAdminAgentPlan();
+      setAdminAgentPlanStatus(result.adminAgentPlan);
+      await refresh();
+    });
+  };
+
+  const logoutAdmin = () => {
+    run("admin-logout", async () => {
+      await api.adminLogout();
+      setAdminLoggedIn(false);
+      setAdminAgentPlanStatus(undefined);
+      setAdminAgentPlanDraft("");
+      setAdminPasswordDraft("");
+    });
+  };
+
   const upsertAssetInState = (asset: Asset) => {
     setState((prev) => ({
       ...prev,
@@ -703,8 +749,24 @@ export function App() {
         subShotStoryboardAssetIds: (shot.subShotStoryboardAssetIds || []).filter((id) => id !== assetId),
         referenceVideoAssetId: shot.referenceVideoAssetId === assetId ? undefined : shot.referenceVideoAssetId,
         referenceClipUrl: shot.referenceVideoAssetId === assetId ? null : shot.referenceClipUrl,
+        referenceAudioUrl: shot.referenceVideoAssetId === assetId ? null : shot.referenceAudioUrl,
+        referenceClipPreviewUrl: shot.referenceVideoAssetId === assetId ? null : shot.referenceClipPreviewUrl,
+        referenceAudioPreviewUrl: shot.referenceVideoAssetId === assetId ? null : shot.referenceAudioPreviewUrl,
         firstFrameAssetId: shot.firstFrameAssetId === assetId ? undefined : shot.firstFrameAssetId,
-        lastFrameAssetId: shot.lastFrameAssetId === assetId ? undefined : shot.lastFrameAssetId
+        lastFrameAssetId: shot.lastFrameAssetId === assetId ? undefined : shot.lastFrameAssetId,
+        renders: (shot.renders || []).map((render) => ({
+          ...render,
+          assetIds: (render.assetIds || []).filter((id) => id !== assetId),
+          subShotStoryboardAssetId: render.subShotStoryboardAssetId === assetId ? undefined : render.subShotStoryboardAssetId,
+          subShotStoryboardAssetIds: (render.subShotStoryboardAssetIds || []).filter((id) => id !== assetId),
+          referenceVideoAssetId: render.referenceVideoAssetId === assetId ? undefined : render.referenceVideoAssetId,
+          referenceClipUrl: render.referenceVideoAssetId === assetId ? undefined : render.referenceClipUrl,
+          referenceAudioUrl: render.referenceVideoAssetId === assetId ? undefined : render.referenceAudioUrl,
+          referenceClipPreviewUrl: render.referenceVideoAssetId === assetId ? undefined : render.referenceClipPreviewUrl,
+          referenceAudioPreviewUrl: render.referenceVideoAssetId === assetId ? undefined : render.referenceAudioPreviewUrl,
+          firstFrameAssetId: render.firstFrameAssetId === assetId ? undefined : render.firstFrameAssetId,
+          lastFrameAssetId: render.lastFrameAssetId === assetId ? undefined : render.lastFrameAssetId
+        }))
       }))
     }));
   };
@@ -766,8 +828,6 @@ export function App() {
 
   const deleteCanvasAsset = async (asset: Asset) => {
     const label = asset.name || asset.id;
-    await api.deleteAsset(asset.id);
-    removeAssetFromState(asset.id);
     let deletedAsset = asset;
     const touchedShotPatches = stateRef.current.shots
       .filter((shot) =>
@@ -786,10 +846,15 @@ export function App() {
           subShotStoryboardAssetIds: shot.subShotStoryboardAssetIds ? [...shot.subShotStoryboardAssetIds] : undefined,
           referenceVideoAssetId: shot.referenceVideoAssetId,
           referenceClipUrl: shot.referenceClipUrl ?? null,
+          referenceAudioUrl: shot.referenceAudioUrl ?? null,
+          referenceClipPreviewUrl: shot.referenceClipPreviewUrl ?? null,
+          referenceAudioPreviewUrl: shot.referenceAudioPreviewUrl ?? null,
           firstFrameAssetId: shot.firstFrameAssetId,
           lastFrameAssetId: shot.lastFrameAssetId
         } satisfies Partial<Shot>
       }));
+    await api.deleteAsset(asset.id);
+    removeAssetFromState(asset.id);
     undoStack.push({
       description: t.app.deleteUndo(label),
       undo: async () => {
@@ -810,6 +875,9 @@ export function App() {
           if (!current?.referenceVideoAssetId && patch.referenceVideoAssetId === deletedAsset.id) {
             merged.referenceVideoAssetId = deletedAsset.id;
             merged.referenceClipUrl = patch.referenceClipUrl;
+            merged.referenceAudioUrl = patch.referenceAudioUrl;
+            merged.referenceClipPreviewUrl = patch.referenceClipPreviewUrl;
+            merged.referenceAudioPreviewUrl = patch.referenceAudioPreviewUrl;
           }
           if (!current?.firstFrameAssetId && patch.firstFrameAssetId === deletedAsset.id) merged.firstFrameAssetId = deletedAsset.id;
           if (!current?.lastFrameAssetId && patch.lastFrameAssetId === deletedAsset.id) merged.lastFrameAssetId = deletedAsset.id;
@@ -833,6 +901,9 @@ export function App() {
             if (!shot.referenceVideoAssetId && patch.referenceVideoAssetId === deletedAsset.id) {
               merged.referenceVideoAssetId = deletedAsset.id;
               merged.referenceClipUrl = patch.referenceClipUrl;
+              merged.referenceAudioUrl = patch.referenceAudioUrl;
+              merged.referenceClipPreviewUrl = patch.referenceClipPreviewUrl;
+              merged.referenceAudioPreviewUrl = patch.referenceAudioPreviewUrl;
             }
             if (!shot.firstFrameAssetId && patch.firstFrameAssetId === deletedAsset.id) merged.firstFrameAssetId = deletedAsset.id;
             if (!shot.lastFrameAssetId && patch.lastFrameAssetId === deletedAsset.id) merged.lastFrameAssetId = deletedAsset.id;
@@ -1090,6 +1161,13 @@ export function App() {
                 <KeyRound size={16} />
                 {agentPlanCredential?.configured ? t.app.agentPlanReady : t.app.agentPlanSet}
               </button>
+              {!agentPlanCredential?.configured && freeTrial?.enabled && (
+                <span className={`free-trial-pill ${freeTrial.remaining <= 0 ? "depleted" : ""}`}>
+                  {freeTrial.remaining <= 0
+                    ? t.app.freeTrialDepleted
+                    : t.app.freeTrialRemaining(freeTrial.remaining, freeTrial.limit)}
+                </span>
+              )}
               {showAgentPlanKey && (
                 <form
                   className="agent-plan-popover"
@@ -1141,6 +1219,102 @@ export function App() {
                       {t.app.agentPlanClear}
                     </button>
                   </div>
+                </form>
+              )}
+            </div>
+            <div className="admin-control">
+              <button
+                type="button"
+                className={`admin-button ${adminLoggedIn ? "configured" : ""}`}
+                onClick={async () => {
+                  const next = !showAdminPanel;
+                  setShowAdminPanel(next);
+                  if (next && adminLoggedIn) {
+                    try {
+                      const result = await api.adminSettings();
+                      setAdminAgentPlanStatus(result.adminAgentPlan);
+                    } catch {
+                      setAdminLoggedIn(false);
+                    }
+                  }
+                }}
+                title={t.app.adminButtonTitle}
+              >
+                <ShieldCheck size={16} />
+                {t.app.adminButton}
+              </button>
+              {showAdminPanel && (
+                <form
+                  className="admin-popover"
+                  onSubmit={(event) => {
+                    event.preventDefault();
+                    adminLoggedIn ? saveAdminAgentPlanKey() : loginAdmin();
+                  }}
+                >
+                  {!adminLoggedIn ? (
+                    <>
+                      <div className="admin-status">
+                        <strong>{t.app.adminLoginTitle}</strong>
+                        <small>{t.app.adminDefaultHint}</small>
+                      </div>
+                      <input
+                        value={adminUsernameDraft}
+                        onChange={(event) => setAdminUsernameDraft(event.target.value)}
+                        placeholder="admin"
+                        autoComplete="username"
+                      />
+                      <input
+                        type="password"
+                        value={adminPasswordDraft}
+                        onChange={(event) => setAdminPasswordDraft(event.target.value)}
+                        placeholder={t.app.adminPasswordPlaceholder}
+                        autoComplete="current-password"
+                      />
+                      <button className="primary" type="submit" disabled={busy === "admin-login"}>
+                        {busy === "admin-login" ? <Loader2 size={16} className="spin" /> : <ShieldCheck size={16} />}
+                        {t.app.adminLogin}
+                      </button>
+                    </>
+                  ) : (
+                    <>
+                      <div className="admin-status">
+                        <strong>{t.app.adminTrialTitle}</strong>
+                        <small>
+                          {adminAgentPlanStatus?.configured
+                            ? t.app.adminTrialConfigured(adminAgentPlanStatus.fingerprint, adminAgentPlanStatus.source)
+                            : t.app.adminTrialMissing}
+                        </small>
+                      </div>
+                      <input
+                        type="password"
+                        autoComplete="off"
+                        value={adminAgentPlanDraft}
+                        onChange={(event) => setAdminAgentPlanDraft(event.target.value)}
+                        placeholder={t.app.adminAgentPlanPlaceholder}
+                      />
+                      <div className="button-row admin-actions">
+                        <button
+                          type="submit"
+                          className="primary"
+                          disabled={busy === "save-admin-agent-plan-key" || !adminAgentPlanDraft.trim()}
+                        >
+                          {busy === "save-admin-agent-plan-key" ? <Loader2 size={16} className="spin" /> : <KeyRound size={16} />}
+                          {t.app.adminSave}
+                        </button>
+                        <button
+                          type="button"
+                          className="danger"
+                          disabled={busy === "clear-admin-agent-plan-key" || !adminAgentPlanStatus?.configured}
+                          onClick={clearAdminAgentPlanKey}
+                        >
+                          {t.app.adminClear}
+                        </button>
+                        <button type="button" onClick={logoutAdmin} disabled={busy === "admin-logout"}>
+                          {t.app.adminLogout}
+                        </button>
+                      </div>
+                    </>
+                  )}
                 </form>
               )}
             </div>

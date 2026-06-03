@@ -76,6 +76,15 @@ function assetPreviewUrl(asset: { mediaUrl?: string; imageUrl?: string; referenc
   return asset.mediaUrl || asset.imageUrl || asset.referenceImageUrl;
 }
 
+function normalizeReviewPrompt(value?: string | null) {
+  return (value || "").replace(/\s+/g, " ").trim();
+}
+
+function reviewPromptChanged(builtForPrompt: string | undefined, currentPrompt: string | undefined) {
+  if (!builtForPrompt) return false;
+  return normalizeReviewPrompt(builtForPrompt) !== normalizeReviewPrompt(currentPrompt);
+}
+
 function formatMediaTime(value?: string) {
   if (!value) return undefined;
   const date = new Date(value);
@@ -197,11 +206,12 @@ function ReviewSummaryCard({ verdict, status, error, reviewNote, label }: Review
   );
 }
 
-function VideoReviewCard({ verdict, status, error, stale }: {
+function VideoReviewCard({ verdict, status, error, stale, staleMessage }: {
   verdict?: VideoReviewVerdict;
   status?: string;
   error?: string;
   stale?: boolean;
+  staleMessage?: string;
 }) {
   const { t } = useI18n();
   if (status === "running") return <div className="inspector-review-card">{t.inspector.videoReviewRunning}</div>;
@@ -216,7 +226,7 @@ function VideoReviewCard({ verdict, status, error, stale }: {
         </strong>
         <span>{verdict.model} · {new Date(verdict.reviewedAt).toLocaleString()} · {t.inspector.frameCount(verdict.frameCount)}</span>
       </div>
-      {stale && <div className="inspector-review-fatal">{t.inspector.finalReviewStale}</div>}
+      {stale && <div className="inspector-review-fatal">{staleMessage || t.inspector.reviewPromptStale}</div>}
       {verdict.summary && <p>{verdict.summary}</p>}
       {verdict.fatalIssues.length > 0 && (
         <div className="inspector-review-fatal">
@@ -260,10 +270,11 @@ function VideoReviewCard({ verdict, status, error, stale }: {
   );
 }
 
-function ImageReviewCard({ verdict, status, error }: {
+function ImageReviewCard({ verdict, status, error, stale }: {
   verdict?: ImageReviewVerdict;
   status?: string;
   error?: string;
+  stale?: boolean;
 }) {
   const { t } = useI18n();
   if (status === "running") return <div className="inspector-review-card">{t.inspector.imageReviewRunning}</div>;
@@ -278,6 +289,7 @@ function ImageReviewCard({ verdict, status, error }: {
         </strong>
         <span>{verdict.model} · {new Date(verdict.reviewedAt).toLocaleString()}</span>
       </div>
+      {stale && <div className="inspector-review-fatal">{t.inspector.reviewPromptStale}</div>}
       {verdict.summary && <p>{verdict.summary}</p>}
       {verdict.fatalIssues.length > 0 && (
         <div className="inspector-review-fatal">
@@ -482,6 +494,11 @@ function AssetInspector({ asset, onMutated, onDeleteCanvasAsset, onClose, vision
       pendingFlushRef.current = null;
     }
   };
+
+  const imageReviewStale = reviewPromptChanged(
+    asset.imageReviewBuiltForPrompt,
+    asset.composedPrompt || prompt || description || name
+  );
 
   const handlePromptChange = (value: string) => {
     setPrompt(value);
@@ -701,6 +718,7 @@ function AssetInspector({ asset, onMutated, onDeleteCanvasAsset, onClose, vision
           verdict={asset.imageReview}
           status={asset.imageReviewStatus}
           error={asset.imageReviewError}
+          stale={imageReviewStale}
         />
       </details>
       <details className="inspector-fold">
@@ -1443,6 +1461,14 @@ function ShotInspector({ shot, session, allAssets, visionReviewEnabled, onMutate
   const latestVideoReviewStatus = latestRenderForReview?.videoReviewStatus || shot.videoReviewStatus;
   const latestVideoReviewError = latestRenderForReview?.videoReviewError || shot.videoReviewError;
   const latestReviewNote = latestRenderForReview?.reviewNote;
+  const latestVideoReviewBuiltForPrompt = latestRenderForReview?.videoReviewBuiltForPrompt || shot.videoReviewBuiltForPrompt;
+  const latestRenderPrompt = latestRenderForReview?.composedPrompt || latestRenderForReview?.rawPrompt || latestRenderForReview?.prompt || "";
+  const latestRenderRawPrompt = latestRenderForReview?.rawPrompt || latestRenderForReview?.prompt || "";
+  const currentShotPromptEdited = latestRenderForReview
+    ? normalizeReviewPrompt(rawPrompt) !== normalizeReviewPrompt(latestRenderRawPrompt)
+    : false;
+  const latestVideoReviewStale =
+    reviewPromptChanged(latestVideoReviewBuiltForPrompt, latestRenderPrompt) || currentShotPromptEdited;
 
   return (
     <aside className="inspector">
@@ -1751,6 +1777,7 @@ function ShotInspector({ shot, session, allAssets, visionReviewEnabled, onMutate
               verdict={latestVideoReview}
               status={latestVideoReviewStatus}
               error={latestVideoReviewError}
+              stale={latestVideoReviewStale}
             />
           </details>
         );
@@ -2143,6 +2170,7 @@ function StitchInspector({ session, job, legacy, onMutated, onClose }: {
             status={job.finalVideoReviewStatus}
             error={job.finalVideoReviewError}
             stale={Boolean(job.finalVideoReviewBuiltForSignature && job.finalVideoSignature && job.finalVideoReviewBuiltForSignature !== job.finalVideoSignature)}
+            staleMessage={t.inspector.finalReviewStale}
           />
         </details>
       )}

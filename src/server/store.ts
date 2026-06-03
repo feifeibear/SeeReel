@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { cp, mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import path from "node:path";
 import type { Asset, CreateSessionPayload, Session, Shot, ShotRender, StitchJob, StoreSnapshot, TokenUsageEvent } from "../shared/types";
@@ -22,6 +23,7 @@ const demoMediaTargetDir = path.join(DATA_DIR, "media", demoExample.mediaDir);
 export class CinemaStore {
   private data: StoreSnapshot = emptyStore();
   private writeQueue: Promise<void> = Promise.resolve();
+  private exampleSeedByUser = new Map<string, Promise<Session | undefined>>();
 
   async load() {
     await mkdir(DATA_DIR, { recursive: true });
@@ -73,6 +75,93 @@ export class CinemaStore {
     return true;
   }
 
+  async ensureExampleSessionForUser(ownerUserId: string) {
+    if (isDemoSeedDisabled() || !ownerUserId.trim()) return undefined;
+    const sessionId = demoSessionIdForUser(ownerUserId);
+    const existing = this.getSession(sessionId);
+    if (existing) return existing;
+
+    const pending = this.exampleSeedByUser.get(ownerUserId);
+    if (pending) return pending;
+
+    const seeded = this.createExampleSessionForUser(ownerUserId, sessionId).finally(() => {
+      this.exampleSeedByUser.delete(ownerUserId);
+    });
+    this.exampleSeedByUser.set(ownerUserId, seeded);
+    return seeded;
+  }
+
+  private async createExampleSessionForUser(ownerUserId: string, sessionId: string) {
+    await cp(demoMediaSourceDir, demoMediaTargetDir, {
+      recursive: true,
+      force: false,
+      errorOnExist: false
+    });
+
+    const existing = this.getSession(sessionId);
+    if (existing) return existing;
+
+    const suffix = demoUserSuffix(ownerUserId);
+    const demoAssets = structuredClone(demoExample.assets) as Asset[];
+    const demoShots = structuredClone(demoExample.shots) as Shot[];
+    const replacements = new Map<string, string>([
+      [demoExample.session.id, sessionId],
+      ...demoAssets.map((asset) => [asset.id, `${asset.id}_${suffix}`] as const),
+      ...demoShots.map((shot) => [shot.id, `${shot.id}_${suffix}`] as const)
+    ]);
+    const ts = now();
+    const demoSession = remapDemoIds(structuredClone(demoExample.session), replacements) as Session;
+    const assets = remapDemoIds(demoAssets, replacements).map((asset) => ({
+      ...asset,
+      ownerUserId,
+      ownerSessionId: asset.ownerSessionId || sessionId,
+      updatedAt: ts
+    })) as Asset[];
+    const shots = remapDemoIds(demoShots, replacements).map((shot) => ({
+      ...shot,
+      sessionId,
+      updatedAt: ts
+    })) as Shot[];
+
+    const session: Session = {
+      ...demoSession,
+      id: sessionId,
+      ownerUserId,
+      tokenUsageEvents: [],
+      createdAt: ts,
+      updatedAt: ts
+    };
+
+    this.data.sessions = [
+      session,
+      ...this.data.sessions.filter((item) => item.id !== session.id)
+    ];
+    const assetIds = new Set(assets.map((asset) => asset.id));
+    this.data.assets = [
+      ...assets,
+      ...this.data.assets.filter((asset) => !assetIds.has(asset.id))
+    ];
+    const shotIds = new Set(shots.map((shot) => shot.id));
+    this.data.shots = [
+      ...this.data.shots.filter((shot) => !shotIds.has(shot.id) && shot.sessionId !== session.id),
+      ...shots
+    ];
+    await this.save();
+    return this.getSession(session.id);
+  }
+
+  private ownerUserIdForAssetScope(asset: Partial<Asset>) {
+    if (asset.ownerUserId) return asset.ownerUserId;
+    if (asset.ownerSessionId) {
+      return this.data.sessions.find((session) => session.id === asset.ownerSessionId)?.ownerUserId;
+    }
+    if (asset.ownerShotId) {
+      const shot = this.data.shots.find((item) => item.id === asset.ownerShotId);
+      return shot ? this.data.sessions.find((session) => session.id === shot.sessionId)?.ownerUserId : undefined;
+    }
+    return undefined;
+  }
+
   async save() {
     const started = performance.now();
     const payload = JSON.stringify(this.data, null, 2);
@@ -92,7 +181,7 @@ export class CinemaStore {
     }
   }
 
-  async createSession(payload: CreateSessionPayload) {
+  async createSession(payload: CreateSessionPayload, ownerUserId?: string) {
     const ts = now();
     const targetDurationSec = Math.max(15, Number(payload.targetDurationSec) || 60);
     // Allow 0 — a fresh session is intentionally empty (canvas-first product flow). The user
@@ -101,6 +190,7 @@ export class CinemaStore {
     const shotCount = Math.max(0, Math.min(20, Math.floor(Number(payload.shotCount ?? 0))));
     const session: Session = {
       id: id("ses"),
+      ownerUserId,
       title: normalizeSessionTitle(payload.title, this.data.sessions),
       logline: payload.logline?.trim() || "",
       style: payload.style?.trim() || "cinematic, emotionally grounded, coherent visual continuity",
@@ -323,6 +413,7 @@ export class CinemaStore {
       }
       Object.assign(existing, asset, scopePatch, {
         id: existing.id,
+        ownerUserId: existing.ownerUserId || this.ownerUserIdForAssetScope(asset),
         mediaKind,
         mediaUrl,
         imageUrl: mediaKind === "image" ? mediaUrl : asset.imageUrl ?? existing.imageUrl,
@@ -339,6 +430,7 @@ export class CinemaStore {
     const created: Asset = {
       ...(asset as Partial<Asset>),
       id: id("asset"),
+      ownerUserId: this.ownerUserIdForAssetScope(asset),
       name: asset.name?.trim() || "未命名资产",
       type: asset.type ?? "other",
       mediaKind: asset.mediaKind ?? (asset.imageUrl ? "image" : "none"),
@@ -424,6 +516,7 @@ export class CinemaStore {
       generationModel: source.generationModel,
       generationModelActual: source.generationModelActual,
       generationCredentialSource: source.generationCredentialSource,
+      ownerUserId: session.ownerUserId || source.ownerUserId,
       ownerSessionId: sessionId
     });
   }
@@ -437,9 +530,25 @@ export class CinemaStore {
       if (shot.referenceVideoAssetId === assetId) {
         shot.referenceVideoAssetId = undefined;
         shot.referenceClipUrl = null;
+        shot.referenceAudioUrl = null;
+        shot.referenceClipPreviewUrl = null;
+        shot.referenceAudioPreviewUrl = null;
       }
       if (shot.firstFrameAssetId === assetId) shot.firstFrameAssetId = undefined;
       if (shot.lastFrameAssetId === assetId) shot.lastFrameAssetId = undefined;
+      shot.renders = (shot.renders || []).map((render) => ({
+        ...render,
+        assetIds: (render.assetIds || []).filter((id) => id !== assetId),
+        subShotStoryboardAssetId: render.subShotStoryboardAssetId === assetId ? undefined : render.subShotStoryboardAssetId,
+        subShotStoryboardAssetIds: (render.subShotStoryboardAssetIds || []).filter((id) => id !== assetId),
+        referenceVideoAssetId: render.referenceVideoAssetId === assetId ? undefined : render.referenceVideoAssetId,
+        referenceClipUrl: render.referenceVideoAssetId === assetId ? undefined : render.referenceClipUrl,
+        referenceAudioUrl: render.referenceVideoAssetId === assetId ? undefined : render.referenceAudioUrl,
+        referenceClipPreviewUrl: render.referenceVideoAssetId === assetId ? undefined : render.referenceClipPreviewUrl,
+        referenceAudioPreviewUrl: render.referenceVideoAssetId === assetId ? undefined : render.referenceAudioPreviewUrl,
+        firstFrameAssetId: render.firstFrameAssetId === assetId ? undefined : render.firstFrameAssetId,
+        lastFrameAssetId: render.lastFrameAssetId === assetId ? undefined : render.lastFrameAssetId
+      }));
     });
     await this.save();
   }
@@ -510,6 +619,14 @@ export class CinemaStore {
         survivor.referenceClipPreviewUrl = null;
         survivor.referenceAudioPreviewUrl = null;
       }
+      survivor.renders = (survivor.renders || []).map((render) => ({
+        ...render,
+        referenceVideoFromShotId: render.referenceVideoFromShotId === shotId ? undefined : render.referenceVideoFromShotId,
+        referenceClipUrl: render.referenceVideoFromShotId === shotId ? undefined : render.referenceClipUrl,
+        referenceAudioUrl: render.referenceVideoFromShotId === shotId ? undefined : render.referenceAudioUrl,
+        referenceClipPreviewUrl: render.referenceVideoFromShotId === shotId ? undefined : render.referenceClipPreviewUrl,
+        referenceAudioPreviewUrl: render.referenceVideoFromShotId === shotId ? undefined : render.referenceAudioPreviewUrl
+      }));
       if (!deletedAssetIds.size) return;
       survivor.assetIds = (survivor.assetIds || []).filter((id) => !deletedAssetIds.has(id));
       survivor.subShotStoryboardAssetIds = (survivor.subShotStoryboardAssetIds || []).filter((id) => !deletedAssetIds.has(id));
@@ -525,6 +642,23 @@ export class CinemaStore {
       }
       if (survivor.firstFrameAssetId && deletedAssetIds.has(survivor.firstFrameAssetId)) survivor.firstFrameAssetId = undefined;
       if (survivor.lastFrameAssetId && deletedAssetIds.has(survivor.lastFrameAssetId)) survivor.lastFrameAssetId = undefined;
+      survivor.renders = (survivor.renders || []).map((render) => ({
+        ...render,
+        assetIds: (render.assetIds || []).filter((id) => !deletedAssetIds.has(id)),
+        subShotStoryboardAssetId: render.subShotStoryboardAssetId && deletedAssetIds.has(render.subShotStoryboardAssetId)
+          ? undefined
+          : render.subShotStoryboardAssetId,
+        subShotStoryboardAssetIds: (render.subShotStoryboardAssetIds || []).filter((id) => !deletedAssetIds.has(id)),
+        referenceVideoAssetId: render.referenceVideoAssetId && deletedAssetIds.has(render.referenceVideoAssetId)
+          ? undefined
+          : render.referenceVideoAssetId,
+        referenceClipUrl: render.referenceVideoAssetId && deletedAssetIds.has(render.referenceVideoAssetId) ? undefined : render.referenceClipUrl,
+        referenceAudioUrl: render.referenceVideoAssetId && deletedAssetIds.has(render.referenceVideoAssetId) ? undefined : render.referenceAudioUrl,
+        referenceClipPreviewUrl: render.referenceVideoAssetId && deletedAssetIds.has(render.referenceVideoAssetId) ? undefined : render.referenceClipPreviewUrl,
+        referenceAudioPreviewUrl: render.referenceVideoAssetId && deletedAssetIds.has(render.referenceVideoAssetId) ? undefined : render.referenceAudioPreviewUrl,
+        firstFrameAssetId: render.firstFrameAssetId && deletedAssetIds.has(render.firstFrameAssetId) ? undefined : render.firstFrameAssetId,
+        lastFrameAssetId: render.lastFrameAssetId && deletedAssetIds.has(render.lastFrameAssetId) ? undefined : render.lastFrameAssetId
+      }));
     });
     await this.save();
     return snapshot;
@@ -663,6 +797,29 @@ function isDemoSeedDisabled() {
   return /^(0|false|no|off)$/i.test(process.env.REELYAI_SEED_DEMO || "");
 }
 
+function demoUserSuffix(ownerUserId: string) {
+  return createHash("sha256").update(ownerUserId).digest("hex").slice(0, 10);
+}
+
+function demoSessionIdForUser(ownerUserId: string) {
+  return `${demoExample.session.id}_${demoUserSuffix(ownerUserId)}`;
+}
+
+function remapDemoIds<T>(value: T, replacements: Map<string, string>): T {
+  if (typeof value === "string") {
+    return (replacements.get(value) || value) as T;
+  }
+  if (Array.isArray(value)) {
+    return value.map((item) => remapDemoIds(item, replacements)) as T;
+  }
+  if (value && typeof value === "object") {
+    return Object.fromEntries(
+      Object.entries(value).map(([key, entry]) => [key, remapDemoIds(entry, replacements)])
+    ) as T;
+  }
+  return value;
+}
+
 function normalizeMentionText(value: string) {
   return value.toLowerCase().replace(/\s+/g, "").replace(/／/g, "/").trim();
 }
@@ -705,6 +862,11 @@ function shotPatchFromRender(render: ShotRender): Partial<Shot> {
     subShotStoryboardAssetIds: render.subShotStoryboardAssetIds,
     referenceVideoAssetId: render.referenceVideoAssetId,
     referenceVideoFromShotId: render.referenceVideoFromShotId,
+    videoReviewStatus: render.videoReviewStatus,
+    videoReview: render.videoReview,
+    videoReviewError: render.videoReviewError,
+    videoReviewUpdatedAt: render.videoReviewUpdatedAt,
+    videoReviewBuiltForPrompt: render.videoReviewBuiltForPrompt,
     status: "ready"
   };
   return Object.fromEntries(Object.entries(patch).filter(([, value]) => value !== undefined)) as Partial<Shot>;

@@ -1,5 +1,5 @@
 import "dotenv/config";
-import { createHash, randomUUID } from "node:crypto";
+import { createHash, randomUUID, timingSafeEqual } from "node:crypto";
 import { mkdir, readFile, stat, unlink, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { Readable } from "node:stream";
@@ -9,6 +9,7 @@ import cors from "cors";
 import express, { type Request, type Response } from "express";
 import {
   canUseBytePlusSeedance,
+  type BuildSeedancePayloadOpts,
   cacheGeneratedVideo,
   cancelSeedanceVideoTask,
   createSeedanceVideoTask,
@@ -24,6 +25,7 @@ import {
   MEDIA_DIR,
   pollSeedanceVideoTask,
   probeMediaDurationSec,
+  resolveSeedanceCredential,
   resolveSeedanceModel,
   runFfmpegCommand,
   seedreamCredentialSource,
@@ -36,12 +38,14 @@ import { inferTokenUsageModelFamily, tokenUsageEventFromRaw } from "./tokenUsage
 import { publishAssetImageToTos, publishLocalMediaToTos, hasTosConfig } from "./tos";
 import {
   clearRequestAgentPlanKey,
+  currentUserId,
   requestAgentPlanStatus,
   setRequestAgentPlanKey,
   userCredentialMiddleware
 } from "./userCredentials";
 import { accessGuardEnabled, accessGuardMiddleware } from "./accessGuard";
-import { generationCapMessage, generationLimitSnapshot, tryConsumeGeneration } from "./generationLimits";
+import { adminAgentPlanStatus, clearStoredAdminAgentPlanKey, setStoredAdminAgentPlanKey } from "./adminSettings";
+import { freeTrialStatus, generationCapMessage, generationLimitSnapshot, tryConsumeGeneration } from "./generationLimits";
 import { condenseForSeedanceR2V, probeVideo, type CondenseStrategy } from "./videoCondense";
 import { buildShotFrameAssignments, generateStoryboardGrid } from "./storyboardGrid";
 import { buildSubStoryboardAssetPayload, generateSubStoryboardGrid, generateSubStoryboardSequential, type SubStoryboardResult } from "./subStoryboard";
@@ -103,6 +107,8 @@ const serviceStartedAt = Date.now();
 const buildVersion = process.env.REELYAI_VERSION || process.env.npm_package_version || "dev";
 const buildCommit = process.env.REELYAI_COMMIT_SHA || process.env.GITHUB_SHA || "";
 const shotGenerateSubmissions = new Map<string, Promise<{ status: number; body: unknown }>>();
+const ADMIN_COOKIE = "reelyai_admin_session";
+const adminSessions = new Map<string, { createdAt: number }>();
 // In-process singleflight registry for stitch background workers. Keyed by sessionId + stitch job id;
 // value is the signature currently being processed. Survives concurrent /stitch POSTs but does NOT
 // survive process restart (handled separately via resetOrphanStitchJobs() at startup).
@@ -202,7 +208,7 @@ app.use(visitorMetricsMiddleware);
 app.use(userCredentialMiddleware);
 app.use(accessGuardMiddleware);
 app.use(express.json({ limit: "25mb" }));
-app.use("/media", express.static(path.resolve(process.cwd(), "data", "media")));
+app.use("/media", mediaAccessGuard, express.static(path.resolve(process.cwd(), "data", "media")));
 
 /**
  * Liveness check the client polls every ~15s to detect server restart / hang. Fast, allocation-free,
@@ -332,8 +338,9 @@ app.get("/metrics", async (_req, res) => {
   res.type("text/plain; version=0.0.4; charset=utf-8").send(metricsText());
 });
 
-app.get("/api/state", (_req, res) => {
-  res.json({ ...store.snapshot(), runtime: runtimeInfo() });
+app.get("/api/state", async (_req, res) => {
+  await store.ensureExampleSessionForUser(userIdForRequest());
+  res.json({ ...snapshotForCurrentUser(), runtime: runtimeInfo() });
 });
 
 app.get("/api/credentials/agent-plan", (_req, res) => {
@@ -352,6 +359,47 @@ app.delete("/api/credentials/agent-plan", (_req, res) => {
   res.json(requestAgentPlanStatus());
 });
 
+app.post("/api/admin/login", (req, res) => {
+  const username = typeof req.body?.username === "string" ? req.body.username.trim() : "";
+  const password = typeof req.body?.password === "string" ? req.body.password : "";
+  if (!constantTimeEqual(username, adminUsername()) || !constantTimeEqual(password, adminPassword())) {
+    return res.status(401).json({ error: "管理员账号或密码错误", code: "admin_login_failed" });
+  }
+  const token = randomUUID();
+  adminSessions.set(token, { createdAt: Date.now() });
+  setAdminCookie(res, token);
+  res.json({ ok: true, adminAgentPlan: adminAgentPlanStatus() });
+});
+
+app.post("/api/admin/logout", (req, res) => {
+  const token = requestAdminToken(req);
+  if (token) adminSessions.delete(token);
+  res.clearCookie(ADMIN_COOKIE, { path: "/" });
+  res.json({ ok: true });
+});
+
+app.get("/api/admin/settings", (req, res) => {
+  if (!requireAdmin(req, res)) return;
+  res.json({ adminAgentPlan: adminAgentPlanStatus() });
+});
+
+app.put("/api/admin/settings/agent-plan", (req, res) => {
+  if (!requireAdmin(req, res)) return;
+  const apiKey = typeof req.body?.apiKey === "string" ? req.body.apiKey.trim() : "";
+  try {
+    res.json({ adminAgentPlan: setStoredAdminAgentPlanKey(apiKey) });
+  } catch (error) {
+    res.status(400).json({ error: error instanceof Error ? error.message : "保存失败" });
+  }
+});
+
+app.delete("/api/admin/settings/agent-plan", (req, res) => {
+  if (!requireAdmin(req, res)) return;
+  res.json({ adminAgentPlan: clearStoredAdminAgentPlanKey() });
+});
+
+app.use(ownedResourceGuard);
+
 function resolveAssetPromptOverride(asset: Asset, explicitOverride?: string) {
   const rawPrompt = (asset.prompt || asset.description || asset.name || "").toString().trim();
   const explicit = explicitOverride?.trim();
@@ -367,6 +415,31 @@ function sessionIdForAsset(asset: Asset) {
   return undefined;
 }
 
+function ownerUserIdForSessionId(sessionId: string | undefined) {
+  return sessionId ? sessionById(sessionId)?.ownerUserId || userIdForRequest() : userIdForRequest();
+}
+
+function ownerUserIdForAssetScope(asset: Partial<Asset>) {
+  if (asset.ownerUserId) return asset.ownerUserId;
+  if (asset.ownerSessionId) return ownerUserIdForSessionId(asset.ownerSessionId);
+  if (asset.ownerShotId) return ownerUserIdForSessionId(store.getShot(asset.ownerShotId)?.sessionId);
+  return userIdForRequest();
+}
+
+function withAssetOwner<T extends Partial<Asset>>(asset: T): T & { ownerUserId: string } {
+  return { ...asset, ownerUserId: ownerUserIdForAssetScope(asset) };
+}
+
+function consumeGenerationOr429(res: Response, sessionId: string | undefined, operation: string) {
+  const cap = tryConsumeGeneration(sessionId, operation);
+  if (cap.ok) return true;
+  res.status(429).json({
+    error: generationCapMessage(cap),
+    code: cap.freeTrial ? "free_trial_exceeded" : "generation_cap_exceeded"
+  });
+  return false;
+}
+
 function assetImageModelFromActual(actualModelId: string | undefined, fallback: "gpt-image-2" | "seedream-4" | "seedream-4-5" | "seedream-5-lite") {
   const actual = (actualModelId || "").toLowerCase();
   if (actual.includes("seedream-5.0-lite") || actual.includes("seedream-5-lite")) return "seedream-5-lite";
@@ -379,8 +452,193 @@ function runtimeInfo() {
   return {
     seedreamCredentialSource: seedreamCredentialSource(),
     seedreamDefaultModel: defaultSeedreamAssetImageModel(),
-    agentPlanCredential: requestAgentPlanStatus()
+    agentPlanCredential: requestAgentPlanStatus(),
+    freeTrial: freeTrialStatus()
   };
+}
+
+function adminUsername() {
+  return process.env.REELYAI_ADMIN_USER?.trim() || process.env.ADMIN_USER?.trim() || "admin";
+}
+
+function adminPassword() {
+  return process.env.REELYAI_ADMIN_PASSWORD?.trim() || process.env.ADMIN_PASSWORD?.trim() || "Fjr123456";
+}
+
+function parseCookieHeader(header: string | undefined) {
+  const result = new Map<string, string>();
+  if (!header) return result;
+  for (const part of header.split(";")) {
+    const index = part.indexOf("=");
+    if (index < 0) continue;
+    const key = part.slice(0, index).trim();
+    const value = part.slice(index + 1).trim();
+    if (!key) continue;
+    try {
+      result.set(key, decodeURIComponent(value));
+    } catch {
+      result.set(key, value);
+    }
+  }
+  return result;
+}
+
+function constantTimeEqual(a: string, b: string) {
+  const left = Buffer.from(a);
+  const right = Buffer.from(b);
+  return left.length === right.length && timingSafeEqual(left, right);
+}
+
+function requestAdminToken(req: Request) {
+  return parseCookieHeader(req.headers.cookie).get(ADMIN_COOKIE);
+}
+
+function isAdminRequest(req: Request) {
+  const token = requestAdminToken(req);
+  return Boolean(token && adminSessions.has(token));
+}
+
+function requireAdmin(req: Request, res: Response) {
+  if (isAdminRequest(req)) return true;
+  res.status(401).json({ error: "需要管理员登录", code: "admin_login_required" });
+  return false;
+}
+
+function setAdminCookie(res: Response, token: string) {
+  res.cookie(ADMIN_COOKIE, token, {
+    httpOnly: true,
+    sameSite: "lax",
+    secure: process.env.NODE_ENV === "production" && process.env.REELYAI_COOKIE_SECURE !== "0",
+    maxAge: 1000 * 60 * 60 * 8,
+    path: "/"
+  });
+}
+
+function legacyPublicSessionsEnabled() {
+  return /^(1|true|yes|on)$/i.test(process.env.REELYAI_LEGACY_PUBLIC_DATA || "");
+}
+
+function userIdForRequest() {
+  return currentUserId() || "anonymous";
+}
+
+function ownsSession(session: Pick<Session, "ownerUserId"> | undefined, userId = userIdForRequest()) {
+  if (!session) return false;
+  if (session.ownerUserId) return session.ownerUserId === userId;
+  return legacyPublicSessionsEnabled();
+}
+
+function sessionById(sessionId: string | undefined) {
+  if (!sessionId) return undefined;
+  return store.snapshot().sessions.find((session) => session.id === sessionId);
+}
+
+function shotById(shotId: string | undefined) {
+  if (!shotId) return undefined;
+  return store.getShot(shotId);
+}
+
+function ownsShot(shot: Pick<Shot, "sessionId"> | undefined, userId = userIdForRequest()) {
+  if (!shot) return false;
+  return ownsSession(sessionById(shot.sessionId), userId);
+}
+
+function ownsAsset(asset: Asset | undefined, userId = userIdForRequest()) {
+  if (!asset) return false;
+  if (asset.ownerShotId) return ownsShot(shotById(asset.ownerShotId), userId);
+  if (asset.ownerSessionId) return ownsSession(sessionById(asset.ownerSessionId), userId);
+  if (asset.ownerUserId) return asset.ownerUserId === userId;
+  return legacyPublicSessionsEnabled();
+}
+
+function snapshotForCurrentUser(): StoreSnapshot {
+  const userId = userIdForRequest();
+  const snapshot = store.snapshot();
+  const sessions = snapshot.sessions.filter((session) => ownsSession(session, userId));
+  const sessionIds = new Set(sessions.map((session) => session.id));
+  const shots = snapshot.shots.filter((shot) => sessionIds.has(shot.sessionId));
+  const shotIds = new Set(shots.map((shot) => shot.id));
+  const assets = snapshot.assets.filter((asset) => {
+    if (asset.ownerShotId) return shotIds.has(asset.ownerShotId);
+    if (asset.ownerSessionId) return sessionIds.has(asset.ownerSessionId);
+    if (asset.ownerUserId) return asset.ownerUserId === userId;
+    return legacyPublicSessionsEnabled();
+  });
+  return { sessions, shots, assets };
+}
+
+function normalizeLocalMediaUrl(value: unknown) {
+  if (typeof value !== "string" || !value.trim()) return undefined;
+  const raw = value.trim();
+  try {
+    const parsed = raw.startsWith("http://") || raw.startsWith("https://")
+      ? new URL(raw)
+      : undefined;
+    const pathname = parsed ? parsed.pathname : raw.split("?")[0];
+    return pathname.startsWith("/media/") ? decodeURIComponent(pathname) : undefined;
+  } catch {
+    const pathname = raw.split("?")[0];
+    return pathname.startsWith("/media/") ? pathname : undefined;
+  }
+}
+
+function visibleLocalMediaUrls() {
+  const snapshot = snapshotForCurrentUser();
+  const urls = new Set<string>();
+  const add = (value: unknown) => {
+    const normalized = normalizeLocalMediaUrl(value);
+    if (normalized) urls.add(normalized);
+  };
+  for (const asset of snapshot.assets) {
+    add(asset.mediaUrl);
+    add(asset.imageUrl);
+    add(asset.referenceImageUrl);
+  }
+  for (const shot of snapshot.shots) {
+    add(shot.videoUrl);
+    add(shot.referenceClipUrl);
+    add(shot.referenceAudioUrl);
+    for (const render of shot.renders || []) {
+      add(render.videoUrl);
+      add(render.referenceClipUrl);
+      add(render.referenceAudioUrl);
+    }
+  }
+  for (const session of snapshot.sessions) {
+    add(session.finalVideoUrl);
+    add(session.narrationVideoUrl);
+    for (const job of session.stitchJobs || []) {
+      add(job.finalVideoUrl);
+    }
+  }
+  return urls;
+}
+
+function mediaAccessGuard(req: Request, res: Response, next: () => void) {
+  if (legacyPublicSessionsEnabled()) return next();
+  const requested = normalizeLocalMediaUrl(`/media${req.path}`);
+  if (requested && visibleLocalMediaUrls().has(requested)) return next();
+  return res.status(404).send("Not found");
+}
+
+function ownedResourceGuard(req: Request, res: Response, next: () => void) {
+  const sessionMatch = req.path.match(/^\/api\/sessions\/([^/]+)/);
+  if (sessionMatch && !ownsSession(sessionById(sessionMatch[1]))) {
+    return res.status(404).json({ error: "Session not found" });
+  }
+
+  const shotMatch = req.path.match(/^\/api\/shots\/([^/]+)/);
+  if (shotMatch && !ownsShot(shotById(shotMatch[1]))) {
+    return res.status(404).json({ error: "Shot not found" });
+  }
+
+  const assetMatch = req.path.match(/^\/api\/assets\/([^/]+)/);
+  if (assetMatch && !["restore", "upload-video", "upload-image", "expand-prompt"].includes(assetMatch[1])) {
+    const asset = store.snapshot().assets.find((item) => item.id === assetMatch[1]);
+    if (!ownsAsset(asset)) return res.status(404).json({ error: "Asset not found" });
+  }
+
+  next();
 }
 
 async function recordTokenUsage(
@@ -476,10 +734,39 @@ function isRemoteWorkflowAsset(asset: Asset | undefined): boolean {
   return /^https?:\/\//.test(url);
 }
 
-function workflowShotAction(shot: Shot, mode: WorkflowRunMode): WorkflowShotPlanItem["action"] {
+function remoteSeedanceImageUrl(asset: Asset | undefined): string | undefined {
+  const url = asset?.mediaUrl || asset?.imageUrl || asset?.referenceImageUrl;
+  if (!url || !/^https?:\/\//.test(url) || url.includes("placehold.co")) return undefined;
+  return url;
+}
+
+function currentReferenceImageUrlsForRender(render: ShotRender, snapshot: StoreSnapshot) {
+  // First/last-frame mode intentionally submits first_frame / last_frame, not reference_image.
+  if (render.firstFrameAssetId) return [];
+  const assetById = new Map(snapshot.assets.map((asset) => [asset.id, asset]));
+  const ids = render.subShotPanelCount && render.subShotPanelCount > 1
+    ? (render.subShotStoryboardAssetIds?.length
+        ? render.subShotStoryboardAssetIds
+        : render.subShotStoryboardAssetId ? [render.subShotStoryboardAssetId] : [])
+    : (render.assetIds || []);
+  return ids
+    .map((id) => remoteSeedanceImageUrl(assetById.get(id)))
+    .filter((url): url is string => Boolean(url));
+}
+
+function selectedRenderReferenceImagesChanged(shot: Shot, snapshot: StoreSnapshot) {
+  const render = findSelectedRender(shot);
+  if (!render?.submittedReferenceImageUrls) return false;
+  const before = render.submittedReferenceImageUrls;
+  const now = currentReferenceImageUrlsForRender(render, snapshot);
+  return before.length !== now.length || before.some((url, index) => url !== now[index]);
+}
+
+function workflowShotAction(shot: Shot, mode: WorkflowRunMode, snapshot: StoreSnapshot): WorkflowShotPlanItem["action"] {
   if (shot.status === "generating" || Boolean(shot.generationTaskId) || Boolean(findPendingRender(shot))) return "poll";
   if (mode === "all") return "generate";
   if (!shot.videoUrl || shot.status === "error" || shot.status === "cancelled") return "generate";
+  if (selectedRenderReferenceImagesChanged(shot, snapshot)) return "generate";
   return "skip";
 }
 
@@ -526,7 +813,7 @@ function buildWorkflowExecutionPlan(
   const warnings: string[] = [];
 
   const items: WorkflowShotPlanItem[] = shots.map((shot) => {
-    const action = workflowShotAction(shot, mode);
+    const action = workflowShotAction(shot, mode, snapshot);
     if (action !== "skip") activeIds.add(shot.id);
     return {
       shotId: shot.id,
@@ -659,7 +946,7 @@ function buildWorkflowExecutionPlan(
 }
 
 app.post("/api/sessions", async (req, res) => {
-  res.json(await store.createSession(req.body));
+  res.json(await store.createSession(req.body, userIdForRequest()));
 });
 
 app.delete("/api/sessions/:sessionId/token-usage", async (req, res) => {
@@ -711,15 +998,15 @@ app.delete("/api/sessions/:sessionId", async (req, res) => {
 });
 
 app.post("/api/assets", async (req, res) => {
-  const body = { ...((req.body as Record<string, unknown>) || {}) };
+  const body: Record<string, unknown> = { ...((req.body as Record<string, unknown>) || {}), ownerUserId: userIdForRequest() };
   if (!body.generationModel && body.mediaKind !== "video") {
     body.generationModel = defaultSeedreamAssetImageModel();
   }
-  res.json(await store.upsertAsset(body));
+  res.json(await store.upsertAsset(withAssetOwner(body)));
 });
 
 app.patch("/api/assets/:assetId", async (req, res) => {
-  const asset = await store.upsertAsset({ ...req.body, id: req.params.assetId });
+  const asset = await store.upsertAsset(withAssetOwner({ ...req.body, id: req.params.assetId }));
   if (!asset) return res.status(404).json({ error: "Asset not found" });
   res.json(asset);
 });
@@ -732,7 +1019,10 @@ app.delete("/api/assets/:assetId", async (req, res) => {
 app.post("/api/assets/restore", async (req, res) => {
   const asset = req.body?.asset as Asset | undefined;
   if (!asset?.id) return res.status(400).json({ error: "asset is required" });
-  res.json(await store.restoreAsset(asset));
+  if (asset.ownerSessionId && !ownsSession(sessionById(asset.ownerSessionId))) {
+    return res.status(404).json({ error: "Session not found" });
+  }
+  res.json(await store.restoreAsset(withAssetOwner(asset)));
 });
 
 app.get("/api/assets/:assetId/download", async (req, res) => {
@@ -763,6 +1053,7 @@ app.post("/api/assets/:assetId/review/repair-prompt", async (req, res) => {
   const failures = parseExistingReviewFailures(asset.reviewNote);
   const reasons = failures.flatMap((failure) => failure.reasons);
   if (!reasons.length) return res.status(400).json({ error: "Asset has no VLM review failures to repair" });
+  if (!consumeGenerationOr429(res, sessionIdForAsset(asset), "asset_review_repair_prompt")) return;
   const rewrite = await rewritePromptWithReviewFeedback({
     originalPrompt: asset.prompt || asset.description || asset.name,
     reviewReasons: reasons.slice(0, 8),
@@ -806,6 +1097,7 @@ app.post("/api/sessions/:sessionId/assets/:assetId/copy", async (req, res) => {
   if (!session) return res.status(404).json({ error: "Session not found" });
   const asset = snapshot.assets.find((item) => item.id === req.params.assetId);
   if (!asset) return res.status(404).json({ error: "Asset not found" });
+  if (!ownsAsset(asset)) return res.status(404).json({ error: "Asset not found" });
   if (asset.ownerShotId || asset.ownerSessionId) {
     return res.status(400).json({ error: "Only global assets can be copied into a session." });
   }
@@ -836,6 +1128,9 @@ app.post("/api/assets/upload-video", rawVideoUpload, async (req, res) => {
     return res.status(400).json({ error: "Empty or non-binary video body. POST raw bytes with Content-Type: video/mp4." });
   }
   const ownerSessionId = typeof req.query.ownerSessionId === "string" ? req.query.ownerSessionId : undefined;
+  if (ownerSessionId && !ownsSession(sessionById(ownerSessionId))) {
+    return res.status(404).json({ error: "Session not found" });
+  }
   const filenameHint = typeof req.query.filename === "string" ? req.query.filename : "uploaded-video.mp4";
   const requestedStrategy = typeof req.query.clipStrategy === "string" ? req.query.clipStrategy : undefined;
   const strategy: CondenseStrategy = requestedStrategy === "trim" || requestedStrategy === "speedup"
@@ -899,7 +1194,7 @@ app.post("/api/assets/upload-video", rawVideoUpload, async (req, res) => {
     }
   }
 
-  const asset = await store.upsertAsset({
+  const asset = await store.upsertAsset(withAssetOwner({
     name: filenameHint.replace(/\.[^.]+$/, "").slice(0, 80) || "参考视频",
     type: "other",
     mediaKind: "video",
@@ -921,7 +1216,7 @@ app.post("/api/assets/upload-video", rawVideoUpload, async (req, res) => {
     clipStrategy: appliedStrategy,
     originalDurationSec,
     clipDurationSec
-  });
+  }));
   res.json(asset);
 });
 
@@ -940,6 +1235,9 @@ app.post("/api/assets/upload-image", rawImageUpload, async (req, res) => {
     return res.status(400).json({ error: "Empty or non-binary image body. POST raw bytes with Content-Type: image/jpeg." });
   }
   const ownerSessionId = typeof req.query.ownerSessionId === "string" ? req.query.ownerSessionId : undefined;
+  if (ownerSessionId && !ownsSession(sessionById(ownerSessionId))) {
+    return res.status(404).json({ error: "Session not found" });
+  }
   const filenameHint = typeof req.query.filename === "string" ? req.query.filename : "uploaded-image.jpg";
   const nameHint = typeof req.query.name === "string" ? req.query.name : filenameHint.replace(/\.[^.]+$/, "");
   const tagsCsv = typeof req.query.tags === "string" ? req.query.tags : "reference-image,uploaded";
@@ -964,7 +1262,7 @@ app.post("/api/assets/upload-image", rawImageUpload, async (req, res) => {
     }
   }
 
-  const asset = await store.upsertAsset({
+  const asset = await store.upsertAsset(withAssetOwner({
     name: nameHint.slice(0, 80),
     type: "scene",
     mediaKind: "image",
@@ -977,7 +1275,7 @@ app.post("/api/assets/upload-image", rawImageUpload, async (req, res) => {
     ownerSessionId,
     tosObjectKey: publishedKey,
     tosPublishedAt: publishedRemoteUrl ? new Date().toISOString() : undefined
-  });
+  }));
   res.json(asset);
 });
 
@@ -1126,6 +1424,7 @@ app.post("/api/assets/:assetId/analyze-video", async (req, res) => {
   if (!localVideoPath) {
     return res.status(400).json({ error: "Asset has no local /media/ video URL. Re-upload via /upload-video." });
   }
+  if (!consumeGenerationOr429(res, sessionIdForAsset(asset), "reference_video_analyze")) return;
 
   // Resolve language: prefer body.lang, then owning session's language, then default.
   const reqBody = (req.body as Record<string, unknown>) || {};
@@ -1167,8 +1466,10 @@ app.post("/api/assets/:assetId/analyze-video", async (req, res) => {
 app.post("/api/assets/expand-prompt", async (req, res) => {
   try {
     const asset = (req.body?.asset || {}) as Partial<Asset>;
-    const result = await expandAssetPrompt(asset);
     const sessionId = asset.ownerSessionId || (asset.ownerShotId ? store.getShot(asset.ownerShotId)?.sessionId : undefined);
+    if (sessionId && !ownsSession(sessionById(sessionId))) return res.status(404).json({ error: "Session not found" });
+    if (!consumeGenerationOr429(res, sessionId, "asset_prompt_expand")) return;
+    const result = await expandAssetPrompt(asset);
     await recordTokenUsage(sessionId, result.rawUsage, {
       nodeId: asset.id || sessionId || "asset-prompt",
       nodeType: asset.id ? "asset" : "session",
@@ -1427,7 +1728,8 @@ app.post("/api/shots/:shotId/sketches", async (req, res) => {
           imageReviewStatus: reviewed.imageReview ? "ready" : undefined,
           imageReview: reviewed.imageReview,
           imageReviewError: undefined,
-          imageReviewUpdatedAt: reviewed.imageReview?.reviewedAt
+          imageReviewUpdatedAt: reviewed.imageReview?.reviewedAt,
+          imageReviewBuiltForPrompt: reviewed.rewrittenPrompt || lastComposedPrompt || promptText
         });
         if (updated) created.push(updated);
       } catch (err) {
@@ -1464,7 +1766,7 @@ app.post("/api/shots/:shotId/sketches/import", async (req, res) => {
     const importedUrl = await importStoryboardImage(req.body?.imageDataUrl, req.body?.imageUrl, shot.id, name);
     const publicUrl = toPublicMediaUrl(importedUrl) || importedUrl;
     const canSeedanceUse = isRemoteSeedanceUrl(publicUrl);
-    const sketch = await store.upsertAsset({
+    const sketch = await store.upsertAsset(withAssetOwner({
       name,
       type: "scene",
       mediaKind: "image",
@@ -1477,7 +1779,7 @@ app.post("/api/shots/:shotId/sketches/import", async (req, res) => {
       referenceImageUrl: importedUrl,
       imageUrl: publicUrl,
       mediaUrl: publicUrl
-    });
+    }));
     if (!sketch) throw new Error("Failed to create imported storyboard asset");
 
     const refreshed = store.getShot(shot.id) || shot;
@@ -1568,7 +1870,8 @@ app.post("/api/shots/restore", async (req, res) => {
   const shot = req.body?.shot as Shot | undefined;
   const assets = Array.isArray(req.body?.assets) ? (req.body.assets as Asset[]) : [];
   if (!shot?.id) return res.status(400).json({ error: "shot is required" });
-  const restored = await store.restoreShot(shot, assets);
+  if (!ownsSession(sessionById(shot.sessionId))) return res.status(404).json({ error: "Session not found" });
+  const restored = await store.restoreShot(shot, assets.map((asset) => withAssetOwner(asset)));
   if (!restored?.session) return res.status(404).json({ error: "Session not found" });
   const restoredShot = store.getShot(shot.id);
   if (!restoredShot) return res.status(500).json({ error: "Shot restore failed" });
@@ -1650,8 +1953,7 @@ app.post("/api/assets/:assetId/generate", async (req, res) => {
   if (!asset) return res.status(404).json({ error: "Asset not found" });
   const reqBody = (req.body as Record<string, unknown>) || {};
 
-  const assetGenCap = tryConsumeGeneration(sessionIdForAsset(asset), "asset_generate");
-  if (!assetGenCap.ok) return res.status(429).json({ error: generationCapMessage(assetGenCap), code: "generation_cap_exceeded" });
+  if (!consumeGenerationOr429(res, sessionIdForAsset(asset), "asset_generate")) return;
 
   try {
     const requestedModel = reqBody.model;
@@ -1763,7 +2065,8 @@ app.post("/api/assets/:assetId/generate", async (req, res) => {
         imageReviewStatus: reviewed.imageReview ? "ready" : undefined,
         imageReview: reviewed.imageReview,
         imageReviewError: undefined,
-        imageReviewUpdatedAt: reviewed.imageReview?.reviewedAt
+        imageReviewUpdatedAt: reviewed.imageReview?.reviewedAt,
+        imageReviewBuiltForPrompt: reviewed.rewrittenPrompt || lastComposedPrompt || reviewPrompt
       })
     );
   } catch (error) {
@@ -1777,12 +2080,15 @@ app.post("/api/assets/:assetId/review", async (req, res) => {
   if (!asset) return res.status(404).json({ error: "Asset not found" });
   const productUrl = asset.mediaUrl || asset.imageUrl || asset.referenceImageUrl;
   if (!productUrl) return res.status(400).json({ error: "Asset has no image to review" });
+  if (!consumeGenerationOr429(res, sessionIdForAsset(asset), "asset_vlm_review")) return;
   const runningAt = new Date().toISOString();
+  const reviewPrompt = (asset.composedPrompt || asset.prompt || asset.description || asset.name || "").toString();
   await store.upsertAsset({
     id: asset.id,
     imageReviewStatus: "running",
     imageReviewError: undefined,
-    imageReviewUpdatedAt: runningAt
+    imageReviewUpdatedAt: runningAt,
+    imageReviewBuiltForPrompt: reviewPrompt
   });
   try {
     const referenceUrls = [
@@ -1796,7 +2102,7 @@ app.post("/api/assets/:assetId/review", async (req, res) => {
     ].filter((url): url is string => Boolean(url && url !== productUrl));
     const verdict = await reviewImageDetailed({
       kind: asset.ownerShotId ? "sketch" : "asset",
-      prompt: (asset.composedPromptDraft || asset.composedPrompt || asset.prompt || asset.description || asset.name || "").toString(),
+      prompt: reviewPrompt,
       productUrl,
       referenceUrls
     });
@@ -1814,6 +2120,7 @@ app.post("/api/assets/:assetId/review", async (req, res) => {
       imageReview: verdict,
       imageReviewError: undefined,
       imageReviewUpdatedAt: verdict.reviewedAt,
+      imageReviewBuiltForPrompt: reviewPrompt,
       reviewModel: verdict.model
     }));
   } catch (error) {
@@ -1831,6 +2138,7 @@ app.post("/api/assets/:assetId/review", async (req, res) => {
 app.post("/api/sessions/:sessionId/script/generate", async (req, res) => {
   const session = store.getSession(req.params.sessionId);
   if (!session) return res.status(404).json({ error: "Session not found" });
+  if (!consumeGenerationOr429(res, session.id, "script_generate")) return;
 
   try {
     const result = await generateStoryPlanDetailed(session, store.snapshot().assets);
@@ -1859,8 +2167,7 @@ app.post("/api/sessions/:sessionId/cast", async (req, res) => {
   const session = store.getSession(req.params.sessionId);
   if (!session) return res.status(404).json({ error: "Session not found" });
 
-  const castCap = tryConsumeGeneration(session.id, "cast");
-  if (!castCap.ok) return res.status(429).json({ error: generationCapMessage(castCap), code: "generation_cap_exceeded" });
+  if (!consumeGenerationOr429(res, session.id, "cast")) return;
 
   try {
     const allAssets = store.snapshot().assets;
@@ -3038,6 +3345,7 @@ function resolveLocalMediaPath(videoUrl: string) {
 app.post("/api/sessions/:sessionId/storyboard", async (req, res) => {
   const session = store.getSession(req.params.sessionId);
   if (!session) return res.status(404).json({ error: "Session not found" });
+  if (!consumeGenerationOr429(res, session.id, "storyboard_plan")) return;
 
   const assets = store.snapshot().assets;
   const storyboardResult = await generateStoryboardDetailed(session, assets);
@@ -3090,8 +3398,7 @@ app.post("/api/sessions/:sessionId/storyboard-grid", async (req, res) => {
   const session = store.getSession(req.params.sessionId);
   if (!session) return res.status(404).json({ error: "Session not found" });
 
-  const gridCap = tryConsumeGeneration(session.id, "storyboard_grid");
-  if (!gridCap.ok) return res.status(429).json({ error: generationCapMessage(gridCap), code: "generation_cap_exceeded" });
+  if (!consumeGenerationOr429(res, session.id, "storyboard_grid")) return;
 
   const sortedShots = (session.shots || []).slice().sort((a, b) => a.index - b.index);
   const requestedCount = Number((req.body as Record<string, unknown>)?.panelCount);
@@ -3583,7 +3890,12 @@ app.post("/api/shots/:shotId/generate", async (req, res) => {
 
   const shotForCap = store.getShot(shotId);
   const capResult = tryConsumeGeneration(shotForCap?.sessionId, "shot_generate");
-  if (!capResult.ok) return res.status(429).json({ error: generationCapMessage(capResult), code: "generation_cap_exceeded" });
+  if (!capResult.ok) {
+    return res.status(429).json({
+      error: generationCapMessage(capResult),
+      code: capResult.freeTrial ? "free_trial_exceeded" : "generation_cap_exceeded"
+    });
+  }
 
   const submission = submitShotGeneration(shotId, reqBody as Partial<Shot> & Record<string, unknown>);
   shotGenerateSubmissions.set(shotId, submission);
@@ -3909,12 +4221,15 @@ async function submitShotGeneration(shotId: string, body: Partial<Shot>): Promis
       lang: sessionLang,
       ...(typeof requestedGenerateAudio === "boolean" ? { generateAudio: requestedGenerateAudio } : {})
     };
-    if (canUseBytePlusSeedance()) {
-      void startSeedanceVideoTask(shot, pendingRender.id, generationAssets, seedanceOpts);
+    const seedanceCredentialForRequest = resolveSeedanceCredential();
+    const seedanceOptsWithCredential = { ...seedanceOpts, credential: seedanceCredentialForRequest };
+    if (canUseBytePlusSeedance(seedanceCredentialForRequest)) {
+      void startSeedanceVideoTask(shot, pendingRender.id, generationAssets, seedanceOptsWithCredential);
       return { status: 200, body: shot };
     }
 
-    const videoUrl = await generateShotVideo(shot, generationAssets, seedanceOpts);
+    const latestGenerationAssets = freshAssetsForSeedanceRender(shot, pendingRender.id, generationAssets);
+    const videoUrl = await generateShotVideo(shot, latestGenerationAssets, seedanceOptsWithCredential);
     const cachedVideo = await cacheVideoOrKeepRemote(videoUrl, pendingRender.id);
     const completedAt = new Date().toISOString();
     const render: ShotRender = {
@@ -4009,14 +4324,26 @@ function createPendingShotRender(shot: Shot, assets: Asset[]): ShotRender {
   };
 }
 
+function freshAssetsForSeedanceRender(shot: Shot, renderId: string, fallbackAssets: Asset[]) {
+  const latestShot = store.getShot(shot.id);
+  const render = latestShot?.renders?.find((item) => item.id === renderId);
+  const ids = render?.assetIds?.length ? render.assetIds : fallbackAssets.map((asset) => asset.id);
+  const freshById = new Map(store.getAssets(ids).map((asset) => [asset.id, asset]));
+  const fallbackById = new Map(fallbackAssets.map((asset) => [asset.id, asset]));
+  return ids
+    .map((id) => freshById.get(id) || fallbackById.get(id))
+    .filter((asset): asset is Asset => Boolean(asset));
+}
+
 async function startSeedanceVideoTask(
   shot: Shot,
   renderId: string,
   assets: Asset[],
-  opts: { prebuiltText?: string; lang?: "zh" | "en"; generateAudio?: boolean } = {}
+  opts: BuildSeedancePayloadOpts = {}
 ) {
   try {
-    const task = await createSeedanceVideoTask(shot, assets, opts);
+    const latestAssets = freshAssetsForSeedanceRender(shot, renderId, assets);
+    const task = await createSeedanceVideoTask(shot, latestAssets, opts);
     recordModelCall({ provider: "seedance", model: task.model, operation: "seedance_task_create" });
     await recordTokenUsage(shot.sessionId, task.createResponse, {
       nodeId: renderId,
@@ -4040,6 +4367,7 @@ async function startSeedanceVideoTask(
       // Persist the actually-submitted Seedance text content for audit trail. If the upstream
       // call had a user override, this is that override; otherwise it's the auto-composed text.
       composedPrompt: task.composedText,
+      submittedReferenceImageUrls: task.submittedReferenceImageUrls,
       error: undefined
     });
   } catch (error) {
@@ -4114,23 +4442,27 @@ app.post("/api/shots/:shotId/review", async (req, res) => {
   if (!shot.videoUrl) return res.status(400).json({ error: "Shot has no video to review" });
   const selectedRender = findSelectedRender(shot) || (shot.renders || []).find((render) => render.videoUrl);
   if (!selectedRender?.id) return res.status(400).json({ error: "No selected render to review" });
+  if (!consumeGenerationOr429(res, shot.sessionId, "shot_vlm_review")) return;
   const nowIso = new Date().toISOString();
+  const reviewPrompt = (selectedRender.composedPrompt || selectedRender.rawPrompt || selectedRender.prompt || shot.rawPrompt || shot.prompt || "").toString();
   await store.updateShotRender(shot.id, selectedRender.id, {
     videoReviewStatus: "running",
     videoReviewError: undefined,
-    videoReviewUpdatedAt: nowIso
+    videoReviewUpdatedAt: nowIso,
+    videoReviewBuiltForPrompt: reviewPrompt
   });
   await store.updateShot(shot.id, {
     videoReviewStatus: "running",
     videoReviewError: undefined,
-    videoReviewUpdatedAt: nowIso
+    videoReviewUpdatedAt: nowIso,
+    videoReviewBuiltForPrompt: reviewPrompt
   });
   try {
     const session = store.getSession(shot.sessionId);
     const context = composeShotReviewContext(shot, session);
     const verdict = await reviewVideoDetailed({
       scope: "shot",
-      prompt: (selectedRender.composedPrompt || selectedRender.rawPrompt || selectedRender.prompt || shot.rawPrompt || shot.prompt || "").toString(),
+      prompt: reviewPrompt,
       videoUrl: selectedRender.videoUrl || shot.videoUrl,
       referenceUrls: collectVideoReviewReferences(shot, selectedRender),
       frameCount: Number(req.body?.frameCount) || 8,
@@ -4148,7 +4480,8 @@ app.post("/api/shots/:shotId/review", async (req, res) => {
       videoReviewStatus: "ready",
       videoReview: verdict,
       videoReviewError: undefined,
-      videoReviewUpdatedAt: verdict.reviewedAt
+      videoReviewUpdatedAt: verdict.reviewedAt,
+      videoReviewBuiltForPrompt: reviewPrompt
     });
     const latest = store.getShot(shot.id);
     const stillSelected = latest && findSelectedRender(latest)?.id === selectedRender.id;
@@ -4157,7 +4490,8 @@ app.post("/api/shots/:shotId/review", async (req, res) => {
         videoReviewStatus: "ready",
         videoReview: verdict,
         videoReviewError: undefined,
-        videoReviewUpdatedAt: verdict.reviewedAt
+        videoReviewUpdatedAt: verdict.reviewedAt,
+        videoReviewBuiltForPrompt: reviewPrompt
       }));
     }
     return res.json(updatedShot || store.getShot(shot.id));
@@ -4182,6 +4516,7 @@ app.post("/api/shots/:shotId/review/repair-prompts", async (req, res) => {
   if (!shot) return res.status(404).json({ error: "Shot not found" });
   const verdict = shot.videoReview || findSelectedRender(shot)?.videoReview;
   if (!verdict) return res.status(400).json({ error: "Run VLM review before repairing prompts" });
+  if (!consumeGenerationOr429(res, shot.sessionId, "shot_review_repair_prompts")) return;
   const plan = await buildShotReviewRepairPlan(shot, verdict);
   for (const target of plan.targets) {
     if (target.kind === "shot") {
@@ -4312,9 +4647,10 @@ app.post("/api/shots/:shotId/poll", async (req, res) => {
           reviewLocks.set(renderId, lock);
           try {
             const referenceUrls = collectVideoReviewReferences(shot, pendingRender);
+            const reviewPrompt = (pendingRender.composedPrompt || pendingRender.rawPrompt || pendingRender.prompt || shot.prompt || "").toString();
             const verdict = await reviewVideoDetailed({
               scope: "shot",
-              prompt: (pendingRender.rawPrompt || pendingRender.prompt || shot.prompt || "").toString(),
+              prompt: reviewPrompt,
               videoUrl: cachedVideo.videoUrl,
               referenceUrls,
               frameCount: 8
@@ -4395,7 +4731,8 @@ app.post("/api/shots/:shotId/poll", async (req, res) => {
                   } else if (rewrite.note) {
                     console.warn(`[vision-review] shot ${shot.id} rewriter skipped: ${rewrite.note}`);
                   }
-                  const task = await createSeedanceVideoTask(shotForRetry, retryAssets, {
+                  const latestRetryAssets = freshAssetsForSeedanceRender(shotForRetry, pendingRender.id, retryAssets);
+                  const task = await createSeedanceVideoTask(shotForRetry, latestRetryAssets, {
                     prebuiltText: rewrittenSeedanceText,
                     lang: retryLang,
                     ...(typeof pendingRender.generateAudio === "boolean" ? { generateAudio: pendingRender.generateAudio } : {})
@@ -4419,7 +4756,9 @@ app.post("/api/shots/:shotId/poll", async (req, res) => {
                     reviewAttempts: attemptIndex,
                     reviewModel: verdict.model,
                     reviewNote: formatReviewNote(failures, false),
-                    composedPrompt: rewrittenSeedanceText
+                    composedPrompt: rewrittenSeedanceText,
+                    submittedReferenceImageUrls: task.submittedReferenceImageUrls,
+                    videoReviewBuiltForPrompt: reviewPrompt
                   });
                   console.warn(
                     `[vision-review] shot ${shot.id} render ${pendingRender.id} attempt ${attemptIndex}/${maxAttempts} failed; resubmitted as task ${task.taskId}: ${verdict.reasons.join("; ")}`
@@ -4844,7 +5183,8 @@ function shotPatchFromCompletedRender(shot: Shot, renderId: string | undefined, 
     videoReviewStatus: render.videoReviewStatus,
     videoReview: render.videoReview,
     videoReviewError: render.videoReviewError,
-    videoReviewUpdatedAt: render.videoReviewUpdatedAt
+    videoReviewUpdatedAt: render.videoReviewUpdatedAt,
+    videoReviewBuiltForPrompt: render.videoReviewBuiltForPrompt
   };
 }
 
@@ -4950,6 +5290,7 @@ app.post("/api/sessions/:sessionId/final-review", async (req, res) => {
   const jobId = typeof req.body?.jobId === "string" ? req.body.jobId : undefined;
   const resolved = resolveFinalArtifact(session, jobId);
   if (resolved.error) return res.status(resolved.error.status).json({ error: resolved.error.message });
+  if (!consumeGenerationOr429(res, session.id, "final_vlm_review")) return;
   const { artifact } = resolved;
   const job = artifact.job;
   const finalVideoSignature = artifact.finalVideoSignature;
@@ -5033,6 +5374,7 @@ app.post("/api/sessions/:sessionId/final-review/repair-prompts", async (req, res
   const job = artifact.job;
   const verdict = artifact.finalVideoReview;
   if (!verdict) return res.status(400).json({ error: "Run final VLM review before repairing prompts" });
+  if (!consumeGenerationOr429(res, session.id, "final_review_repair_prompts")) return;
   const reasons = [...verdict.fatalIssues, ...verdict.reasons, ...verdict.fixes.map((fix) => fix.action)].filter(Boolean);
   const targets: VideoReviewRepairPlan["targets"] = [];
   const shots = (session.shots || []).slice().sort((a, b) => a.index - b.index);
@@ -5290,7 +5632,7 @@ function computeStitchSignaturePreview(shots: Shot[]): string {
   return createStitchSignature(shots);
 }
 
-// ---------- Narration (auto subtitle + voiceover) routes ----------
+// ---------- Narration (voiceover-only) routes ----------
 
 const DEFAULT_NARRATION_STRATEGY: NarrationStrategy = "natural";
 const DEFAULT_NARRATION_VOICE = process.env.VOLC_TTS_VOICE_TYPE || "zh_male_M392_conversation_wvae_bigtts";
@@ -5302,8 +5644,7 @@ app.post("/api/sessions/:sessionId/narration", async (req, res) => {
   const strategy: NarrationStrategy = req.body?.strategy === "natural" ? "natural" : DEFAULT_NARRATION_STRATEGY;
   if (!script.trim()) return res.status(400).json({ error: "Script is required" });
 
-  const narrationCap = tryConsumeGeneration(sessionId, "narration");
-  if (!narrationCap.ok) return res.status(429).json({ error: generationCapMessage(narrationCap), code: "generation_cap_exceeded" });
+  if (!consumeGenerationOr429(res, sessionId, "narration")) return;
 
   const result = await triggerNarrationJob(sessionId, { script, voice, strategy });
   if ("status" in result) return res.status(result.status).json({ error: result.error });
@@ -5322,14 +5663,13 @@ app.get("/api/sessions/:sessionId/narration/download", async (req, res) => {
 
   const kind = req.query.kind === "srt" ? "srt" : "video";
   if (kind === "srt") {
-    if (!session.narrationSubtitleUrl) return res.status(404).json({ error: "Narration subtitle not ready" });
-    return sendNarrationDownload(res, session.narrationSubtitleUrl, `${sanitizeDownloadName(`${session.title || session.id}-字幕`)}.srt`);
+    return res.status(404).json({ error: "Subtitle generation is disabled for this project" });
   }
   if (!session.narrationVideoUrl) return res.status(404).json({ error: "Narration video not ready" });
   return sendVideoDownload(
     res,
     session.narrationVideoUrl,
-    `${sanitizeDownloadName(`${session.title || session.id}-含字幕`)}.mp4`
+    `${sanitizeDownloadName(`${session.title || session.id}-含旁白`)}.mp4`
   );
 });
 
@@ -5370,7 +5710,6 @@ async function triggerNarrationJob(
   // Reuse already-ready artifacts.
   if (
     session.narrationVideoUrl &&
-    session.narrationSubtitleUrl &&
     session.narrationSignature === signature &&
     session.narrationStatus !== "running"
   ) {
@@ -5448,7 +5787,7 @@ async function runNarrationJobInBackground(
     );
     await store.updateSession(sessionId, {
       narrationVideoUrl: result.narrationVideoUrl,
-      narrationSubtitleUrl: result.narrationSubtitleUrl,
+      narrationSubtitleUrl: undefined,
       narrationSignature: result.narrationSignature,
       // Reflect the voice the pipeline actually used (may have language-swapped from input.voice).
       narrationVoice: result.effectiveVoice,

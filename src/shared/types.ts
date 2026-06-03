@@ -170,6 +170,8 @@ export interface StoryPlan {
 
 export interface Asset {
   id: string;
+  /** Anonymous demo owner. Used by public deployments to keep visitors' canvases isolated. */
+  ownerUserId?: string;
   name: string;
   type: AssetType;
   mediaKind: AssetMediaKind;
@@ -265,6 +267,8 @@ export interface Asset {
   imageReview?: ImageReviewVerdict;
   imageReviewError?: string;
   imageReviewUpdatedAt?: string;
+  /** Prompt snapshot the latest image VLM review evaluated against. */
+  imageReviewBuiltForPrompt?: string;
   videoReviewRepairPlan?: VideoReviewRepairPlan;
   /** ISO time when the current generated image media was produced. Uploads/imports may leave it unset. */
   generatedAt?: string;
@@ -387,6 +391,8 @@ export interface Shot {
   videoReview?: VideoReviewVerdict;
   videoReviewError?: string;
   videoReviewUpdatedAt?: string;
+  /** Prompt snapshot the latest top-level video VLM review evaluated against. */
+  videoReviewBuiltForPrompt?: string;
   vlmReviewEnabled?: boolean;
   videoReviewRepairPlan?: VideoReviewRepairPlan;
   updatedAt: string;
@@ -442,8 +448,12 @@ export interface ShotRender {
   videoReview?: VideoReviewVerdict;
   videoReviewError?: string;
   videoReviewUpdatedAt?: string;
+  /** Prompt snapshot the latest video VLM review evaluated against. */
+  videoReviewBuiltForPrompt?: string;
   /** The exact Seedance text content actually submitted for this render (audit trail). */
   composedPrompt?: string;
+  /** Reference-image URLs actually submitted to Seedance for this render. */
+  submittedReferenceImageUrls?: string[];
   /**
    * Whether vision-review + auto-retry is active for this render. Decided at submission time so
    * polling-driven retries inherit the original setting and the user can flip the global switch
@@ -540,6 +550,8 @@ export type NarrationStrategy = "natural";
 
 export interface Session {
   id: string;
+  /** Anonymous demo owner. Used by public deployments to keep visitors' sessions isolated. */
+  ownerUserId?: string;
   title: string;
   logline: string;
   style: string;
@@ -594,12 +606,12 @@ export interface Session {
   stitchRunningSignature?: string;
 
   /**
-   * Auto narration + subtitle pipeline. Runs *after* a successful stitch and writes a second
-   * mp4 (subtitles hardcoded into the picture) plus a sidecar .srt. Mirrors the stitch lifecycle:
+   * Auto narration pipeline. Runs *after* a successful stitch and writes a second mp4 with
+   * voiceover audio mixed in. Project policy forbids generated subtitles, so no sidecar .srt or
+   * burned-in subtitle track is produced. Mirrors the stitch lifecycle:
    *   - `running`: background ffmpeg+TTS worker is processing
-   *   - `ready`: `narrationVideoUrl` / `narrationSubtitleUrl` are fresh against the current
-   *     `finalVideoSignature` (compare with `narrationSignature` to detect staleness when stitch
-   *     was redone afterwards)
+   *   - `ready`: `narrationVideoUrl` is fresh against the current `finalVideoSignature` (compare
+   *     with `narrationSignature` to detect staleness when stitch was redone afterwards)
    *   - `error`: see `narrationError`
    *
    * `narrationSignature` is `sha1(script + voice + strategy + finalVideoSignature)` so that the
@@ -650,12 +662,32 @@ export interface StoreSnapshot {
     seedreamCredentialSource?: "standard" | "agent-plan" | "missing";
     seedreamDefaultModel?: AssetImageModel;
     agentPlanCredential?: AgentPlanCredentialStatus;
+    freeTrial?: FreeTrialStatus;
   };
 }
 
 export interface AgentPlanCredentialStatus {
   configured: boolean;
   fingerprint?: string;
+}
+
+export interface AdminAgentPlanStatus {
+  configured: boolean;
+  fingerprint?: string;
+  source: "ui" | "env" | "none";
+  updatedAt?: string;
+}
+
+export interface FreeTrialStatus {
+  enabled: boolean;
+  active: boolean;
+  used: number;
+  limit: number;
+  remaining: number;
+  day: string;
+  ipDailyCap: number;
+  globalDailyCap: number;
+  globalUsed: number;
 }
 
 /** Joined session shape returned by session-specific mutation/poll endpoints and built client-side for the canvas. */

@@ -140,7 +140,11 @@ export function FlowView({ snapshot, session, visionReviewEnabled, defaultImageM
       nodesRef.current = nextNodes;
       return nextNodes;
     });
-    setEdges(derivedEdges.filter((e) => !pendingDeletionsRef.current.has(e.id)));
+    setEdges(derivedEdges.filter((e) =>
+      !pendingDeletionsRef.current.has(e.id) &&
+      !pendingNodeDeletionsRef.current.has(e.source) &&
+      !pendingNodeDeletionsRef.current.has(e.target)
+    ));
   }, [derivedNodes, derivedEdges]);
 
   // Listen for in-node mutations (model picker, etc.) that bypass the prop chain — they emit
@@ -204,6 +208,8 @@ export function FlowView({ snapshot, session, visionReviewEnabled, defaultImageM
           referenceVideoFromShotId: liveBeforeShot?.referenceVideoFromShotId || "",
           referenceClipUrl: liveBeforeShot?.referenceClipUrl ?? null,
           referenceAudioUrl: liveBeforeShot?.referenceAudioUrl ?? null,
+          referenceClipPreviewUrl: liveBeforeShot?.referenceClipPreviewUrl ?? null,
+          referenceAudioPreviewUrl: liveBeforeShot?.referenceAudioPreviewUrl ?? null,
           usePreviousShotClip: liveBeforeShot?.usePreviousShotClip || false
         };
         const apply = async () => api.updateShot(targetShotId, {
@@ -212,6 +218,8 @@ export function FlowView({ snapshot, session, visionReviewEnabled, defaultImageM
           referenceVideoFromShotId: "",
           referenceClipUrl: null,
           referenceAudioUrl: null,
+          referenceClipPreviewUrl: null,
+          referenceAudioPreviewUrl: null,
           usePreviousShotClip: false
         });
         const revert = async () => api.updateShot(targetShotId, previous);
@@ -318,6 +326,8 @@ export function FlowView({ snapshot, session, visionReviewEnabled, defaultImageM
         referenceVideoFromShotId: liveBeforeShot?.referenceVideoFromShotId || "",
         referenceClipUrl: liveBeforeShot?.referenceClipUrl ?? null,
         referenceAudioUrl: liveBeforeShot?.referenceAudioUrl ?? null,
+        referenceClipPreviewUrl: liveBeforeShot?.referenceClipPreviewUrl ?? null,
+        referenceAudioPreviewUrl: liveBeforeShot?.referenceAudioPreviewUrl ?? null,
         firstFrameAssetId: liveBeforeShot?.firstFrameAssetId || "",
         lastFrameAssetId: liveBeforeShot?.lastFrameAssetId || "",
         subShotStoryboardAssetId: liveBeforeShot?.subShotStoryboardAssetId || "",
@@ -330,6 +340,8 @@ export function FlowView({ snapshot, session, visionReviewEnabled, defaultImageM
         referenceVideoFromShotId: "",
         referenceClipUrl: null,
         referenceAudioUrl: null,
+        referenceClipPreviewUrl: null,
+        referenceAudioPreviewUrl: null,
         firstFrameAssetId: "",
         lastFrameAssetId: "",
         subShotStoryboardAssetId: "",
@@ -369,6 +381,8 @@ export function FlowView({ snapshot, session, visionReviewEnabled, defaultImageM
         referenceVideoFromShotId: liveBeforeShot?.referenceVideoFromShotId || "",
         referenceClipUrl: liveBeforeShot?.referenceClipUrl ?? null,
         referenceAudioUrl: liveBeforeShot?.referenceAudioUrl ?? null,
+        referenceClipPreviewUrl: liveBeforeShot?.referenceClipPreviewUrl ?? null,
+        referenceAudioPreviewUrl: liveBeforeShot?.referenceAudioPreviewUrl ?? null,
         usePreviousShotClip: liveBeforeShot?.usePreviousShotClip || false
       };
       const apply = async () => api.updateShot(targetShotId, {
@@ -377,6 +391,8 @@ export function FlowView({ snapshot, session, visionReviewEnabled, defaultImageM
         referenceVideoFromShotId: "",
         referenceClipUrl: null,
         referenceAudioUrl: null,
+        referenceClipPreviewUrl: null,
+        referenceAudioPreviewUrl: null,
         usePreviousShotClip: false
       });
       const revert = async () => api.updateShot(targetShotId, previous);
@@ -477,6 +493,9 @@ export function FlowView({ snapshot, session, visionReviewEnabled, defaultImageM
         // Also restore the asset path + clip url since we're going to clear them on apply.
         referenceVideoAssetId: liveBeforeShot?.referenceVideoAssetId || "",
         referenceClipUrl: liveBeforeShot?.referenceClipUrl ?? null,
+        referenceAudioUrl: liveBeforeShot?.referenceAudioUrl ?? null,
+        referenceClipPreviewUrl: liveBeforeShot?.referenceClipPreviewUrl ?? null,
+        referenceAudioPreviewUrl: liveBeforeShot?.referenceAudioPreviewUrl ?? null,
         firstFrameAssetId: liveBeforeShot?.firstFrameAssetId || "",
         lastFrameAssetId: liveBeforeShot?.lastFrameAssetId || "",
         subShotStoryboardAssetId: liveBeforeShot?.subShotStoryboardAssetId || "",
@@ -490,6 +509,9 @@ export function FlowView({ snapshot, session, visionReviewEnabled, defaultImageM
         // server's mode resolver picks this branch unambiguously.
         referenceVideoAssetId: "",
         referenceClipUrl: null,
+        referenceAudioUrl: null,
+        referenceClipPreviewUrl: null,
+        referenceAudioPreviewUrl: null,
         firstFrameAssetId: "",
         lastFrameAssetId: "",
         subShotStoryboardAssetId: "",
@@ -640,6 +662,9 @@ export function FlowView({ snapshot, session, visionReviewEnabled, defaultImageM
         subShotStoryboardAssetIds: shot.subShotStoryboardAssetIds ? [...shot.subShotStoryboardAssetIds] : undefined,
         referenceVideoAssetId: shot.referenceVideoAssetId,
         referenceClipUrl: shot.referenceClipUrl ?? null,
+        referenceAudioUrl: shot.referenceAudioUrl ?? null,
+        referenceClipPreviewUrl: shot.referenceClipPreviewUrl ?? null,
+        referenceAudioPreviewUrl: shot.referenceAudioPreviewUrl ?? null,
         referenceVideoFromShotId: shot.referenceVideoFromShotId,
         firstFrameAssetId: shot.firstFrameAssetId
       } : undefined] as const;
@@ -689,10 +714,17 @@ export function FlowView({ snapshot, session, visionReviewEnabled, defaultImageM
           // keeps the field nullable per the type while explicit "" runs through normalizeShotPatch.
           patch.referenceVideoAssetId = "";
           patch.referenceClipUrl = null;
+          patch.referenceAudioUrl = null;
+          patch.referenceClipPreviewUrl = null;
+          patch.referenceAudioPreviewUrl = null;
         }
         if (drop.drop_shot_ref) {
           // Clear cross-shot wiring (shot.referenceVideoFromShotId).
           patch.referenceVideoFromShotId = "";
+          patch.referenceClipUrl = null;
+          patch.referenceAudioUrl = null;
+          patch.referenceClipPreviewUrl = null;
+          patch.referenceAudioPreviewUrl = null;
         }
         if (drop.drop_first_frame) {
           patch.firstFrameAssetId = "";
@@ -772,9 +804,16 @@ export function FlowView({ snapshot, session, visionReviewEnabled, defaultImageM
             if (drop.drop_ref_video) {
               patch.referenceVideoAssetId = "";
               patch.referenceClipUrl = null;
+              patch.referenceAudioUrl = null;
+              patch.referenceClipPreviewUrl = null;
+              patch.referenceAudioPreviewUrl = null;
             }
             if (drop.drop_shot_ref) {
               patch.referenceVideoFromShotId = "";
+              patch.referenceClipUrl = null;
+              patch.referenceAudioUrl = null;
+              patch.referenceClipPreviewUrl = null;
+              patch.referenceAudioPreviewUrl = null;
             }
             if (drop.drop_first_frame) {
               patch.firstFrameAssetId = "";
@@ -847,7 +886,9 @@ export function FlowView({ snapshot, session, visionReviewEnabled, defaultImageM
     const allowedNodes = deletingNodes;
     const labels = allowedNodes.map((node) => {
       const data = node.data;
-      if (data.kind === "asset" || data.kind === "referenceVideo" || data.kind === "videoProcessor") return data.asset.name || data.asset.id;
+      if (data.kind === "asset" || data.kind === "referenceVideo" || data.kind === "videoProcessor" || data.kind === "tailframe") {
+        return data.asset.name || data.asset.id;
+      }
       if (data.kind === "shot") return data.shot.title || `Shot ${data.shot.index}`;
       if (data.kind === "storyboard") return `分镜板 · ${data.shot.title || `Shot ${data.shot.index}`}`;
       if (data.kind === "stitch") return data.job.name || `拼接节点 ${data.job.id}`;
@@ -894,7 +935,7 @@ export function FlowView({ snapshot, session, visionReviewEnabled, defaultImageM
         const data = node.data;
         try {
           let ok = false;
-          if (data.kind === "asset" || data.kind === "referenceVideo" || data.kind === "videoProcessor") {
+          if (data.kind === "asset" || data.kind === "referenceVideo" || data.kind === "videoProcessor" || data.kind === "tailframe") {
             ok = await onDeleteCanvasAsset(data.asset);
           } else if (data.kind === "shot") {
             ok = await onDeleteCanvasShot(data.shot);
@@ -1073,6 +1114,8 @@ export function FlowView({ snapshot, session, visionReviewEnabled, defaultImageM
         referenceVideoFromShotId: "",
         referenceClipUrl: null,
         referenceAudioUrl: null,
+        referenceClipPreviewUrl: null,
+        referenceAudioPreviewUrl: null,
         usePreviousShotClip: false
       });
     }

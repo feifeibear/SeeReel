@@ -13,9 +13,9 @@ import { hasAgentPlanKey } from "./arkCredentials";
 import type { NarrationStrategy, Session } from "../shared/types";
 
 // Bumped whenever rendering / timing / TTS request shape changes so cached narration artifacts get
-// re-rendered (signature is part of the output filename). v3 = English support + don't pad video +
-// arial-unicode subtitle font + seed-tts-1.0 default.
-const NARRATION_SIGNATURE_VERSION = "narr-v8-bottom-2lines";
+// re-rendered (signature is part of the output filename). v9 is audio-only: project-wide policy is
+// to never generate sidecar or burned-in subtitles.
+const NARRATION_SIGNATURE_VERSION = "narr-v9-audio-only";
 
 // V3 single-shot SSE endpoint - emits a stream of `event:/data:` blocks whose `data` JSON
 // contains base64-encoded audio chunks. v1 (api/v1/tts) is intentionally NOT used: it does not
@@ -31,13 +31,6 @@ const VOLC_TTS_DEFAULT_RATE = 24000;
 const DEFAULT_GAP_MS = 200;
 const DEFAULT_MAX_TEMPO = 1.30;
 const DEFAULT_AMBIENT_DB = -12;
-
-// ffmpeg-installer ships ffmpeg with libass but NO libfontconfig, so system font names cannot be
-// resolved and they silently fall back to Helvetica (which has no CJK glyphs → ⬛). We point
-// libass at a directory that holds a single .ttf with full CJK + Latin coverage and reference it
-// by PostScript name.
-const SUBTITLE_FONT_DEFAULT = "Arial Unicode MS";
-const SUBTITLE_FONTSDIR_DEFAULT = "/System/Library/Fonts/Supplemental";
 
 // ---------- Public types ----------
 
@@ -75,7 +68,7 @@ export interface NarrationTimeline {
 
 export interface NarrationPipelineResult {
   narrationVideoUrl: string;
-  narrationSubtitleUrl: string;
+  narrationSubtitleUrl?: string;
   narrationSignature: string;
   /** The voice id we actually used (may differ from input.voice if we language-swapped). */
   effectiveVoice: string;
@@ -589,9 +582,9 @@ function parseNumberEnv(value: string | undefined, fallback: number): number {
  * Run the full narration pipeline for a session that already has a `finalVideoUrl`.
  *
  * Side effects:
- *  - writes per-line mp3, srt and final mp4 into MEDIA_DIR
- *  - if a previous run produced the same signature artifacts (verified by file existence), it
- *    reuses them and returns immediately
+ *  - writes per-line mp3 and an audio-only narrated mp4 into MEDIA_DIR
+ *  - if a previous run produced the same signature artifact (verified by file existence), it reuses
+ *    it and returns immediately
  *
  * Throws (caller is expected to record `narrationStatus=error` + `narrationError`):
  *  - Volcengine credentials missing
@@ -640,16 +633,14 @@ export async function runNarrationPipeline(
   await mkdir(MEDIA_DIR, { recursive: true });
 
   const outputVideoName = `final-${session.id}-${session.finalVideoSignature}-narrated-${signature}.mp4`;
-  const outputSrtName = `narr-${session.id}-${signature}.srt`;
   const outputVideoPath = path.join(MEDIA_DIR, outputVideoName);
-  const outputSrtPath = path.join(MEDIA_DIR, outputSrtName);
 
-  // Quick reuse: if both files already exist on disk for this signature, return without rebuilding.
-  if ((await fileExists(outputVideoPath)) && (await fileExists(outputSrtPath))) {
+  // Quick reuse: if the audio-only narrated video already exists on disk for this signature, return
+  // without rebuilding.
+  if (await fileExists(outputVideoPath)) {
     await report(`reused cached narration (signature ${signature})`);
     return {
       narrationVideoUrl: `/media/${outputVideoName}`,
-      narrationSubtitleUrl: `/media/${outputSrtName}`,
       narrationSignature: signature,
       effectiveVoice: effectiveVoice
     };
@@ -694,21 +685,15 @@ export async function runNarrationPipeline(
   );
   if (timeline.warning) await report(timeline.warning);
 
-  const srt = buildSrt(timeline.segments);
-  await writeFile(outputSrtPath, srt, "utf8");
-  await report(`srt written -> ${outputSrtName}`);
-
   await renderFinalNarratedVideo({
     sourceVideoPath,
     timeline,
-    srtPath: outputSrtPath,
     outputPath: outputVideoPath,
     report
   });
 
   return {
     narrationVideoUrl: `/media/${outputVideoName}`,
-    narrationSubtitleUrl: `/media/${outputSrtName}`,
     narrationSignature: signature,
     effectiveVoice: effectiveVoice
   };
@@ -789,11 +774,10 @@ async function probeHasAudio(filePath: string): Promise<boolean> {
 async function renderFinalNarratedVideo(opts: {
   sourceVideoPath: string;
   timeline: NarrationTimeline;
-  srtPath: string;
   outputPath: string;
   report: (phase: string) => Promise<void>;
 }) {
-  const { sourceVideoPath, timeline, srtPath, outputPath, report } = opts;
+  const { sourceVideoPath, timeline, outputPath, report } = opts;
   const hasAudio = await probeHasAudio(sourceVideoPath);
   const ambientDb = parseNumberEnv(process.env.NARRATION_AMBIENT_DB, DEFAULT_AMBIENT_DB);
   const ambientGain = Math.pow(10, ambientDb / 20); // -12 dB -> ~0.25
@@ -840,27 +824,8 @@ async function renderFinalNarratedVideo(opts: {
   filterParts.push(`${ambientSourceLabel}aformat=channel_layouts=stereo,volume=${ambientGain.toFixed(3)}[ambient]`);
   filterParts.push(`[ambient][narrmix]amix=inputs=2:duration=longest:normalize=0[aout]`);
 
-  // Video chain: burn subtitles. The font MUST be referenced by PostScript name AND `fontsdir`
-  // must point at a directory containing a TTF/TTC whose name matches, otherwise libass (no
-  // fontconfig in our ffmpeg build) silently falls back to Helvetica and CJK glyphs render as ⬛.
-  const subtitleFont = process.env.NARRATION_SUBTITLE_FONT?.trim() || SUBTITLE_FONT_DEFAULT;
-  const subtitleFontsdir = process.env.NARRATION_SUBTITLE_FONTSDIR?.trim() || SUBTITLE_FONTSDIR_DEFAULT;
-  const safeSrtPath = escapeFfmpegFilterArg(srtPath);
-  const safeFontsdir = escapeFfmpegFilterArg(subtitleFontsdir);
-  // Subtitle style — minimal, no backdrop, hugs the very bottom of the frame:
-  //  - BorderStyle=1: outline ONLY, NO opaque box behind text. Pixels outside glyph+outline are
-  //    100% transparent so the picture remains fully visible.
-  //  - Outline=1 + Shadow=0: a thin black rim is enough to read white text on bright skies/grass
-  //    without making the glyphs look like they sit on a black slab.
-  //  - Alignment=2 (bottom-center) + MarginV=12: pinned to ~5% from the bottom edge so subtitles
-  //    sit in the letterbox / sky / floor region instead of the subject's face.
-  //  - FontSize=12 is interpreted relative to libass's default PlayResY (288) → ~53px glyph height
-  //    at 720x1280, so a 2-line cue takes ~110px ≈ 9% of frame height.
-  const forceStyle = `FontName=${subtitleFont},FontSize=12,BorderStyle=1,Outline=1,Shadow=0,Alignment=2,MarginV=12,MarginL=40,MarginR=40,PrimaryColour=&H00FFFFFF&,OutlineColour=&H00000000&,BackColour=&H00000000&`;
-  filterParts.push(`[0:v]subtitles=${safeSrtPath}:fontsdir=${safeFontsdir}:force_style='${forceStyle}'[vout]`);
-
   ffmpegArgs.push("-filter_complex", filterParts.join(";"));
-  ffmpegArgs.push("-map", "[vout]", "-map", "[aout]");
+  ffmpegArgs.push("-map", "0:v", "-map", "[aout]");
   ffmpegArgs.push(
     // Keep the output exactly as long as the input video — narration is truncated upstream if it
     // would otherwise extend past videoDurationSec.
@@ -877,7 +842,7 @@ async function renderFinalNarratedVideo(opts: {
     outputPath
   );
 
-  await report(`ffmpeg narration mix -> ${path.basename(outputPath)}`);
+  await report(`ffmpeg audio-only narration mix -> ${path.basename(outputPath)}`);
   const start = Date.now();
   try {
     await runFfmpegCommand(ffmpegArgs, 8192);
@@ -885,21 +850,7 @@ async function renderFinalNarratedVideo(opts: {
     // Clean up so the next attempt does not reuse a half-written file.
     await unlink(outputPath).catch(() => undefined);
     const message = err instanceof Error ? err.message : String(err);
-    if (/libass|subtitles/i.test(message) && /not found|No such filter|fontconfig/i.test(message)) {
-      throw new Error(
-        `ffmpeg 缺少 libass / 中文字体支持；硬烧字幕失败。请确认 ffmpeg 编译时启用了 libass，且系统有 PingFang SC 字体。原始错误：\n${message}`
-      );
-    }
     throw err;
   }
   await report(`ffmpeg narration mix done in ${((Date.now() - start) / 1000).toFixed(1)}s`);
-}
-
-/**
- * The ffmpeg subtitles filter parses ':' / ',' / '\\' inside its arg. On macOS absolute paths
- * never contain ':' so this is a thin escape that mainly guards against single quotes in the
- * media directory path.
- */
-function escapeFfmpegFilterArg(value: string) {
-  return value.replace(/\\/g, "\\\\").replace(/:/g, "\\:").replace(/'/g, "\\'");
 }

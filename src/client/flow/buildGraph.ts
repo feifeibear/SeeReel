@@ -311,8 +311,7 @@ export function buildSessionGraph(snapshot: StoreSnapshot, session: SessionWithS
     // referenceVideoAssetId, draw a green edge from that asset's node to this shot. The asset
     // may be a top-level refvideo (node id `refvideo-...`) OR a clip-derivative (node id
     // `videoproc-...`); we resolve the right node id based on which pile the asset is in.
-    // User-deletable — onEdgesDelete clears both `referenceVideoAssetId` and the synced
-    // `referenceClipUrl`.
+    // User-deletable — onEdgesDelete clears the asset id plus synced clip/audio preview fields.
     if (shot.referenceVideoAssetId) {
       const fromRefvideo = referenceVideoAssets.find((a) => a.id === shot.referenceVideoAssetId);
       const fromDerived = !fromRefvideo

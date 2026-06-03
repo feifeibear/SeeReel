@@ -288,9 +288,30 @@ Do not set your own `ARK_AGENT_PLAN_KEY` on a public server. Visitors enter thei
 token in the top bar; the backend keeps it in process memory and never returns it from `/api/state`.
 TOS remains a backend-only server credential, preferably with a private bucket and signed URLs.
 
-Fresh stores automatically show the built-in “火山 Agent Plan × ReelyAI 示例广告片” session so new
-visitors can inspect a finished canvas, reference assets, VLM review, and final stitch. Set
-`REELYAI_SEED_DEMO=0` only if a private deployment should start empty.
+Public demo mode uses anonymous browser ownership. Each visitor gets an isolated session list via
+the `reelyai_user_id` cookie, and `/api/state` only returns that visitor's sessions, assets, and
+shots. If a visitor has not entered their own Agent Plan key, the server can use
+`REELYAI_ADMIN_AGENT_PLAN_KEY` for a small free quota:
+
+```bash
+REELYAI_ADMIN_AGENT_PLAN_KEY=<demo-agent-plan-key>
+REELYAI_FREE_TRIAL_LIMIT=10
+REELYAI_FREE_TRIAL_IP_DAILY_CAP=30
+REELYAI_FREE_TRIAL_GLOBAL_DAILY_CAP=300
+```
+
+Once the free quota is used, generation/review APIs return `free_trial_exceeded` and the UI tells
+the visitor to paste their own Agent Plan key.
+
+Admins can also set the free-trial key from the web UI: click **Admin** in the top bar, log in with
+`admin / Fjr123456` by default, then paste the demo Agent Plan key. The UI-stored key is written to
+`data/admin-settings.json` and takes precedence over `REELYAI_ADMIN_AGENT_PLAN_KEY`. Override the
+default admin login before public launch:
+
+```bash
+REELYAI_ADMIN_USER=admin
+REELYAI_ADMIN_PASSWORD=<strong-password>
+```
 
 Health check:
 

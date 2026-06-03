@@ -25,6 +25,8 @@ export interface BuildSeedancePayloadOpts {
    * auto-generated dialogue is often gibberish and cleaner to suppress than to direct via prompt.
    */
   generateAudio?: boolean;
+  /** Request-scoped credential captured before handing work to background tasks. */
+  credential?: ArkCredential;
 }
 
 export const MEDIA_DIR = path.resolve(process.cwd(), "data", "media");
@@ -90,6 +92,10 @@ function seedanceCredential() {
     baseEnvNames: ["SEEDANCE_API_BASE"],
     defaultBase: BYTEPLUS_SEEDANCE_BASE
   });
+}
+
+export function resolveSeedanceCredential() {
+  return seedanceCredential();
 }
 
 export interface StoryboardPlanResult {
@@ -814,15 +820,18 @@ async function upscaleReferenceImageDataUrl(dataUrl: string, assetId: string, in
   }
 }
 
-export function canUseBytePlusSeedance() {
-  const credential = seedanceCredential();
+export function canUseBytePlusSeedance(credential: ArkCredential = seedanceCredential()) {
   return Boolean(!process.env.SEEDANCE_API_URL && credential.apiKey);
 }
 
 export async function createSeedanceVideoTask(shot: Shot, assets: Asset[], opts: BuildSeedancePayloadOpts = {}) {
-  const credential = seedanceCredential();
+  const credential = opts.credential || seedanceCredential();
   if (!credential.apiKey) throw new Error(arkMissingKeyMessage("Seedance generation", SEEDANCE_KEY_ENVS));
   const payload = await buildBytePlusSeedancePayload(shot, assets, opts);
+  const submittedReferenceImageUrls = payload.content
+    .filter((item) => item.role === "reference_image")
+    .map((item) => item.image_url?.url)
+    .filter((url): url is string => Boolean(url));
   const createBody = await requestSeedanceJson(`${credential.apiBase}/contents/generations/tasks`, credential.apiKey, {
     method: "POST",
     body: JSON.stringify(payload)
@@ -831,6 +840,7 @@ export async function createSeedanceVideoTask(shot: Shot, assets: Asset[], opts:
     taskId: extractTaskId(createBody),
     model: payload.model,
     composedText: payload.composedText,
+    submittedReferenceImageUrls,
     createResponse: createBody
   };
 }
@@ -866,7 +876,7 @@ export async function generateShotVideo(shot: Shot, assets: Asset[], opts: Build
     return generateShotVideoViaCustomEndpoint(shot, assets, opts);
   }
 
-  const credential = seedanceCredential();
+  const credential = opts.credential || seedanceCredential();
   if (!credential.apiKey) {
     refuseFakeSuccessInProduction("Seedance video generation", SEEDANCE_KEY_ENVS);
     return `https://placehold.co/1280x720/111827/f8fafc?text=${encodeURIComponent(`Video ${shot.index}`)}`;

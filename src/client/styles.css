@@ -346,6 +346,9 @@ label {
 
 .agent-plan-control {
   position: relative;
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 
 .agent-plan-button.configured {
@@ -358,6 +361,25 @@ label {
   color: #fef3c7;
   border-color: rgba(245, 158, 11, 0.5);
   background: rgba(245, 158, 11, 0.12);
+}
+
+.free-trial-pill {
+  max-width: 180px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  border: 1px solid rgba(56, 189, 248, 0.32);
+  border-radius: 999px;
+  padding: 7px 10px;
+  color: #bae6fd;
+  background: rgba(8, 47, 73, 0.42);
+  font-size: 12px;
+}
+
+.free-trial-pill.depleted {
+  border-color: rgba(248, 113, 113, 0.45);
+  color: #fecaca;
+  background: rgba(127, 29, 29, 0.32);
 }
 
 .agent-plan-popover {
@@ -373,6 +395,42 @@ label {
   border-radius: 8px;
   background: rgba(11, 15, 22, 0.98);
   box-shadow: 0 18px 60px rgba(0, 0, 0, 0.38);
+}
+
+.admin-control {
+  position: relative;
+}
+
+.admin-button.configured {
+  color: #dbeafe;
+  border-color: rgba(96, 165, 250, 0.45);
+  background: rgba(37, 99, 235, 0.14);
+}
+
+.admin-popover {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 8px);
+  z-index: 30;
+  width: min(360px, calc(100vw - 40px));
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid rgba(96, 165, 250, 0.28);
+  border-radius: 8px;
+  background: rgba(11, 15, 22, 0.98);
+  box-shadow: 0 18px 60px rgba(0, 0, 0, 0.38);
+}
+
+.admin-status {
+  display: grid;
+  gap: 4px;
+}
+
+.admin-status small {
+  color: #94a3b8;
+  font-size: 12px;
+  line-height: 1.45;
 }
 
 .agent-plan-status {
