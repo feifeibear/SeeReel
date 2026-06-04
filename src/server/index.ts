@@ -228,7 +228,7 @@ if (isProduction) {
     express.static(clientDistDir, {
       setHeaders: (res, filePath) => {
         if (filePath.endsWith(".html")) {
-          res.setHeader("Cache-Control", "public, max-age=60, s-maxage=86400");
+          res.setHeader("Cache-Control", "public, max-age=60, must-revalidate");
         }
       }
     })
@@ -5937,7 +5937,7 @@ async function sendNarrationDownload(res: Response, mediaUrl: string, filename: 
 
 if (isProduction) {
   app.use((_req, res) => {
-    res.setHeader("Cache-Control", "public, max-age=60, s-maxage=86400");
+    res.setHeader("Cache-Control", "public, max-age=60, must-revalidate");
     res.sendFile(path.join(clientDistDir, "index.html"));
   });
 } else {
