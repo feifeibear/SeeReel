@@ -6,7 +6,7 @@
   "type": "module",
   "scripts": {
     "dev": "tsx src/server/index.ts",
-    "build": "tsc --noEmit && vite build",
+    "build": "tsc --noEmit && vite build && node scripts/inline-entry-assets.mjs",
     "verify": "npm run verify:offline",
     "verify:offline": "npm run build && npm run smoke:canvas-crud && tsx scripts/smoke-fetch-retry.ts && tsx scripts/smoke_narration_units.mjs",
     "verify:release": "npm run verify:offline && npm run smoke:guardrails",
