@@ -10,6 +10,8 @@ const FlowView = lazy(() =>
   import("./flow/FlowView").then((module) => ({ default: memo(module.FlowView) }))
 );
 
+const clientBuildStamp = "speed-20260604-asset-refresh";
+
 type AnchorKind = Extract<AssetType, "character" | "scene" | "prop" | "style">;
 
 type TokenUsageNodeSummary = {
@@ -1195,7 +1197,7 @@ export function App() {
 
   return (
     <PendingGenerationsProvider>
-    <main className="app-shell">
+    <main className="app-shell" data-build={clientBuildStamp}>
       {serverDown && (
         <div className="server-down-banner" role="alert">
           <strong>{t.app.serverDownTitle}</strong>
