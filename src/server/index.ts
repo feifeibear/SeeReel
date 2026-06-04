@@ -104,6 +104,7 @@ import type {
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const isProduction = process.env.NODE_ENV === "production";
 const port = Number(process.env.PORT || 5173);
+const clientDistDir = path.resolve(__dirname, "../../dist/client");
 const mediaDir = path.resolve(process.cwd(), "data", "media");
 const storyboardMediaDir = path.join(mediaDir, "codex-storyboards");
 
@@ -212,6 +213,18 @@ app.use((req, res, next) => {
 });
 
 app.use(cors());
+if (isProduction) {
+  app.use(
+    "/assets",
+    express.static(path.join(clientDistDir, "assets"), {
+      immutable: true,
+      maxAge: "1y",
+      setHeaders: (res) => {
+        res.setHeader("Cache-Control", "public, max-age=31536000, immutable");
+      }
+    })
+  );
+}
 app.use(visitorMetricsMiddleware);
 app.use(userCredentialMiddleware);
 app.use(accessGuardMiddleware);
@@ -5920,8 +5933,8 @@ async function sendNarrationDownload(res: Response, mediaUrl: string, filename: 
 }
 
 if (isProduction) {
-  app.use(express.static(path.resolve(__dirname, "../../dist/client")));
-  app.use((_req, res) => res.sendFile(path.resolve(__dirname, "../../dist/client/index.html")));
+  app.use(express.static(clientDistDir));
+  app.use((_req, res) => res.sendFile(path.join(clientDistDir, "index.html")));
 } else {
   const { createServer: createViteServer } = await import("vite");
   const vite = await createViteServer({
