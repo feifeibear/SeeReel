@@ -224,6 +224,15 @@ if (isProduction) {
       }
     })
   );
+  app.use(
+    express.static(clientDistDir, {
+      setHeaders: (res, filePath) => {
+        if (filePath.endsWith(".html")) {
+          res.setHeader("Cache-Control", "public, max-age=60, s-maxage=86400");
+        }
+      }
+    })
+  );
 }
 app.use(visitorMetricsMiddleware);
 app.use(userCredentialMiddleware);
@@ -5927,8 +5936,10 @@ async function sendNarrationDownload(res: Response, mediaUrl: string, filename: 
 }
 
 if (isProduction) {
-  app.use(express.static(clientDistDir));
-  app.use((_req, res) => res.sendFile(path.join(clientDistDir, "index.html")));
+  app.use((_req, res) => {
+    res.setHeader("Cache-Control", "public, max-age=60, s-maxage=86400");
+    res.sendFile(path.join(clientDistDir, "index.html"));
+  });
 } else {
   const { createServer: createViteServer } = await import("vite");
   const vite = await createViteServer({
