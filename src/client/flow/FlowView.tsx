@@ -51,6 +51,8 @@ export interface FlowViewProps {
   onCreateAnchorAsset: (kind: AnchorKind) => Promise<Asset | undefined> | Asset | undefined;
   onCreateShot: () => Promise<{ id: string } | undefined> | { id: string } | undefined;
   onCreateStitchJob: () => Promise<StitchJob | undefined> | StitchJob | undefined;
+  onConnectStitchShot: (shotId: string, jobId: string, legacy?: boolean) => Promise<void> | void;
+  onSetStitchOrder: (jobId: string, shotIds: string[], legacy?: boolean) => Promise<void> | void;
   onDeleteCanvasAsset: (asset: Asset) => Promise<boolean> | boolean;
   onDeleteCanvasShot: (shot: Shot) => Promise<boolean> | boolean;
   onUploadImageAsset: (file: File, kind: "character" | "scene") => Promise<Asset | undefined> | Asset | undefined;
@@ -67,7 +69,7 @@ export interface FlowViewProps {
   redoDescription?: string;
 }
 
-export function FlowView({ snapshot, session, visionReviewEnabled, defaultImageModel, onMutated, onCreateAnchorAsset, onCreateShot, onCreateStitchJob, onDeleteCanvasAsset, onDeleteCanvasShot, onUploadImageAsset, onUploadReferenceVideo, onPushUndo, onStitch, undo, redo, canUndo, canRedo, undoDescription, redoDescription }: FlowViewProps) {
+export function FlowView({ snapshot, session, visionReviewEnabled, defaultImageModel, onMutated, onCreateAnchorAsset, onCreateShot, onCreateStitchJob, onConnectStitchShot, onSetStitchOrder, onDeleteCanvasAsset, onDeleteCanvasShot, onUploadImageAsset, onUploadReferenceVideo, onPushUndo, onStitch, undo, redo, canUndo, canRedo, undoDescription, redoDescription }: FlowViewProps) {
   const { lang, t } = useI18n();
   const allAssets = snapshot.assets;
   const { nodes: derivedNodes, edges: derivedEdges } = useMemo(() => {
@@ -84,6 +86,7 @@ export function FlowView({ snapshot, session, visionReviewEnabled, defaultImageM
   // Hidden file input pulled from the canvas surface for the "上传图" menu option and drop-on-canvas.
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const videoInputRef = useRef<HTMLInputElement | null>(null);
+  const canvasRef = useRef<HTMLDivElement | null>(null);
   const pendingFileKindRef = useRef<"character" | "scene">("character");
   const pendingFilePositionRef = useRef<XYPosition | undefined>(undefined);
   const [workflowBusy, setWorkflowBusy] = useState(false);
@@ -101,7 +104,9 @@ export function FlowView({ snapshot, session, visionReviewEnabled, defaultImageM
   const rfInstanceRef = useRef<ReactFlowInstance<Node<FlowNodeData>, Edge> | null>(null);
 
   const flowPositionFromClient = useCallback((x: number, y: number): XYPosition | undefined => {
-    return rfInstanceRef.current?.screenToFlowPosition({ x, y });
+    const rect = canvasRef.current?.getBoundingClientRect();
+    const local = rect ? { x: x - rect.left, y: y - rect.top } : undefined;
+    return local || rfInstanceRef.current?.screenToFlowPosition({ x, y });
   }, []);
 
   const centerNodeAt = useCallback((nodeId: string, position: XYPosition | undefined) => {
@@ -191,6 +196,13 @@ export function FlowView({ snapshot, session, visionReviewEnabled, defaultImageM
   const onInit = useCallback((instance: ReactFlowInstance<Node<FlowNodeData>, Edge>) => {
     rfInstanceRef.current = instance;
   }, []);
+
+  useEffect(() => {
+    setSelectedNodeId(undefined);
+    setCreateMenu(null);
+    pendingCreatedPositionsRef.current.clear();
+    void rfInstanceRef.current?.setViewport({ x: 0, y: 0, zoom: 1 });
+  }, [session?.id]);
 
   const onCanvasDragOver = useCallback((e: React.DragEvent<HTMLDivElement>) => {
     if (e.dataTransfer.types.includes("Files")) e.preventDefault();
@@ -458,6 +470,21 @@ export function FlowView({ snapshot, session, visionReviewEnabled, defaultImageM
       const legacy = Boolean(target.legacy);
       const current = target.job.shotIds || [];
       if (current.includes(srcShotId)) return;
+      addOptimisticEdge({
+        id: `e-stitch-${srcShotId}-${session.id}-${jobId}`,
+        source: `shot-${srcShotId}`,
+        target: tgt,
+        animated: false,
+        data: { canDisconnectStitch: true, stitchShotId: srcShotId, stitchJobId: jobId, stitchOrderIndex: current.length, clientPending: true },
+        label: String(current.length + 1),
+        style: {
+          stroke: "#34d399",
+          strokeWidth: 2,
+          ...(sourceShot.videoUrl ? {} : { strokeDasharray: "4 3", opacity: 0.65 })
+        }
+      });
+      void Promise.resolve(onConnectStitchShot(srcShotId, jobId, legacy));
+      if (jobId.startsWith("stitch_pending")) return;
 
       const apply = async () => {
         const live = await api.state();
@@ -570,7 +597,7 @@ export function FlowView({ snapshot, session, visionReviewEnabled, defaultImageM
       await onMutated();
       return;
     }
-  }, [addOptimisticEdge, session, onMutated, onPushUndo, snapshot.assets]);
+  }, [addOptimisticEdge, onConnectStitchShot, session, onMutated, onPushUndo, snapshot.assets]);
 
   /**
    * Edge-deletion handler: dispatches by `data` shape:
@@ -1269,6 +1296,7 @@ export function FlowView({ snapshot, session, visionReviewEnabled, defaultImageM
       </header>
       <div className="flow-canvas-row">
         <div
+          ref={canvasRef}
           className="flow-canvas"
           onDrop={onDrop}
           onDragOver={onCanvasDragOver}
@@ -1325,6 +1353,7 @@ export function FlowView({ snapshot, session, visionReviewEnabled, defaultImageM
             visionReviewEnabled={visionReviewEnabled}
             defaultImageModel={defaultImageModel}
             onMutated={onMutated}
+            onSetStitchOrder={onSetStitchOrder}
             onDeleteCanvasAsset={onDeleteCanvasAsset}
             onDeleteCanvasShot={onDeleteCanvasShot}
             onClose={closeInspector}

@@ -733,6 +733,7 @@ export interface SessionWithShots extends Session {
 }
 
 export interface CreateSessionPayload {
+  id?: string;
   title?: string;
   logline?: string;
   style?: string;

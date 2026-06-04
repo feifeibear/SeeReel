@@ -10,7 +10,7 @@ const FlowView = lazy(() =>
   import("./flow/FlowView").then((module) => ({ default: memo(module.FlowView) }))
 );
 
-const clientBuildStamp = "speed-20260604-superpower-canvas";
+const clientBuildStamp = "speed-20260604-state-first-canvas";
 
 type AnchorKind = Extract<AssetType, "character" | "scene" | "prop" | "style">;
 
@@ -362,6 +362,28 @@ function writeSessionToHash(sessionId: string, replace: boolean) {
   else window.history.pushState(null, "", url);
 }
 
+function clientId(prefix: string) {
+  if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
+    return `${prefix}_${crypto.randomUUID().replace(/-/g, "").slice(0, 8)}`;
+  }
+  return `${prefix}_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
+}
+
+function makeLocalSession(payload: CreateSessionPayload & { id: string; language: Session["language"] }): Session {
+  const now = new Date().toISOString();
+  return {
+    id: payload.id,
+    title: payload.title?.trim() || "unnamed session",
+    logline: payload.logline?.trim() || "",
+    style: payload.style?.trim() || "cinematic, emotionally grounded, coherent visual continuity",
+    language: payload.language,
+    targetDurationSec: Math.max(15, Number(payload.targetDurationSec) || 60),
+    tokenUsageEvents: [],
+    createdAt: now,
+    updatedAt: now
+  };
+}
+
 function useStableEvent<T extends (...args: any[]) => any>(fn: T): T {
   const fnRef = useRef(fn);
   useEffect(() => {
@@ -375,6 +397,8 @@ export function App() {
   const [state, setState] = useState<StoreSnapshot>({ assets: [], sessions: [], shots: [] });
   const stateRef = useRef(state);
   useEffect(() => { stateRef.current = state; }, [state]);
+  const pendingSessionCreatesRef = useRef<Set<string>>(new Set());
+  const pendingSessionDeletesRef = useRef<Set<string>>(new Set());
   // Session id is mirrored to URL hash (#/s/ses_xxx) so each session has a shareable link. Reading
   // it on init means a paste-into-browser of "http://localhost:5173/#/s/ses_abc" boots straight
   // into that session, even before /api/state has loaded.
@@ -410,7 +434,10 @@ export function App() {
   const [optimisticAssets, setOptimisticAssets] = useState<Asset[]>([]);
   const [optimisticShots, setOptimisticShots] = useState<Shot[]>([]);
   const [optimisticStitchJobs, setOptimisticStitchJobs] = useState<Array<{ sessionId: string; job: StitchJob }>>([]);
+  const optimisticStitchJobsRef = useRef(optimisticStitchJobs);
+  useEffect(() => { optimisticStitchJobsRef.current = optimisticStitchJobs; }, [optimisticStitchJobs]);
   const optimisticIdRef = useRef(0);
+  const pendingSessionCreatePromisesRef = useRef<Map<string, Promise<void>>>(new Map());
 
   // Vision-review (self-critique + retry) is opt-out: default on, persisted in localStorage so the
   // user only flips it once. Off → server skips review entirely; max 5 retries when on.
@@ -433,7 +460,27 @@ export function App() {
 
   const refresh = useCallback(async () => {
     const next = await api.state();
-    setState((prev) => mergeStateById(prev, next));
+    setState((prev) => {
+      const merged = mergeStateById(prev, next);
+      const pendingCreates = pendingSessionCreatesRef.current;
+      const pendingDeletes = pendingSessionDeletesRef.current;
+      const missingLocalSessions = prev.sessions.filter((session) =>
+        pendingCreates.has(session.id)
+        && !merged.sessions.some((item) => item.id === session.id)
+        && !pendingDeletes.has(session.id)
+      );
+      const sessions = [...missingLocalSessions, ...merged.sessions].filter((session) => !pendingDeletes.has(session.id));
+      const sessionIds = new Set(sessions.map((session) => session.id));
+      return {
+        ...merged,
+        sessions,
+        shots: merged.shots.filter((shot) => sessionIds.has(shot.sessionId) && !pendingDeletes.has(shot.sessionId)),
+        assets: merged.assets.filter((asset) => {
+          if (asset.ownerSessionId && pendingDeletes.has(asset.ownerSessionId)) return false;
+          return true;
+        })
+      };
+    });
     setStateLoaded(true);
     setSelectedSessionId((current) => {
       // 1) keep current selection if it still exists (most common path)
@@ -658,25 +705,82 @@ export function App() {
     }
   };
 
-  const createSession = () =>
-    run("create-session", async () => {
-      const session = await api.createSession({ ...initialSession, language: lang });
-      setState((prev) => ({
-        ...prev,
-        sessions: [stripShots(session), ...prev.sessions],
-        shots: [...prev.shots, ...session.shots]
-      }));
-      setSelectedSessionId(session.id);
-      setShowArchivedSessions(false);
-    });
+  const createSession = () => {
+    const id = clientId("ses");
+    const payload = { ...initialSession, id, language: lang };
+    const localSession = makeLocalSession(payload);
+    pendingSessionCreatesRef.current.add(id);
+    setError("");
+    setBusy("create-session");
+    setState((prev) => ({
+      ...prev,
+      sessions: [localSession, ...prev.sessions.filter((session) => session.id !== id)]
+    }));
+    setSelectedSessionId(id);
+    setShowArchivedSessions(false);
+    const createPromise = (async () => {
+      try {
+        const session = await api.createSession(payload);
+        pendingSessionCreatesRef.current.delete(id);
+        setState((prev) => ({
+          ...prev,
+          sessions: [stripShots(session), ...prev.sessions.filter((item) => item.id !== id && item.id !== session.id)],
+          shots: [...prev.shots.filter((shot) => shot.sessionId !== id && shot.sessionId !== session.id), ...session.shots]
+        }));
+        setSelectedSessionId(session.id);
+      } catch (err) {
+        pendingSessionCreatesRef.current.delete(id);
+        setError(err instanceof Error ? err.message : t.errors.operationFailed);
+        throw err;
+      } finally {
+        pendingSessionCreatePromisesRef.current.delete(id);
+        setBusy((current) => (current === "create-session" ? "" : current));
+      }
+    })();
+    pendingSessionCreatePromisesRef.current.set(id, createPromise);
+    void createPromise.catch(() => undefined);
+  };
+
+  const waitForSessionCreate = useStableEvent(async (sessionId: string) => {
+    const pending = pendingSessionCreatePromisesRef.current.get(sessionId);
+    if (pending) await pending;
+  });
 
   const deleteSession = (session: Session) => {
     const confirmed = window.confirm(t.app.deleteSessionConfirm(session.title || session.id));
     if (!confirmed) return;
-    run(`delete-session-${session.id}`, async () => {
-      await api.deleteSession(session.id);
-      await refresh();
+    const deletedId = session.id;
+    pendingSessionDeletesRef.current.add(deletedId);
+    setError("");
+    setBusy(`delete-session-${deletedId}`);
+    setState((prev) => {
+      const sessions = prev.sessions.filter((item) => item.id !== deletedId);
+      const sessionIds = new Set(sessions.map((item) => item.id));
+      return {
+        ...prev,
+        sessions,
+        shots: prev.shots.filter((shot) => shot.sessionId !== deletedId && sessionIds.has(shot.sessionId)),
+        assets: prev.assets.filter((asset) => asset.ownerSessionId !== deletedId)
+      };
     });
+    setOptimisticShots((prev) => prev.filter((shot) => shot.sessionId !== deletedId));
+    setOptimisticAssets((prev) => prev.filter((asset) => asset.ownerSessionId !== deletedId));
+    setOptimisticStitchJobs((prev) => prev.filter((item) => item.sessionId !== deletedId));
+    setSelectedSessionId((current) => {
+      if (current !== deletedId) return current;
+      return stateRef.current.sessions.find((item) => item.id !== deletedId)?.id || "";
+    });
+    void (async () => {
+      try {
+        await api.deleteSession(deletedId);
+      } catch (err) {
+        pendingSessionDeletesRef.current.delete(deletedId);
+        setError(err instanceof Error ? err.message : t.errors.operationFailed);
+        await refresh();
+      } finally {
+        setBusy((current) => (current === `delete-session-${deletedId}` ? "" : current));
+      }
+    })();
   };
 
   const promoteSession = (session: Session) =>
@@ -1174,12 +1278,14 @@ export function App() {
       prop: "在右侧 Inspector 写清道具的造型/材质/关键细节；先「重新出图」生成道具基准图，然后从画布拖一根线连到要用它的分镜板。",
       style: "在右侧 Inspector 写清画面风格/色调/笔触/质感关键词；先「重新出图」生成风格基准图，然后从画布拖一根线连到要用它的分镜板。"
     };
+    const sessionForCreate = visibleSelectedSession;
+    if (!sessionForCreate) return undefined;
     const payload: Partial<Asset> = {
       name: seedNames[kind],
       type: kind as AssetType,
       description: seedDescriptions[kind],
       prompt: "",
-      ownerSessionId: selectedSession.id,
+      ownerSessionId: sessionForCreate.id,
       tags: ["anchor", kind]
     };
     const now = new Date().toISOString();
@@ -1191,7 +1297,7 @@ export function App() {
       mediaKind: "none",
       description: payload.description || "",
       prompt: "",
-      ownerSessionId: selectedSession.id,
+      ownerSessionId: sessionForCreate.id,
       tags: ["anchor", kind, "client-pending-create"],
       createdAt: now,
       updatedAt: now
@@ -1199,6 +1305,7 @@ export function App() {
     setOptimisticAssets((prev) => [...prev, tempAsset]);
     void (async () => {
       try {
+        await waitForSessionCreate(sessionForCreate.id);
         const asset = await api.saveAsset(payload);
         upsertAssetInState(asset);
         setOptimisticAssets((prev) => prev.filter((item) => item.id !== tempId));
@@ -1212,18 +1319,19 @@ export function App() {
   });
 
   const handleCreateShot = useStableEvent(async () => {
-    if (!selectedSession) return undefined;
+    const sessionForCreate = selectedSessionWithShots || visibleSelectedSession;
+    if (!sessionForCreate) return undefined;
     const now = new Date().toISOString();
     const nextIndex = selectedSessionShots.length + 1;
     const tempId = `shot_pending_${Date.now()}_${optimisticIdRef.current++}`;
     const tempShot: Shot = {
       id: tempId,
-      sessionId: selectedSession.id,
+      sessionId: sessionForCreate.id,
       index: nextIndex,
       title: `Shot ${nextIndex}`,
       script: "",
       camera: "",
-      durationSec: Math.max(4, Math.round((selectedSession.targetDurationSec || 60) / Math.max(1, nextIndex))),
+      durationSec: Math.max(4, Math.round((sessionForCreate.targetDurationSec || 60) / Math.max(1, nextIndex))),
       assetIds: [],
       rawPrompt: "",
       prompt: "",
@@ -1238,7 +1346,8 @@ export function App() {
     setOptimisticShots((prev) => [...prev, tempShot]);
     void (async () => {
       try {
-        const result = await api.appendShot(selectedSession.id);
+        await waitForSessionCreate(sessionForCreate.id);
+        const result = await api.appendShot(sessionForCreate.id);
         upsertShotAndSessionInState(result.shot, result.session);
         setOptimisticShots((prev) => prev.filter((item) => item.id !== tempId));
         pushShotCreateUndo(result.shot);
@@ -1251,10 +1360,11 @@ export function App() {
   });
 
   const handleCreateStitchJob = useStableEvent(() => {
-    if (!selectedSession) return undefined;
+    const sessionForCreate = selectedSessionWithShots || visibleSelectedSession;
+    if (!sessionForCreate) return undefined;
     const now = new Date().toISOString();
-    const existingCount = (selectedSession.stitchJobs || []).length
-      + optimisticStitchJobs.filter((item) => item.sessionId === selectedSession.id).length;
+    const existingCount = (sessionForCreate.stitchJobs || []).length
+      + optimisticStitchJobs.filter((item) => item.sessionId === sessionForCreate.id).length;
     const tempId = `stitch_pending_${Date.now()}_${optimisticIdRef.current++}`;
     const tempJob: StitchJob = {
       id: tempId,
@@ -1264,10 +1374,16 @@ export function App() {
       createdAt: now,
       updatedAt: now
     };
-    setOptimisticStitchJobs((prev) => [...prev, { sessionId: selectedSession.id, job: tempJob }]);
+    setOptimisticStitchJobs((prev) => [...prev, { sessionId: sessionForCreate.id, job: tempJob }]);
     void (async () => {
       try {
-        const updated = await api.createStitchJob(selectedSession.id);
+        await waitForSessionCreate(sessionForCreate.id);
+        const latestTempJob = optimisticStitchJobsRef.current.find((item) => item.job.id === tempId)?.job || tempJob;
+        const updated = await api.createStitchJob(sessionForCreate.id, {
+          name: latestTempJob.name,
+          shotIds: latestTempJob.shotIds,
+          status: "idle"
+        });
         upsertSessionInState(updated);
         setOptimisticStitchJobs((prev) => prev.filter((item) => item.job.id !== tempId));
       } catch (err) {
@@ -1276,6 +1392,107 @@ export function App() {
       }
     })();
     return tempJob;
+  });
+
+  const handleConnectStitchShot = useStableEvent((shotId: string, jobId: string, legacy?: boolean) => {
+    if (!visibleSelectedSession) return;
+    const sessionId = visibleSelectedSession.id;
+    if (legacy) {
+      setState((prev) => ({
+        ...prev,
+        sessions: prev.sessions.map((session) => session.id === sessionId ? {
+          ...session,
+          stitchShotIds: Array.from(new Set([...(session.stitchShotIds || []), shotId])),
+          stitchStatus: "idle",
+          stitchError: "",
+          stitchProgress: ""
+        } : session)
+      }));
+      return;
+    }
+    if (jobId.startsWith("stitch_pending")) {
+      setOptimisticStitchJobs((prev) => prev.map((item) => {
+        if (item.sessionId !== sessionId || item.job.id !== jobId) return item;
+        return {
+          ...item,
+          job: {
+            ...item.job,
+            shotIds: Array.from(new Set([...(item.job.shotIds || []), shotId])),
+            status: "idle",
+            error: "",
+            progress: ""
+          }
+        };
+      }));
+      return;
+    }
+    setState((prev) => ({
+      ...prev,
+      sessions: prev.sessions.map((session) => {
+        if (session.id !== sessionId) return session;
+        return {
+          ...session,
+          stitchJobs: (session.stitchJobs || []).map((job) => job.id === jobId ? {
+            ...job,
+            shotIds: Array.from(new Set([...(job.shotIds || []), shotId])),
+            status: "idle",
+            error: "",
+            progress: ""
+          } : job)
+        };
+      })
+    }));
+  });
+
+  const handleSetStitchOrder = useStableEvent((jobId: string, shotIds: string[], legacy?: boolean) => {
+    if (!visibleSelectedSession) return;
+    const sessionId = visibleSelectedSession.id;
+    const nextIds = Array.from(new Set(shotIds));
+    if (legacy) {
+      setState((prev) => ({
+        ...prev,
+        sessions: prev.sessions.map((session) => session.id === sessionId ? {
+          ...session,
+          stitchShotIds: nextIds,
+          stitchStatus: "idle",
+          stitchError: "",
+          stitchProgress: ""
+        } : session)
+      }));
+      return;
+    }
+    if (jobId.startsWith("stitch_pending")) {
+      setOptimisticStitchJobs((prev) => prev.map((item) => {
+        if (item.sessionId !== sessionId || item.job.id !== jobId) return item;
+        return {
+          ...item,
+          job: {
+            ...item.job,
+            shotIds: nextIds,
+            status: "idle",
+            error: "",
+            progress: ""
+          }
+        };
+      }));
+      return;
+    }
+    setState((prev) => ({
+      ...prev,
+      sessions: prev.sessions.map((session) => {
+        if (session.id !== sessionId) return session;
+        return {
+          ...session,
+          stitchJobs: (session.stitchJobs || []).map((job) => job.id === jobId ? {
+            ...job,
+            shotIds: nextIds,
+            status: "idle",
+            error: "",
+            progress: ""
+          } : job)
+        };
+      })
+    }));
   });
 
   const handleUploadImageAsset = useStableEvent(async (file: File, kind: "character" | "scene") => {
@@ -1775,6 +1992,8 @@ export function App() {
             onCreateAnchorAsset={handleCreateAnchorAsset}
             onCreateShot={handleCreateShot}
             onCreateStitchJob={handleCreateStitchJob}
+            onConnectStitchShot={handleConnectStitchShot}
+            onSetStitchOrder={handleSetStitchOrder}
             onDeleteCanvasAsset={handleDeleteCanvasAsset}
             onDeleteCanvasShot={handleDeleteCanvasShot}
             onUploadImageAsset={handleUploadImageAsset}

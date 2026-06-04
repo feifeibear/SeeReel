@@ -340,12 +340,13 @@ interface InspectorProps {
   visionReviewEnabled: boolean;
   defaultImageModel?: AssetImageModel;
   onMutated: () => Promise<void> | void;
+  onSetStitchOrder: (jobId: string, shotIds: string[], legacy?: boolean) => Promise<void> | void;
   onDeleteCanvasAsset?: (asset: Asset) => Promise<boolean> | boolean;
   onDeleteCanvasShot?: (shot: Shot) => Promise<boolean> | boolean;
   onClose: () => void;
 }
 
-export function Inspector({ selected, session, allAssets, visionReviewEnabled, defaultImageModel, onMutated, onDeleteCanvasAsset, onDeleteCanvasShot, onClose }: InspectorProps) {
+export function Inspector({ selected, session, allAssets, visionReviewEnabled, defaultImageModel, onMutated, onSetStitchOrder, onDeleteCanvasAsset, onDeleteCanvasShot, onClose }: InspectorProps) {
   if (!selected) return null;
   if (selected.kind === "asset") {
     return <AssetInspector asset={selected.asset} session={session} allAssets={allAssets} onMutated={onMutated} onDeleteCanvasAsset={onDeleteCanvasAsset} onClose={onClose} visionReviewEnabled={visionReviewEnabled} defaultImageModel={defaultImageModel} />;
@@ -357,7 +358,7 @@ export function Inspector({ selected, session, allAssets, visionReviewEnabled, d
     return <ShotInspector shot={selected.shot} session={session} allAssets={allAssets} onMutated={onMutated} onDeleteCanvasShot={onDeleteCanvasShot} onClose={onClose} visionReviewEnabled={visionReviewEnabled} />;
   }
   if (selected.kind === "stitch") {
-    return <StitchInspector session={selected.session} job={selected.job} legacy={selected.legacy} onMutated={onMutated} onClose={onClose} />;
+    return <StitchInspector session={selected.session} job={selected.job} legacy={selected.legacy} onMutated={onMutated} onSetStitchOrder={onSetStitchOrder} onClose={onClose} />;
   }
   if (selected.kind === "referenceVideo") {
     return <ReferenceVideoInspector asset={selected.asset} session={session} onMutated={onMutated} onDeleteCanvasAsset={onDeleteCanvasAsset} onClose={onClose} />;
@@ -1932,11 +1933,12 @@ function ShotInspector({ shot, session, allAssets, visionReviewEnabled, onMutate
 // Stitch inspector
 // ============================================================================
 
-function StitchInspector({ session, job, legacy, onMutated, onClose }: {
+function StitchInspector({ session, job, legacy, onMutated, onSetStitchOrder, onClose }: {
   session: SessionWithShots;
   job: StitchJob;
   legacy?: boolean;
   onMutated: () => Promise<void> | void;
+  onSetStitchOrder: (jobId: string, shotIds: string[], legacy?: boolean) => Promise<void> | void;
   onClose: () => void;
 }) {
   const [busy, setBusy] = useState<"" | "stitch" | "review" | "repair" | "order">("");
@@ -1962,7 +1964,9 @@ function StitchInspector({ session, job, legacy, onMutated, onClose }: {
 
   const saveOrder = async (nextIds: string[]) => {
     setBusy("order"); setError("");
+    onSetStitchOrder(job.id, nextIds, legacy);
     try {
+      if (job.id.startsWith("stitch_pending")) return;
       if (legacy) {
         await api.updateSession(session.id, {
           stitchShotIds: nextIds,

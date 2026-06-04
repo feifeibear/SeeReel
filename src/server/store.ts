@@ -197,8 +197,11 @@ export class CinemaStore {
     // grows it by adding shots / anchor assets / reference videos via the toolbar or
     // double-click menu. Hard cap at 20 to keep the auto-laid-out canvas legible.
     const shotCount = Math.max(0, Math.min(20, Math.floor(Number(payload.shotCount ?? 0))));
+    const requestedId = typeof payload.id === "string" && /^ses_[A-Za-z0-9_-]+$/.test(payload.id)
+      ? payload.id
+      : "";
     const session: Session = {
-      id: id("ses"),
+      id: requestedId && !this.data.sessions.some((item) => item.id === requestedId) ? requestedId : id("ses"),
       ownerUserId,
       title: normalizeSessionTitle(payload.title, this.data.sessions),
       logline: payload.logline?.trim() || "",
