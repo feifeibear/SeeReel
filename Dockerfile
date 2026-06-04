@@ -1,4 +1,5 @@
-FROM node:22-bookworm-slim AS build
+ARG NODE_IMAGE=docker.m.daocloud.io/library/node:22-bookworm-slim
+FROM ${NODE_IMAGE} AS build
 
 WORKDIR /app
 ENV REELYAI_SKIP_SKILL_INSTALL=1
@@ -11,7 +12,7 @@ RUN npm ci
 COPY . .
 RUN npm run build
 
-FROM node:22-bookworm-slim AS runtime
+FROM ${NODE_IMAGE} AS runtime
 
 WORKDIR /app
 ENV NODE_ENV=production \
@@ -23,6 +24,7 @@ COPY --from=build /app/package*.json ./
 COPY --from=build /app/node_modules ./node_modules
 COPY --from=build /app/src ./src
 COPY --from=build /app/dist ./dist
+COPY --from=build /app/fixtures ./fixtures
 COPY --from=build /app/AGENTS.md ./AGENTS.md
 COPY --from=build /app/README.md ./README.md
 COPY --from=build /app/README.zh-CN.md ./README.zh-CN.md

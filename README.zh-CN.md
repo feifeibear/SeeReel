@@ -167,7 +167,15 @@ curl -sS http://localhost:5173/api/state | head -c 200
 
 首版推荐 **单台火山云 ECS + Docker Compose 或 systemd/Caddy + 持久目录**，最快拿到公开 IP/域名。已有 ECS 后可直接运行 [deploy/deploy-to-ecs.sh](deploy/deploy-to-ecs.sh)；如果 ECS 拉 Docker Hub 镜像不稳定，可走 systemd/Caddy fallback；如果证书验证链路被 EIP 网络挡住，可先用 Cloudflare Quick Tunnel 拿 HTTPS 测试入口。完整部署手册见 [deploy/volcengine.md](deploy/volcengine.md)。
 
-公开部署时不要把你的 `ARK_AGENT_PLAN_KEY` 写进服务器环境变量；用户在顶栏「配置 Agent Plan」输入自己的 token，后端只保存在 Node 进程内存里，不会写入 `/api/state` 或 `data/cinema-store.json`。TOS 仍使用服务器后台凭据，建议私有桶 + 预签名 URL。
+公开部署时不要把你的 `ARK_AGENT_PLAN_KEY` 写进服务器环境变量；用户在顶栏「配置 Agent Plan」输入自己的 token，后端不会写入 `/api/state` 或 `data/cinema-store.json`。本地 dev 默认只保存在 Node 进程内存里；火山 Docker Compose 部署会在 ECS 上创建私有 Postgres 容器，并把稳定加密密钥写入 `deploy/.env.production`，这样 admin 登录后能查看用户输入过的 key，且重启后仍然保留。如果要改用外部火山 RDS PostgreSQL，可以显式配置：
+
+```bash
+REELYAI_DATABASE_URL=postgres://user:password@host:5432/reelyai
+REELYAI_DATABASE_SSL=1
+REELYAI_AGENT_PLAN_KEY_ENCRYPTION_SECRET=$(openssl rand -hex 32)
+```
+
+TOS 仍使用服务器后台凭据，建议私有桶 + 预签名 URL。
 
 全新 store 会自动显示内置的「火山 Agent Plan × ReelyAI 示例广告片」session，方便新用户一进来就看到完整画布、参考资产、VLM 审核和最终拼接。私有部署若要空白启动，可设置 `REELYAI_SEED_DEMO=0`。
 

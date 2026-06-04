@@ -316,8 +316,20 @@ volume. With an ECS public IP and SSH access, run [deploy/deploy-to-ecs.sh](depl
 see [deploy/volcengine.md](deploy/volcengine.md) for the full runbook.
 
 Do not set your own `ARK_AGENT_PLAN_KEY` on a public server. Visitors enter their own Agent Plan
-token in the top bar; the backend keeps it in process memory and never returns it from `/api/state`.
-TOS remains a backend-only server credential, preferably with a private bucket and signed URLs.
+token in the top bar; the backend never returns it from `/api/state` or `data/cinema-store.json`.
+By default local dev keeps the key in process memory. The Volcengine Docker Compose deploy creates
+a private Postgres container on the ECS and writes a stable encryption secret into
+`deploy/.env.production` so admin review survives restarts. To use external Volcengine RDS instead,
+set the database URL yourself:
+
+```bash
+REELYAI_DATABASE_URL=postgres://user:password@host:5432/reelyai
+REELYAI_DATABASE_SSL=1
+REELYAI_AGENT_PLAN_KEY_ENCRYPTION_SECRET=$(openssl rand -hex 32)
+```
+
+The admin panel can then list browser-entered Agent Plan keys after login. TOS remains a
+backend-only server credential, preferably with a private bucket and signed URLs.
 
 Public demo mode uses anonymous browser ownership. Each visitor gets an isolated session list via
 the `reelyai_user_id` cookie, and `/api/state` only returns that visitor's sessions, assets, and
@@ -334,13 +346,12 @@ REELYAI_FREE_TRIAL_GLOBAL_DAILY_CAP=300
 Once the free quota is used, generation/review APIs return `free_trial_exceeded` and the UI tells
 the visitor to paste their own Agent Plan key.
 
-Admins can also set the free-trial key from the web UI: click **Admin** in the top bar, log in with
-`admin / Fjr123456` by default, then paste the demo Agent Plan key. The UI-stored key is written to
-`data/admin-settings.json` and takes precedence over `REELYAI_ADMIN_AGENT_PLAN_KEY`. Override the
-default admin login before public launch:
+Site operators can also set the free-trial key from the web console. The UI-stored key is written to
+`data/admin-settings.json` and takes precedence over `REELYAI_ADMIN_AGENT_PLAN_KEY`. Set an operator
+login through private environment variables before enabling the console:
 
 ```bash
-REELYAI_ADMIN_USER=admin
+REELYAI_ADMIN_USER=<operator-user>
 REELYAI_ADMIN_PASSWORD=<strong-password>
 ```
 

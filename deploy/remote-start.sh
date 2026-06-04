@@ -17,6 +17,19 @@ if ! docker compose version >/dev/null 2>&1; then
   exit 3
 fi
 
+set -a
+source deploy/.env.production
+set +a
+
+# The original first-release fallback used host-level systemd Caddy on ports 80/443. When switching
+# to the Compose stack, free those ports immediately before starting the Compose Caddy container.
+if systemctl is-active --quiet caddy 2>/dev/null; then
+  systemctl stop caddy
+fi
+if systemctl is-active --quiet reelyai-agent 2>/dev/null; then
+  systemctl stop reelyai-agent
+fi
+
 docker compose -f deploy/docker-compose.volcengine.yml up -d --build
 docker compose -f deploy/docker-compose.volcengine.yml ps
 

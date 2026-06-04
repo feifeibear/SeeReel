@@ -2,6 +2,8 @@ import type {
   Asset,
   AssetImageModel,
   AdminAgentPlanStatus,
+  AdminSecurityStatus,
+  AdminUserAgentPlanCredentialList,
   AgentPlanCredentialStatus,
   CreateSessionPayload,
   ExpandAssetPromptResult,
@@ -123,12 +125,14 @@ export const api = {
   clearAgentPlanCredential: () =>
     request<AgentPlanCredentialStatus>("/api/credentials/agent-plan", { method: "DELETE" }),
   adminLogin: (payload: { username: string; password: string }) =>
-    request<{ ok: true; adminAgentPlan: AdminAgentPlanStatus }>("/api/admin/login", {
+    request<{ ok: true; adminAgentPlan: AdminAgentPlanStatus; adminSecurity: AdminSecurityStatus }>("/api/admin/login", {
       method: "POST",
       body: JSON.stringify(payload)
     }),
   adminSettings: () =>
-    request<{ adminAgentPlan: AdminAgentPlanStatus }>("/api/admin/settings"),
+    request<{ adminAgentPlan: AdminAgentPlanStatus; adminSecurity: AdminSecurityStatus }>("/api/admin/settings"),
+  adminAgentPlanKeys: () =>
+    request<AdminUserAgentPlanCredentialList>("/api/admin/agent-plan-keys"),
   saveAdminAgentPlan: (apiKey: string) =>
     request<{ adminAgentPlan: AdminAgentPlanStatus }>("/api/admin/settings/agent-plan", {
       method: "PUT",
@@ -136,6 +140,11 @@ export const api = {
     }),
   clearAdminAgentPlan: () =>
     request<{ adminAgentPlan: AdminAgentPlanStatus }>("/api/admin/settings/agent-plan", { method: "DELETE" }),
+  saveAdminSecurity: (payload: { username?: string; password: string }) =>
+    request<{ adminSecurity: AdminSecurityStatus }>("/api/admin/settings/security", {
+      method: "PUT",
+      body: JSON.stringify(payload)
+    }),
   adminLogout: () => request<{ ok: true }>("/api/admin/logout", { method: "POST" }),
   createSession: (payload: CreateSessionPayload) =>
     request<SessionWithShots>("/api/sessions", { method: "POST", body: JSON.stringify(payload) }),

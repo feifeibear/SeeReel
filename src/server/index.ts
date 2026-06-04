@@ -1,5 +1,5 @@
 import "dotenv/config";
-import { createHash, randomUUID, timingSafeEqual } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { mkdir, readFile, stat, unlink, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { Readable } from "node:stream";
@@ -44,7 +44,15 @@ import {
   userCredentialMiddleware
 } from "./userCredentials";
 import { accessGuardEnabled, accessGuardMiddleware } from "./accessGuard";
-import { adminAgentPlanStatus, clearStoredAdminAgentPlanKey, setStoredAdminAgentPlanKey } from "./adminSettings";
+import {
+  adminAgentPlanStatus,
+  adminSecurityStatus,
+  clearStoredAdminAgentPlanKey,
+  setStoredAdminAgentPlanKey,
+  setStoredAdminCredentials,
+  verifyAdminCredentials
+} from "./adminSettings";
+import { agentPlanCredentialStoreReadiness, listAgentPlanCredentialsForAdmin } from "./agentPlanKeyStore";
 import { freeTrialStatus, generationCapMessage, generationLimitSnapshot, tryConsumeGeneration } from "./generationLimits";
 import { condenseForSeedanceR2V, probeVideo, type CondenseStrategy } from "./videoCondense";
 import { buildShotFrameAssignments, generateStoryboardGrid } from "./storyboardGrid";
@@ -237,6 +245,7 @@ async function computeReadiness() {
     dataDir: await writableDirectoryStatus(paths.dataDir),
     storeFile: await readableFileStatus(paths.storeFile),
     mediaDir: await writableDirectoryStatus(MEDIA_DIR),
+    agentPlanKeyStore: await agentPlanCredentialStoreReadiness(),
     tos: hasTosConfig()
       ? { ok: true, status: "ok" as const }
       : { ok: false, status: "warn" as const, message: "TOS is not configured; local previews work but Seedance needs public/signed media URLs." },
@@ -247,7 +256,12 @@ async function computeReadiness() {
       ? { ok: true, status: "ok" as const }
       : { ok: false, status: "warn" as const, message: "Seedance model is not configured." }
   };
-  const blocking = [components.dataDir, components.storeFile, components.mediaDir].some((component) => !component.ok);
+  const blocking = [
+    components.dataDir,
+    components.storeFile,
+    components.mediaDir,
+    components.agentPlanKeyStore.status === "error" ? components.agentPlanKeyStore : { ok: true }
+  ].some((component) => !component.ok);
   return { components, blocking };
 }
 
@@ -347,28 +361,36 @@ app.get("/api/credentials/agent-plan", (_req, res) => {
   res.json(requestAgentPlanStatus());
 });
 
-app.post("/api/credentials/agent-plan", (req, res) => {
+app.post("/api/credentials/agent-plan", async (req, res) => {
   const apiKey = typeof req.body?.apiKey === "string" ? req.body.apiKey.trim() : "";
   if (!apiKey || apiKey.length < 8) return res.status(400).json({ error: "请输入有效的 Agent Plan token" });
-  setRequestAgentPlanKey(apiKey);
-  res.json(requestAgentPlanStatus());
+  try {
+    await setRequestAgentPlanKey(apiKey);
+    res.json(requestAgentPlanStatus());
+  } catch (error) {
+    res.status(500).json({ error: error instanceof Error ? error.message : "保存 Agent Plan token 失败" });
+  }
 });
 
-app.delete("/api/credentials/agent-plan", (_req, res) => {
-  clearRequestAgentPlanKey();
-  res.json(requestAgentPlanStatus());
+app.delete("/api/credentials/agent-plan", async (_req, res) => {
+  try {
+    await clearRequestAgentPlanKey();
+    res.json(requestAgentPlanStatus());
+  } catch (error) {
+    res.status(500).json({ error: error instanceof Error ? error.message : "清除 Agent Plan token 失败" });
+  }
 });
 
 app.post("/api/admin/login", (req, res) => {
   const username = typeof req.body?.username === "string" ? req.body.username.trim() : "";
   const password = typeof req.body?.password === "string" ? req.body.password : "";
-  if (!constantTimeEqual(username, adminUsername()) || !constantTimeEqual(password, adminPassword())) {
+  if (!verifyAdminCredentials(username, password)) {
     return res.status(401).json({ error: "管理员账号或密码错误", code: "admin_login_failed" });
   }
   const token = randomUUID();
   adminSessions.set(token, { createdAt: Date.now() });
   setAdminCookie(res, token);
-  res.json({ ok: true, adminAgentPlan: adminAgentPlanStatus() });
+  res.json({ ok: true, adminAgentPlan: adminAgentPlanStatus(), adminSecurity: adminSecurityStatus() });
 });
 
 app.post("/api/admin/logout", (req, res) => {
@@ -380,7 +402,16 @@ app.post("/api/admin/logout", (req, res) => {
 
 app.get("/api/admin/settings", (req, res) => {
   if (!requireAdmin(req, res)) return;
-  res.json({ adminAgentPlan: adminAgentPlanStatus() });
+  res.json({ adminAgentPlan: adminAgentPlanStatus(), adminSecurity: adminSecurityStatus() });
+});
+
+app.get("/api/admin/agent-plan-keys", async (req, res) => {
+  if (!requireAdmin(req, res)) return;
+  try {
+    res.json(await listAgentPlanCredentialsForAdmin());
+  } catch (error) {
+    res.status(500).json({ error: error instanceof Error ? error.message : "读取用户 Agent Plan keys 失败" });
+  }
 });
 
 app.put("/api/admin/settings/agent-plan", (req, res) => {
@@ -396,6 +427,17 @@ app.put("/api/admin/settings/agent-plan", (req, res) => {
 app.delete("/api/admin/settings/agent-plan", (req, res) => {
   if (!requireAdmin(req, res)) return;
   res.json({ adminAgentPlan: clearStoredAdminAgentPlanKey() });
+});
+
+app.put("/api/admin/settings/security", (req, res) => {
+  if (!requireAdmin(req, res)) return;
+  const username = typeof req.body?.username === "string" ? req.body.username.trim() : "";
+  const password = typeof req.body?.password === "string" ? req.body.password : "";
+  try {
+    res.json({ adminSecurity: setStoredAdminCredentials({ username, password }) });
+  } catch (error) {
+    res.status(400).json({ error: error instanceof Error ? error.message : "保存失败" });
+  }
 });
 
 app.use(ownedResourceGuard);
@@ -457,14 +499,6 @@ function runtimeInfo() {
   };
 }
 
-function adminUsername() {
-  return process.env.REELYAI_ADMIN_USER?.trim() || process.env.ADMIN_USER?.trim() || "admin";
-}
-
-function adminPassword() {
-  return process.env.REELYAI_ADMIN_PASSWORD?.trim() || process.env.ADMIN_PASSWORD?.trim() || "Fjr123456";
-}
-
 function parseCookieHeader(header: string | undefined) {
   const result = new Map<string, string>();
   if (!header) return result;
@@ -481,12 +515,6 @@ function parseCookieHeader(header: string | undefined) {
     }
   }
   return result;
-}
-
-function constantTimeEqual(a: string, b: string) {
-  const left = Buffer.from(a);
-  const right = Buffer.from(b);
-  return left.length === right.length && timingSafeEqual(left, right);
 }
 
 function requestAdminToken(req: Request) {

@@ -676,6 +676,8 @@ export interface StoreSnapshot {
 export interface AgentPlanCredentialStatus {
   configured: boolean;
   fingerprint?: string;
+  updatedAt?: string;
+  storage?: AgentPlanCredentialStorageStatus;
 }
 
 export interface AdminAgentPlanStatus {
@@ -683,6 +685,34 @@ export interface AdminAgentPlanStatus {
   fingerprint?: string;
   source: "ui" | "env" | "none";
   updatedAt?: string;
+}
+
+export interface AdminSecurityStatus {
+  configured: boolean;
+  source: "ui" | "env" | "none";
+  updatedAt?: string;
+}
+
+export interface AgentPlanCredentialStorageStatus {
+  mode: "database" | "memory";
+  databaseConfigured: boolean;
+  encryptionConfigured: boolean;
+  error?: string;
+}
+
+export interface AdminUserAgentPlanCredential {
+  userId: string;
+  apiKey: string;
+  fingerprint: string;
+  createdAt?: string;
+  updatedAt: string;
+  ipHash?: string;
+  userAgentHash?: string;
+}
+
+export interface AdminUserAgentPlanCredentialList {
+  storage: AgentPlanCredentialStorageStatus;
+  credentials: AdminUserAgentPlanCredential[];
 }
 
 export interface FreeTrialStatus {

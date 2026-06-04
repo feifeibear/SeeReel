@@ -1,7 +1,7 @@
 import { Archive, BarChart3, CircleHelp, KeyRound, Loader2, Plus, RefreshCw, ShieldCheck, Trash2 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { api } from "./api";
-import type { AdminAgentPlanStatus, AgentPlanCredentialStatus, Asset, AssetType, CreateSessionPayload, Session, Shot, StitchJob, StoreSnapshot, TokenUsageEvent, TokenUsageModelFamily } from "../shared/types";
+import type { AdminAgentPlanStatus, AdminSecurityStatus, AdminUserAgentPlanCredentialList, AgentPlanCredentialStatus, Asset, AssetType, CreateSessionPayload, Session, Shot, StitchJob, StoreSnapshot, TokenUsageEvent, TokenUsageModelFamily } from "../shared/types";
 import { FlowView } from "./flow/FlowView";
 import { PendingGenerationsProvider } from "./flow/PendingGenerations";
 import { useUndoKeyboardShortcut, useUndoStack } from "./flow/useUndoStack";
@@ -76,6 +76,13 @@ function formatMTokens(tokens: number) {
   if (value === 0) return "0.000 M";
   if (value < 0.001) return "<0.001 M";
   return `${value.toFixed(value >= 1 ? 2 : 3)} M`;
+}
+
+function formatAdminDate(value: string | undefined) {
+  if (!value) return "";
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return value;
+  return parsed.toLocaleString();
 }
 
 function summarizeTokenUsage(events: TokenUsageEvent[] | undefined): TokenUsageNodeSummary[] {
@@ -359,10 +366,14 @@ export function App() {
   const [showAgentPlanKey, setShowAgentPlanKey] = useState(false);
   const [agentPlanDraft, setAgentPlanDraft] = useState("");
   const [showAdminPanel, setShowAdminPanel] = useState(false);
-  const [adminUsernameDraft, setAdminUsernameDraft] = useState("admin");
+  const [adminUsernameDraft, setAdminUsernameDraft] = useState("");
   const [adminPasswordDraft, setAdminPasswordDraft] = useState("");
   const [adminAgentPlanDraft, setAdminAgentPlanDraft] = useState("");
+  const [adminNewUsernameDraft, setAdminNewUsernameDraft] = useState("");
+  const [adminNewPasswordDraft, setAdminNewPasswordDraft] = useState("");
   const [adminAgentPlanStatus, setAdminAgentPlanStatus] = useState<AdminAgentPlanStatus | undefined>();
+  const [adminSecurityStatus, setAdminSecurityStatus] = useState<AdminSecurityStatus | undefined>();
+  const [adminUserAgentPlanKeys, setAdminUserAgentPlanKeys] = useState<AdminUserAgentPlanCredentialList | undefined>();
   const [adminLoggedIn, setAdminLoggedIn] = useState(false);
   const [busy, setBusy] = useState<string>("");
   const [error, setError] = useState<string>("");
@@ -686,8 +697,18 @@ export function App() {
       const result = await api.adminLogin({ username: adminUsernameDraft.trim(), password: adminPasswordDraft });
       setAdminLoggedIn(true);
       setAdminAgentPlanStatus(result.adminAgentPlan);
+      setAdminSecurityStatus(result.adminSecurity);
+      setAdminUserAgentPlanKeys(await api.adminAgentPlanKeys());
       setAdminPasswordDraft("");
       setAdminAgentPlanDraft("");
+      setAdminNewUsernameDraft("");
+      setAdminNewPasswordDraft("");
+    });
+  };
+
+  const refreshAdminAgentPlanKeys = () => {
+    run("refresh-admin-agent-plan-keys", async () => {
+      setAdminUserAgentPlanKeys(await api.adminAgentPlanKeys());
     });
   };
 
@@ -699,6 +720,20 @@ export function App() {
       setAdminAgentPlanStatus(result.adminAgentPlan);
       setAdminAgentPlanDraft("");
       await refresh();
+    });
+  };
+
+  const saveAdminSecurity = () => {
+    const password = adminNewPasswordDraft;
+    if (!password) return;
+    run("save-admin-security", async () => {
+      const result = await api.saveAdminSecurity({
+        username: adminNewUsernameDraft.trim() || undefined,
+        password
+      });
+      setAdminSecurityStatus(result.adminSecurity);
+      setAdminNewUsernameDraft("");
+      setAdminNewPasswordDraft("");
     });
   };
 
@@ -715,8 +750,12 @@ export function App() {
       await api.adminLogout();
       setAdminLoggedIn(false);
       setAdminAgentPlanStatus(undefined);
+      setAdminSecurityStatus(undefined);
+      setAdminUserAgentPlanKeys(undefined);
       setAdminAgentPlanDraft("");
       setAdminPasswordDraft("");
+      setAdminNewUsernameDraft("");
+      setAdminNewPasswordDraft("");
     });
   };
 
@@ -1243,14 +1282,16 @@ export function App() {
                     try {
                       const result = await api.adminSettings();
                       setAdminAgentPlanStatus(result.adminAgentPlan);
+                      setAdminSecurityStatus(result.adminSecurity);
+                      setAdminUserAgentPlanKeys(await api.adminAgentPlanKeys());
                     } catch {
                       setAdminLoggedIn(false);
                     }
                   }
                 }}
                 title={t.app.adminButtonTitle}
+                aria-label={t.app.adminButtonTitle}
               >
-                <ShieldCheck size={16} />
                 {t.app.adminButton}
               </button>
               {showAdminPanel && (
@@ -1265,12 +1306,12 @@ export function App() {
                     <>
                       <div className="admin-status">
                         <strong>{t.app.adminLoginTitle}</strong>
-                        <small>{t.app.adminDefaultHint}</small>
+                        <small>{t.app.adminLoginHint}</small>
                       </div>
                       <input
                         value={adminUsernameDraft}
                         onChange={(event) => setAdminUsernameDraft(event.target.value)}
-                        placeholder="admin"
+                        placeholder={t.app.adminUsernamePlaceholder}
                         autoComplete="username"
                       />
                       <input
@@ -1288,40 +1329,121 @@ export function App() {
                   ) : (
                     <>
                       <div className="admin-status">
-                        <strong>{t.app.adminTrialTitle}</strong>
+                        <strong>{t.app.adminConsoleTitle}</strong>
                         <small>
-                          {adminAgentPlanStatus?.configured
-                            ? t.app.adminTrialConfigured(adminAgentPlanStatus.fingerprint, adminAgentPlanStatus.source)
-                            : t.app.adminTrialMissing}
+                          {adminSecurityStatus?.configured
+                            ? t.app.adminSecurityConfigured(adminSecurityStatus.source)
+                            : t.app.adminSecurityMissing}
                         </small>
                       </div>
-                      <input
-                        type="password"
-                        autoComplete="off"
-                        value={adminAgentPlanDraft}
-                        onChange={(event) => setAdminAgentPlanDraft(event.target.value)}
-                        placeholder={t.app.adminAgentPlanPlaceholder}
-                      />
-                      <div className="button-row admin-actions">
-                        <button
-                          type="submit"
-                          className="primary"
-                          disabled={busy === "save-admin-agent-plan-key" || !adminAgentPlanDraft.trim()}
-                        >
-                          {busy === "save-admin-agent-plan-key" ? <Loader2 size={16} className="spin" /> : <KeyRound size={16} />}
-                          {t.app.adminSave}
-                        </button>
-                        <button
-                          type="button"
-                          className="danger"
-                          disabled={busy === "clear-admin-agent-plan-key" || !adminAgentPlanStatus?.configured}
-                          onClick={clearAdminAgentPlanKey}
-                        >
-                          {t.app.adminClear}
-                        </button>
-                        <button type="button" onClick={logoutAdmin} disabled={busy === "admin-logout"}>
-                          {t.app.adminLogout}
-                        </button>
+                      <div className="admin-section">
+                        <div className="admin-section-heading">
+                          <strong>{t.app.adminTrialTitle}</strong>
+                          <small>
+                            {adminAgentPlanStatus?.configured
+                              ? t.app.adminTrialConfigured(adminAgentPlanStatus.fingerprint, adminAgentPlanStatus.source)
+                              : t.app.adminTrialMissing}
+                          </small>
+                        </div>
+                        <input
+                          type="password"
+                          autoComplete="off"
+                          value={adminAgentPlanDraft}
+                          onChange={(event) => setAdminAgentPlanDraft(event.target.value)}
+                          placeholder={t.app.adminAgentPlanPlaceholder}
+                        />
+                        <div className="button-row admin-actions">
+                          <button
+                            type="submit"
+                            className="primary"
+                            disabled={busy === "save-admin-agent-plan-key" || !adminAgentPlanDraft.trim()}
+                          >
+                            {busy === "save-admin-agent-plan-key" ? <Loader2 size={16} className="spin" /> : <KeyRound size={16} />}
+                            {t.app.adminSave}
+                          </button>
+                          <button
+                            type="button"
+                            className="danger"
+                            disabled={busy === "clear-admin-agent-plan-key" || !adminAgentPlanStatus?.configured}
+                            onClick={clearAdminAgentPlanKey}
+                          >
+                            {t.app.adminClear}
+                          </button>
+                        </div>
+                      </div>
+                      <div className="admin-section">
+                        <div className="admin-section-heading">
+                          <strong>{t.app.adminSecurityTitle}</strong>
+                          <small>{t.app.adminSecurityHelp}</small>
+                        </div>
+                        <input
+                          value={adminNewUsernameDraft}
+                          onChange={(event) => setAdminNewUsernameDraft(event.target.value)}
+                          placeholder={t.app.adminNewUsernamePlaceholder}
+                          autoComplete="off"
+                        />
+                        <input
+                          type="password"
+                          value={adminNewPasswordDraft}
+                          onChange={(event) => setAdminNewPasswordDraft(event.target.value)}
+                          placeholder={t.app.adminNewPasswordPlaceholder}
+                          autoComplete="new-password"
+                        />
+                        <div className="button-row admin-actions">
+                          <button
+                            type="button"
+                            className="primary"
+                            onClick={saveAdminSecurity}
+                            disabled={busy === "save-admin-security" || !adminNewPasswordDraft}
+                          >
+                            {busy === "save-admin-security" ? <Loader2 size={16} className="spin" /> : <ShieldCheck size={16} />}
+                            {t.app.adminSecuritySave}
+                          </button>
+                          <button type="button" onClick={logoutAdmin} disabled={busy === "admin-logout"}>
+                            {t.app.adminLogout}
+                          </button>
+                        </div>
+                      </div>
+                      <div className="admin-user-keys">
+                        <div className="admin-user-keys-header">
+                          <strong>{t.app.adminUserKeysTitle}</strong>
+                          <button
+                            type="button"
+                            className="icon-button"
+                            onClick={refreshAdminAgentPlanKeys}
+                            disabled={busy === "refresh-admin-agent-plan-keys"}
+                            title={t.app.adminUserKeysRefresh}
+                            aria-label={t.app.adminUserKeysRefresh}
+                          >
+                            {busy === "refresh-admin-agent-plan-keys" ? <Loader2 size={15} className="spin" /> : <RefreshCw size={15} />}
+                          </button>
+                        </div>
+                        <small className={`admin-user-keys-storage ${adminUserAgentPlanKeys?.storage.mode || "memory"}`}>
+                          {t.app.adminUserKeysStorage(
+                            adminUserAgentPlanKeys?.storage.mode || "memory",
+                            Boolean(adminUserAgentPlanKeys?.storage.databaseConfigured),
+                            Boolean(adminUserAgentPlanKeys?.storage.encryptionConfigured)
+                          )}
+                        </small>
+                        {adminUserAgentPlanKeys?.storage.error && (
+                          <small className="admin-user-keys-error">{adminUserAgentPlanKeys.storage.error}</small>
+                        )}
+                        {adminUserAgentPlanKeys?.credentials.length ? (
+                          <div className="admin-user-keys-list">
+                            {adminUserAgentPlanKeys.credentials.map((credential) => (
+                              <div className="admin-user-key-row" key={credential.userId}>
+                                <div className="admin-user-key-meta">
+                                  <span>{credential.fingerprint}</span>
+                                  <time dateTime={credential.updatedAt}>{formatAdminDate(credential.updatedAt)}</time>
+                                </div>
+                                <code>{credential.apiKey}</code>
+                                <small>{credential.userId}</small>
+                              </div>
+                            ))}
+                          </div>
+                        ) : (
+                          <p className="admin-user-keys-empty">{t.app.adminUserKeysEmpty}</p>
+                        )}
                       </div>
                     </>
                   )}

@@ -1,6 +1,14 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 import { createHash, randomUUID } from "node:crypto";
 import type { NextFunction, Request, Response } from "express";
+import {
+  agentPlanCredentialStorageStatus,
+  deleteAgentPlanCredential,
+  getCachedAgentPlanCredential,
+  hydrateAgentPlanCredential,
+  keyFingerprint,
+  storeAgentPlanCredential
+} from "./agentPlanKeyStore";
 
 const COOKIE_NAME = "reelyai_user_id";
 const MAX_AGE_MS = 1000 * 60 * 60 * 24 * 30;
@@ -8,19 +16,15 @@ const MAX_AGE_MS = 1000 * 60 * 60 * 24 * 30;
 interface RequestCredentialContext {
   userId: string;
   ipHash: string;
-}
-
-interface StoredCredential {
-  apiKey: string;
-  updatedAt: string;
+  userAgentHash: string;
 }
 
 const requestContext = new AsyncLocalStorage<RequestCredentialContext>();
-const agentPlanCredentials = new Map<string, StoredCredential>();
 
 export function userCredentialMiddleware(req: Request, res: Response, next: NextFunction) {
-  const userId = readUserId(req) || randomUUID();
-  if (!readUserId(req)) {
+  const existingUserId = readUserId(req);
+  const userId = existingUserId || randomUUID();
+  if (!existingUserId) {
     res.cookie(COOKIE_NAME, userId, {
       httpOnly: true,
       sameSite: "lax",
@@ -29,32 +33,46 @@ export function userCredentialMiddleware(req: Request, res: Response, next: Next
       path: "/"
     });
   }
-  requestContext.run({ userId, ipHash: requestIpHash(req) }, next);
+  const context = { userId, ipHash: requestIpHash(req), userAgentHash: requestUserAgentHash(req) };
+  void hydrateAgentPlanCredential(userId)
+    .catch((error) => {
+      console.warn("[user-credentials] hydrate failed:", error instanceof Error ? error.message : error);
+    })
+    .finally(() => {
+      requestContext.run(context, next);
+    });
 }
 
-export function setRequestAgentPlanKey(apiKey: string) {
+export async function setRequestAgentPlanKey(apiKey: string) {
   const userId = currentUserId();
   if (!userId) throw new Error("Missing browser session");
-  agentPlanCredentials.set(userId, { apiKey, updatedAt: new Date().toISOString() });
+  await storeAgentPlanCredential(userId, apiKey, {
+    ipHash: currentIpHash(),
+    userAgentHash: currentUserAgentHash()
+  });
 }
 
-export function clearRequestAgentPlanKey() {
+export async function clearRequestAgentPlanKey() {
   const userId = currentUserId();
   if (!userId) return;
-  agentPlanCredentials.delete(userId);
+  await deleteAgentPlanCredential(userId);
 }
 
 export function getRequestAgentPlanKey() {
   const userId = currentUserId();
   if (!userId) return undefined;
-  return agentPlanCredentials.get(userId)?.apiKey;
+  return getCachedAgentPlanCredential(userId)?.apiKey;
 }
 
 export function requestAgentPlanStatus() {
-  const apiKey = getRequestAgentPlanKey();
+  const userId = currentUserId();
+  const credential = getCachedAgentPlanCredential(userId);
+  const apiKey = credential?.apiKey;
   return {
     configured: Boolean(apiKey),
-    fingerprint: apiKey ? keyFingerprint(apiKey) : undefined
+    fingerprint: apiKey ? credential?.fingerprint || keyFingerprint(apiKey) : undefined,
+    updatedAt: credential?.updatedAt,
+    storage: agentPlanCredentialStorageStatus()
   };
 }
 
@@ -64,6 +82,10 @@ export function currentUserId() {
 
 export function currentIpHash() {
   return requestContext.getStore()?.ipHash;
+}
+
+export function currentUserAgentHash() {
+  return requestContext.getStore()?.userAgentHash;
 }
 
 export function hasRequestAgentPlanKey() {
@@ -90,15 +112,17 @@ function parseCookies(header: string) {
   ) as Record<string, string>;
 }
 
-function keyFingerprint(apiKey: string) {
-  return createHash("sha256").update(apiKey).digest("hex").slice(0, 10);
-}
-
 function requestIpHash(req: Request) {
   const forwarded = (req.headers["x-forwarded-for"] || "").toString().split(",")[0]?.trim();
   const rawIp = forwarded || req.ip || req.socket.remoteAddress || "unknown";
   const salt = process.env.REELYAI_RATE_LIMIT_SALT || "reelyai-demo";
   return createHash("sha256").update(`${salt}|${rawIp}`).digest("hex").slice(0, 20);
+}
+
+function requestUserAgentHash(req: Request) {
+  const rawUserAgent = (req.headers["user-agent"] || "unknown").toString();
+  const salt = process.env.REELYAI_RATE_LIMIT_SALT || "reelyai-demo";
+  return createHash("sha256").update(`${salt}|${rawUserAgent}`).digest("hex").slice(0, 20);
 }
 
 function shouldUseSecureCookie() {

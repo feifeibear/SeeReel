@@ -11,8 +11,11 @@ Docker container, one private `data/` directory or Docker volume, and backend-on
 - Set `REELYAI_SESSION_GENERATION_DAILY_CAP` to bound paid submissions per session per day.
 - Do not set `ARK_AGENT_PLAN_KEY` on the public server. Each visitor enters their own Agent Plan
   token in the ReelyAI top bar.
-- User Agent Plan tokens are stored only in the Node process memory, keyed by an HttpOnly browser
-  cookie. They are not returned by `/api/state` and are not written to `data/cinema-store.json`.
+- User Agent Plan tokens are keyed by an HttpOnly browser cookie and are not returned by
+  `/api/state` or written to `data/cinema-store.json`. The Docker Compose deploy runs a private
+  Postgres container on the ECS by default and stores rows encrypted. To use external Volcengine
+  RDS instead, set `REELYAI_DATABASE_URL` to that PostgreSQL connection string plus
+  `REELYAI_AGENT_PLAN_KEY_ENCRYPTION_SECRET`.
 - TOS credentials are server-side environment variables. Use a private TOS bucket when possible;
   ReelyAI writes signed URLs for Seedance workers.
 - `data/cinema-store.json` can contain TOS signed URLs and generated media paths. Keep `data/`
@@ -161,8 +164,10 @@ edge/proxy layers for the first release. Keep `APP_PUBLIC_URL=https://reelyai.ap
 
 ## First-Release Limits
 
-- Run one replica. The built-in JSON store and in-memory user-token map are not multi-replica safe.
-- Restarting the container clears user Agent Plan tokens; users can paste them again.
+- Run one replica while sessions/assets/shots still use the built-in JSON store.
+- The Docker Compose deploy persists user Agent Plan tokens in the `reelyai-postgres` Docker volume.
+  If you use the systemd fallback without PostgreSQL, restarting the process clears user tokens and
+  users can paste them again.
 - Browser Agent/Coding Plan tokens are scoped per user and can run Seedream / Seedance plus VLM
   review by default. VLM review uses Plan model names such as `doubao-seed-2.0-pro`.
 - Generated media and the JSON store live in the Docker volume `reelyai-data`.
@@ -171,7 +176,7 @@ edge/proxy layers for the first release. Keep `APP_PUBLIC_URL=https://reelyai.ap
 
 - Move sessions/assets/shots/token usage from `data/cinema-store.json` to PostgreSQL or Redis +
   object metadata.
-- Move user Agent Plan tokens to an encrypted secret store with TTL.
+- Add TTL/rotation controls to the encrypted user Agent Plan key store.
 - Put Seedance polling, VLM review, stitching, and narration into a queue worker.
 - Store final media in TOS and serve via signed download routes or CDN.
 - Run multiple web replicas behind ALB with sticky sessions until the token store is externalized.

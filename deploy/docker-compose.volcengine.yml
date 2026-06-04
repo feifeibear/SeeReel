@@ -1,14 +1,37 @@
 services:
-  reelyai:
-    build:
-      context: ..
-      dockerfile: Dockerfile
-    image: reelyai-agent:latest
+  postgres:
+    image: ${REELYAI_POSTGRES_IMAGE:-docker.m.daocloud.io/library/postgres:16-alpine}
     restart: unless-stopped
     env_file:
       - ./.env.production
     expose:
+      - "5432"
+    volumes:
+      - reelyai-postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U \"$${POSTGRES_USER}\" -d \"$${POSTGRES_DB}\""]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+
+  reelyai:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+      args:
+        NODE_IMAGE: ${REELYAI_NODE_IMAGE:-docker.m.daocloud.io/library/node:22-bookworm-slim}
+    image: reelyai-agent:latest
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    env_file:
+      - ./.env.production
+    expose:
       - "5173"
+    ports:
+      - "127.0.0.1:5173:5173"
     volumes:
       - reelyai-data:/app/data
     healthcheck:
@@ -19,7 +42,7 @@ services:
       start_period: 20s
 
   caddy:
-    image: caddy:2-alpine
+    image: ${REELYAI_CADDY_IMAGE:-docker.m.daocloud.io/library/caddy:2-alpine}
     restart: unless-stopped
     depends_on:
       - reelyai
@@ -35,5 +58,6 @@ services:
 
 volumes:
   reelyai-data:
+  reelyai-postgres:
   caddy-data:
   caddy-config:
