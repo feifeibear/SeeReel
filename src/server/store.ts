@@ -255,8 +255,11 @@ export class CinemaStore {
     const fallbackDuration = existing.length
       ? existing[0].durationSec
       : Math.max(4, Math.round(session.targetDurationSec / Math.max(nextIndex, 1)));
+    const requestedId = typeof partial?.id === "string" && /^shot_[A-Za-z0-9_-]+$/.test(partial.id)
+      ? partial.id
+      : "";
     const shot: Shot = {
-      id: id("shot"),
+      id: requestedId && !this.data.shots.some((item) => item.id === requestedId) ? requestedId : id("shot"),
       sessionId: session.id,
       index: nextIndex,
       title: partial?.title || `Shot ${nextIndex}`,

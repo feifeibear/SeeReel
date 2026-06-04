@@ -247,7 +247,7 @@ export const api = {
   updateShot: (shotId: string, patch: Partial<Shot>) =>
     request<Shot>(`/api/shots/${shotId}`, { method: "PATCH", body: JSON.stringify(patch) }),
   /** Append a single shot to an existing session — used by the canvas "新建分镜镜头" flow. */
-  appendShot: (sessionId: string, payload?: { title?: string; durationSec?: number; rawPrompt?: string }) =>
+  appendShot: (sessionId: string, payload?: { id?: string; title?: string; durationSec?: number; rawPrompt?: string }) =>
     request<{ shot: Shot; session: SessionWithShots }>(`/api/sessions/${sessionId}/shots`, {
       method: "POST",
       body: JSON.stringify(payload || {})

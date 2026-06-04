@@ -1976,6 +1976,7 @@ app.post("/api/shots/:shotId/tailframe", async (req, res) => {
 app.post("/api/sessions/:sessionId/shots", async (req, res) => {
   const reqBody = (req.body as Record<string, unknown>) || {};
   const shot = await store.appendShot(req.params.sessionId, {
+    id: typeof reqBody.id === "string" ? reqBody.id : undefined,
     title: typeof reqBody.title === "string" ? reqBody.title : undefined,
     durationSec: typeof reqBody.durationSec === "number" ? reqBody.durationSec : undefined,
     rawPrompt: typeof reqBody.rawPrompt === "string" ? reqBody.rawPrompt : undefined,

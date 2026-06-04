@@ -101,6 +101,7 @@ export function FlowView({ snapshot, session, visionReviewEnabled, defaultImageM
   const pendingDeletionsRef = useRef<Set<string>>(new Set());
   const pendingNodeDeletionsRef = useRef<Set<string>>(new Set());
   const pendingCreatedPositionsRef = useRef<Map<string, XYPosition>>(new Map());
+  const optimisticEdgesRef = useRef<Map<string, Edge>>(new Map());
   const rfInstanceRef = useRef<ReactFlowInstance<Node<FlowNodeData>, Edge> | null>(null);
 
   const flowPositionFromClient = useCallback((x: number, y: number): XYPosition | undefined => {
@@ -143,7 +144,12 @@ export function FlowView({ snapshot, session, visionReviewEnabled, defaultImageM
       nodesRef.current = nextNodes;
       return nextNodes;
     });
-    setEdges(derivedEdges.filter((e) =>
+    const derivedIds = new Set(derivedEdges.map((edge) => edge.id));
+    derivedIds.forEach((id) => optimisticEdgesRef.current.delete(id));
+    setEdges([
+      ...derivedEdges,
+      ...[...optimisticEdgesRef.current.values()].filter((edge) => !derivedIds.has(edge.id))
+    ].filter((e) =>
       !pendingDeletionsRef.current.has(e.id) &&
       !pendingNodeDeletionsRef.current.has(e.source) &&
       !pendingNodeDeletionsRef.current.has(e.target)
@@ -175,6 +181,7 @@ export function FlowView({ snapshot, session, visionReviewEnabled, defaultImageM
   }, []);
 
   const addOptimisticEdge = useCallback((edge: Edge) => {
+    optimisticEdgesRef.current.set(edge.id, edge);
     setEdges((current) => current.some((item) => item.id === edge.id) ? current : [...current, edge]);
   }, []);
 
@@ -201,6 +208,7 @@ export function FlowView({ snapshot, session, visionReviewEnabled, defaultImageM
     setSelectedNodeId(undefined);
     setCreateMenu(null);
     pendingCreatedPositionsRef.current.clear();
+    optimisticEdgesRef.current.clear();
     void rfInstanceRef.current?.setViewport({ x: 0, y: 0, zoom: 1 });
   }, [session?.id]);
 

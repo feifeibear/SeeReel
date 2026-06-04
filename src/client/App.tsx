@@ -1255,7 +1255,7 @@ export function App() {
   const handleFlowMutated = useStableEvent(() => refresh());
 
   const handleCreateAnchorAsset = useStableEvent(async (kind: AnchorKind) => {
-    if (!selectedSession) return undefined;
+    if (!visibleSelectedSession) return undefined;
     const seedNames: Record<string, string> = lang === "en" ? {
       character: "Untitled character",
       scene: "Untitled scene",
@@ -1323,7 +1323,7 @@ export function App() {
     if (!sessionForCreate) return undefined;
     const now = new Date().toISOString();
     const nextIndex = selectedSessionShots.length + 1;
-    const tempId = `shot_pending_${Date.now()}_${optimisticIdRef.current++}`;
+    const tempId = clientId("shot");
     const tempShot: Shot = {
       id: tempId,
       sessionId: sessionForCreate.id,
@@ -1347,7 +1347,7 @@ export function App() {
     void (async () => {
       try {
         await waitForSessionCreate(sessionForCreate.id);
-        const result = await api.appendShot(sessionForCreate.id);
+        const result = await api.appendShot(sessionForCreate.id, { id: tempId });
         upsertShotAndSessionInState(result.shot, result.session);
         setOptimisticShots((prev) => prev.filter((item) => item.id !== tempId));
         pushShotCreateUndo(result.shot);
