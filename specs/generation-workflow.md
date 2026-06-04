@@ -39,7 +39,8 @@ Define how SeeReel creates, edits, reviews, retries, and stitches generated medi
 - If a provider request has already been submitted, UI must make clear whether the current render uses the old prompt and whether retry/regeneration will use the new prompt.
 - Review controls must be interactive and must not be hard-coded differently between local and production.
 - CLI and browser identities are isolated by `seereel_user_id` cookies. A raw CLI `webUrl` must not be described as browser-visible handoff; agents should return a one-time `handoffUrl` when a human needs to claim and edit the workflow.
-- Handoff links must be unguessable, time-limited, one-time use, and transfer the session owner to the current browser identity before redirecting to the session workspace.
+- Handoff links must be same-origin API links under `/api/handoff/:token`, unguessable, time-limited, one-time use, and transfer the session owner to the current browser identity before redirecting to the session workspace.
+- Handoff must not make sessions public or weaken owner checks; users without the original owner cookie or an unclaimed handoff token must keep receiving not-found responses for isolated sessions.
 
 ## Acceptance Criteria
 
@@ -50,7 +51,8 @@ Define how SeeReel creates, edits, reviews, retries, and stitches generated medi
 - [ ] Stitching only uses ready shots and records the connected order in visible state.
 - [ ] No generated video workflow emits subtitle files or burns subtitles by default.
 - [ ] A session created under one cookie identity is hidden from a second cookie identity before handoff, visible to the second identity after claiming `handoffUrl`, and no longer visible to the original CLI identity after claim.
-- [ ] CLI `workflow --json` includes `webUrlVisibleInBrowser: false` and a `handoffUrl`; `seereelcli handoff --session latest --json` can generate a new handoff link for an existing CLI-owned session.
+- [ ] CLI `workflow --json` includes `webUrlVisibleInBrowser: false` and a same-origin `/api/handoff/:token` `handoffUrl`; `seereelcli handoff --session latest --json` can generate a new handoff link for an existing CLI-owned session.
+- [ ] Reusing a claimed handoff token returns not-found and does not transfer ownership again.
 
 ## Verification
 

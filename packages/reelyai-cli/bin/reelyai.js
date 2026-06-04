@@ -359,8 +359,16 @@ function downloadUrl(baseUrl, sessionId) {
   return `${baseUrl}/api/sessions/${encodeURIComponent(sessionId)}/download`;
 }
 
+function handoffUrl(baseUrl, token) {
+  return `${baseUrl}/api/handoff/${encodeURIComponent(token)}`;
+}
+
 async function createSessionHandoff(runtime, sessionId) {
-  return api(runtime, `/api/sessions/${encodeURIComponent(sessionId)}/handoff`, { method: "POST" });
+  const handoff = await api(runtime, `/api/sessions/${encodeURIComponent(sessionId)}/handoff`, { method: "POST" });
+  if (handoff?.handoffToken) {
+    return { ...handoff, handoffUrl: handoffUrl(runtime.baseUrl, handoff.handoffToken) };
+  }
+  return handoff;
 }
 
 function clampInt(value, fallback, { min = 1, max = Number.MAX_SAFE_INTEGER } = {}) {

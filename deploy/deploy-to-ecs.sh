@@ -43,19 +43,24 @@ required_env() {
   fi
 }
 
-required_env SEEREEL_ECS_HOST
-ECS_USER="${SEEREEL_ECS_USER:-root}"
-ECS_PORT="${SEEREEL_ECS_PORT:-22}"
-ECS_DIR="${SEEREEL_ECS_DIR:-~/seereel-agent}"
+ECS_HOST="${SEEREEL_ECS_HOST:-${REELYAI_ECS_HOST:-}}"
+if [[ -z "$ECS_HOST" ]]; then
+  echo "Missing required env: SEEREEL_ECS_HOST or REELYAI_ECS_HOST" >&2
+  exit 2
+fi
+ECS_USER="${SEEREEL_ECS_USER:-${REELYAI_ECS_USER:-root}}"
+ECS_PORT="${SEEREEL_ECS_PORT:-${REELYAI_ECS_PORT:-22}}"
+ECS_DIR="${SEEREEL_ECS_DIR:-${REELYAI_ECS_DIR:-~/seereel-agent}}"
 ssh_opts=(-p "$ECS_PORT")
-if [[ -n "${SEEREEL_ECS_KEY:-}" ]]; then
-  ssh_opts=(-i "$SEEREEL_ECS_KEY" -p "$ECS_PORT")
+ECS_KEY="${SEEREEL_ECS_KEY:-${REELYAI_ECS_KEY:-}}"
+if [[ -n "$ECS_KEY" ]]; then
+  ssh_opts=(-i "$ECS_KEY" -p "$ECS_PORT")
 fi
-default_public_url="https://${SEEREEL_ECS_HOST}"
-if [[ "$SEEREEL_ECS_HOST" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-  default_public_url="https://${SEEREEL_ECS_HOST}.sslip.io"
+default_public_url="https://${ECS_HOST}"
+if [[ "$ECS_HOST" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+  default_public_url="https://${ECS_HOST}.sslip.io"
 fi
-remote="${ECS_USER}@${SEEREEL_ECS_HOST}"
+remote="${ECS_USER}@${ECS_HOST}"
 ssh_cmd=(ssh "${ssh_opts[@]}" "$remote")
 rsync_cmd=(rsync -az --delete -e "ssh ${ssh_opts[*]}")
 
@@ -90,8 +95,16 @@ env_value() {
   local key="$1"
   local fallback="${2:-}"
   local local_value="${!key:-}"
+  local legacy_key=""
+  if [[ "$key" == SEEREEL_* ]]; then
+    legacy_key="REELYAI_${key#SEEREEL_}"
+  fi
   if [[ -n "$local_value" ]]; then
     printf "%s" "$local_value"
+    return
+  fi
+  if [[ -n "$legacy_key" && -n "${!legacy_key:-}" ]]; then
+    printf "%s" "${!legacy_key}"
     return
   fi
   local remote_value
@@ -99,6 +112,13 @@ env_value() {
   if [[ -n "$remote_value" ]]; then
     printf "%s" "$remote_value"
     return
+  fi
+  if [[ -n "$legacy_key" ]]; then
+    remote_value="$(read_remote_env_value "$legacy_key")"
+    if [[ -n "$remote_value" ]]; then
+      printf "%s" "$remote_value"
+      return
+    fi
   fi
   printf "%s" "$fallback"
 }

@@ -395,23 +395,27 @@ app.post("/api/sessions/:sessionId/handoff", async (req, res) => {
   });
   cleanExpiredHandoffTokens();
 
-  const baseUrl = requestBaseUrl(req);
+  const baseUrl = requestPublicBaseUrl(req);
   res.json({
     sessionId: session.id,
     webUrl: `${baseUrl}/#/s/${encodeURIComponent(session.id)}`,
     webUrlVisibleInBrowser: false,
-    handoffUrl: `${baseUrl}/handoff/${encodeURIComponent(token)}`,
+    handoffUrl: `${baseUrl}/api/handoff/${encodeURIComponent(token)}`,
     handoffToken: token,
     handoffExpiresAt: new Date(expiresAtMs).toISOString(),
     handoffCreatedAt: createdAt
   });
 });
 
-app.get("/handoff/:token", async (req, res) => {
-  const claimed = await claimHandoffToken(req.params.token, userIdForRequest());
+async function claimHandoffAndRedirect(req: Request, res: Response) {
+  const token = Array.isArray(req.params.token) ? req.params.token[0] : req.params.token;
+  const claimed = await claimHandoffToken(token, userIdForRequest());
   if (!claimed) return res.status(404).send("Handoff link is invalid or expired.");
   res.redirect(302, `/#/s/${encodeURIComponent(claimed.id)}`);
-});
+}
+
+app.get("/api/handoff/:token", claimHandoffAndRedirect);
+app.get("/handoff/:token", claimHandoffAndRedirect);
 
 app.get("/api/credentials/agent-plan", (_req, res) => {
   res.json(requestAgentPlanStatus());
@@ -622,6 +626,11 @@ function requestBaseUrl(req: Request) {
   const protocol = forwardedProto || req.protocol;
   const host = req.header("x-forwarded-host")?.split(",")[0]?.trim() || req.get("host") || `localhost:${port}`;
   return `${protocol}://${host}`;
+}
+
+function requestPublicBaseUrl(req: Request) {
+  const configured = (process.env.APP_PUBLIC_URL || process.env.SEEREEL_PUBLIC_URL || process.env.REELYAI_PUBLIC_URL || "").trim();
+  return (configured || requestBaseUrl(req)).replace(/\/+$/, "");
 }
 
 function cleanExpiredHandoffTokens(now = Date.now()) {

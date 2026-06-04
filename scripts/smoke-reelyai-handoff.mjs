@@ -86,15 +86,24 @@ try {
   const handoff = await request(agent, `/api/sessions/${encodeURIComponent(sessionId)}/handoff`, { method: "POST" });
   assert(handoff.body.handoffUrl, "handoffUrl missing");
   assert(handoff.body.webUrlVisibleInBrowser === false, "handoff response should flag raw webUrl as not browser-visible");
-  const token = handoff.body.handoffToken || new URL(handoff.body.handoffUrl).pathname.split("/").pop();
+  const handoffUrl = new URL(handoff.body.handoffUrl);
+  assert(handoffUrl.origin === baseUrl, "handoffUrl should use the configured app origin");
+  assert(handoffUrl.pathname.startsWith("/api/handoff/"), "handoffUrl should use the API claim route");
+  const token = handoff.body.handoffToken || handoffUrl.pathname.split("/").pop();
   assert(token, "handoff token missing");
 
-  const claim = await request(browser, `/handoff/${encodeURIComponent(token)}`, {
+  const claim = await request(browser, `/api/handoff/${encodeURIComponent(token)}`, {
     redirect: "manual",
     expectOk: false
   });
   assert(claim.res.status === 302, `expected handoff redirect, got ${claim.res.status}`);
   assert(claim.res.headers.get("location") === `/#/s/${encodeURIComponent(sessionId)}`, "handoff redirect target mismatch");
+
+  const secondClaim = await request(agent, `/api/handoff/${encodeURIComponent(token)}`, {
+    redirect: "manual",
+    expectOk: false
+  });
+  assert(secondClaim.res.status === 404, "handoff token should be one-time use");
 
   const after = await request(browser, "/api/state");
   assert(after.body.sessions.some((session) => session.id === sessionId), "browser should see session after handoff");

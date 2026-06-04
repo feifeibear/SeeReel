@@ -35,6 +35,7 @@ Define the release path that keeps local, GitHub, Docker, ECS, and production be
 - Docker builds must only copy files that exist in the committed repository or are produced by the build.
 - Release artifacts, Docker images, logs, and deployment commands must not expose AK/SK, tokens, passwords, API keys, or private keys.
 - Release verification must include local checks, GitHub Actions, deployment, and online smoke verification when the user asks to publish.
+- The ECS deploy script must accept both current `SEEREEL_*` and legacy `REELYAI_*` environment names for deployment secrets while writing canonical `SEEREEL_*` runtime keys.
 
 ## Acceptance Criteria
 
@@ -44,6 +45,7 @@ Define the release path that keeps local, GitHub, Docker, ECS, and production be
 - [ ] Production deployment can identify the Git commit it is serving.
 - [ ] Release checks include secret scanning and no credential values appear in CI logs.
 - [ ] Online behavior is spot-checked after deploy for the changed feature.
+- [ ] GitHub deploy workflow inputs and secrets can drive `deploy/deploy-to-ecs.sh` without renaming legacy `REELYAI_*` secrets.
 
 ## Verification
 
