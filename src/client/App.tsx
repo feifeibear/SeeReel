@@ -5,6 +5,7 @@ import type { AdminAgentPlanStatus, AdminSecurityStatus, AdminUserAgentPlanCrede
 import { PendingGenerationsProvider } from "./flow/PendingGenerations";
 import { useUndoKeyboardShortcut, useUndoStack } from "./flow/useUndoStack";
 import { useI18n } from "./i18n";
+import { resolveSessionDockState } from "./sessionDockState";
 import { resolveRefreshSelectedSessionId } from "./sessionSelection";
 
 const FlowView = lazy(() =>
@@ -557,6 +558,7 @@ export function App() {
   }, []);
 
   const sessions = state.sessions;
+  const sessionDockState = resolveSessionDockState({ stateLoaded, sessionCount: sessions.length, busy });
   const agentPlanCredential = state.runtime?.agentPlanCredential;
   const freeTrial = state.runtime?.freeTrial;
   const latestSession = sessions[0];
@@ -1595,7 +1597,7 @@ export function App() {
             <span>{t.app.brandSubtitle}</span>
           </div>
         </div>
-        <button className="primary" onClick={createSession} disabled={busy === "create-session"}>
+        <button className="primary" onClick={createSession} disabled={!sessionDockState.canCreateSession}>
           {busy === "create-session" ? <Loader2 size={16} className="spin" /> : <Plus size={16} />}
           {t.app.newSession}
         </button>
@@ -1658,7 +1660,13 @@ export function App() {
                 </button>
               </div>
             ))}
-            {sessions.length === 0 && <div className="empty-session">{t.app.emptySession}</div>}
+            {sessionDockState.emptyState === "loading" && (
+              <div className="empty-session" role="status">
+                <Loader2 size={14} className="spin" />
+                <span>{t.app.loadingSessions}</span>
+              </div>
+            )}
+            {sessionDockState.emptyState === "empty" && <div className="empty-session">{t.app.emptySession}</div>}
           </div>
         </div>
       </aside>

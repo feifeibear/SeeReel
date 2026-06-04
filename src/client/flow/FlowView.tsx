@@ -23,6 +23,7 @@ import { AssetNode, ReferenceVideoNode, VideoProcessorNode, StoryboardNode, Shot
 import { Inspector } from "./Inspector";
 import { DownloadToast } from "./DownloadToast";
 import { CreateNodeMenu, type CreateMenuOption } from "./CreateNodeMenu";
+import { resolveCanvasCreatePosition } from "./canvasPosition";
 import type { UndoableAction } from "./useUndoStack";
 import { useI18n, type UiLanguage } from "../i18n";
 
@@ -105,9 +106,12 @@ export function FlowView({ snapshot, session, visionReviewEnabled, defaultImageM
   const rfInstanceRef = useRef<ReactFlowInstance<Node<FlowNodeData>, Edge> | null>(null);
 
   const flowPositionFromClient = useCallback((x: number, y: number): XYPosition | undefined => {
-    const rect = canvasRef.current?.getBoundingClientRect();
-    const local = rect ? { x: x - rect.left, y: y - rect.top } : undefined;
-    return local || rfInstanceRef.current?.screenToFlowPosition({ x, y });
+    return resolveCanvasCreatePosition({
+      clientX: x,
+      clientY: y,
+      canvasRect: canvasRef.current?.getBoundingClientRect(),
+      screenToFlowPosition: rfInstanceRef.current?.screenToFlowPosition
+    });
   }, []);
 
   const centerNodeAt = useCallback((nodeId: string, position: XYPosition | undefined) => {
