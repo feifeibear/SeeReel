@@ -67,7 +67,7 @@ try {
     assert.equal(vlmCredential.apiKey, undefined);
     assert.equal(vlmCredential.apiBase, "https://standard.example/api/v3");
 
-    process.env.VISION_REVIEW_API_KEY = "standard-vlm-key";
+    process.env.VISION_REVIEW_API_KEY = "test-standard-vlm-key";
     const standardCredential = resolveArkCredential({
       keyEnvNames: ["VISION_REVIEW_API_KEY"],
       baseEnvNames: ["VISION_REVIEW_API_BASE"],
@@ -76,7 +76,7 @@ try {
       allowEnvAgentPlan: false
     });
     assert.equal(standardCredential.source, "standard");
-    assert.equal(standardCredential.apiKey, "standard-vlm-key");
+    assert.equal(standardCredential.apiKey, "test-standard-vlm-key");
 
     clearRequestAgentPlanKey();
   });

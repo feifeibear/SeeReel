@@ -29,7 +29,7 @@ reelyai configure --base-url https://reelyai.app --agent-plan-token "<human-past
 
 or set `REELYAI_AGENT_PLAN_TOKEN` / `ARK_AGENT_PLAN_KEY` in the AI runtime environment.
 
-Browser credentials and CLI credentials are cookie-scoped separately. Treat that isolation as intentional.
+Browser credentials and CLI credentials are cookie-scoped separately. Treat that isolation as intentional. A raw `webUrl` belongs to the CLI cookie scope; return `handoffUrl` when a human needs to open and continue editing the AI-created workflow in a normal browser.
 
 ## Install
 
@@ -89,29 +89,52 @@ reelyai workflow "一个失眠导演在午夜便利店遇见未来的自己" \
   --json
 ```
 
-Return the `webUrl` to the user. It should look like:
+Return the one-time `handoffUrl` to the user, not the raw `webUrl`. It should look like:
 
 ```text
-https://reelyai.app/#/s/ses_xxxxxxxx
+https://reelyai.app/handoff/xxxxxxxx
 ```
 
-Tell the human they can edit script, shot prompts, assets, duration, references, and generation choices in the web UI.
+Tell the human the handoff link transfers the session from the CLI cookie identity to their current browser identity, then they can edit script, shot prompts, assets, duration, references, and generation choices in the web UI. After a handoff is claimed, keep using the browser/web UI as source of truth unless the human asks you to continue from a CLI-owned session.
 
 ## Full Video Flow
 
 Only continue after the human confirms Agent Plan is configured and the workflow is acceptable.
 
 ```bash
-reelyai render --session latest --stitch --json
+reelyai status --session latest --deep --json
+reelyai render --session latest --stitch --progress --json
 ```
 
 If the human explicitly asks for full automation:
 
 ```bash
-reelyai workflow "用户的视频创意" --duration 60 --render --stitch --json
+reelyai workflow "用户的视频创意" --duration 60 --render --stitch --jsonl
 ```
 
 Report the final `downloadUrl`. If a shot fails, report the shot id and failure; do not silently skip it.
+Use `--stitch-partial` only when the human accepts a shorter cut made from ready shots:
+
+```bash
+reelyai render --session latest --stitch --stitch-partial --progress --json
+```
+
+For policy failures or stuck renders, use the recovery loop before asking the human to intervene:
+
+```bash
+reelyai status --session latest --deep --json
+reelyai node poll --id shot_xxxxxxxx --json
+reelyai node update-prompt --id shot_xxxxxxxx --prompt "safer Seedance prompt" --duration 8 --json
+reelyai render --session latest --repair-policy safe-retry --max-attempts 2 --stitch-partial --progress --json
+```
+
+`--jsonl` emits agent-readable progress events such as `session_created`, `shot_submitted`, `task_id`, `poll_status`, `retrying`, and `stitch_ready`.
+
+Download the final video through the CLI instead of writing a private fetch script:
+
+```bash
+reelyai download --session latest --output ./final.mp4
+```
 
 ## Node Operations
 
@@ -175,7 +198,9 @@ reelyai publish-storyboards --session latest --json
 
 - Prefer CLI/API over browser automation.
 - Always use `--json` when you need to parse results.
+- Use `--jsonl` or `--progress` for long render/stitch runs so the agent can observe progress without polling `/api/state` in another shell.
 - Refresh status before continuing after a human web edit.
+- Browser credentials and CLI credentials are cookie-scoped separately. Raw `webUrl` may not be visible in a bare browser; use `reelyai handoff --session latest --json` and return the one-time `handoffUrl` for human takeover.
 - Do not call paid generation before Agent Plan is configured and the human has approved continuing.
 - Keep local scratch media out of the final story; ReelyAI web state is the source of truth.
 - For Seedance references, only remote `http(s)` URLs are valid. Publish local references to TOS first.

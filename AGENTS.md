@@ -72,7 +72,7 @@ npm install -g ./packages/reelyai-cli
 npm run cli -- workflow "a short video idea in natural language" --duration 60
 ```
 
-Default CLI behavior is intentionally review-first: create/select the browser-scoped user session, save the prompt as the session logline, generate the script, generate the storyboard/workflow, then return `https://reelyai.app/#/s/<sessionId>` for human takeover. Use `reelyai render --session latest --stitch` only when the user explicitly wants paid video generation to continue.
+Default CLI behavior is intentionally review-first: create/select the CLI cookie-scoped user session, save the prompt as the session logline, generate the script, generate the storyboard/workflow, then return a one-time `handoffUrl` for human takeover in the browser. Raw `webUrl` links belong to the CLI cookie identity and may not be visible in a normal browser. Use `reelyai render --session latest --stitch` only when the user explicitly wants paid video generation to continue.
 
 ## Operating Model
 
@@ -81,6 +81,22 @@ Default CLI behavior is intentionally review-first: create/select the browser-sc
 - The user can take over in the web UI at any point. Treat manual UI edits as source of truth.
 - Keep generated intermediate results visible in the app; avoid private scratch artifacts unless they are imported afterward.
 - Prefer ReelyAI APIs and persisted canvas state over manual filesystem work. If an existing endpoint can create, import, publish, generate, poll, stitch, cache, or wire an artifact, use it. Manual downloads, `ffmpeg`, or file patches are recovery steps only; immediately write the result back through ReelyAI APIs/state so graph edges, Inspector data, `stitchShotIds`, `referenceVideoFromShotId`, `firstFrameAssetId`, `assetIds`, renders, and `finalVideoUrl` stay auditable in the UI.
+
+## Spec Coding
+
+Use the project-native specs in `specs/` for non-trivial product work. Do not depend on GitHub Spec Kit or another external spec framework unless the user explicitly asks for it.
+
+- Update the nearest long-lived spec before changing user-visible behavior, generation state, release behavior, observability, persistence, API contracts, or agent workflows.
+- Skip specs for narrow fixes that do not change product rules, such as typo fixes, obvious broken imports, stale copy commands, and dependency lockfile cleanup.
+- Prefer updating an existing spec over creating one-off documents.
+- Implementation must map back to the spec's acceptance criteria.
+- Verification must include `npm run smoke:specs` and, before release, `npm run verify:offline`.
+- If code and spec disagree, resolve the disagreement in the same change.
+- In the final response or PR, name the spec that governed the change and call out any acceptance criteria that could not be verified.
+
+### Secret Safety
+
+Never upload AK/SK, tokens, passwords, API keys, private keys, admin credentials, or provider secrets to GitHub, online APIs, frontend bundles, logs, dashboards, screenshots, or any public surface. Use protected runtime configuration and masked status displays. Run `npm run smoke:secrets` when touching credentials, diagnostics, metrics, deployment, or admin settings.
 
 ## Critical Media Rule
 

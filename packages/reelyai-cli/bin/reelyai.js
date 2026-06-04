@@ -30,6 +30,8 @@ Usage:
   reelyai final-review --session <sessionId|latest> [--repair]
   reelyai render --session <sessionId> [options]
   reelyai stitch --session <sessionId> [options]
+  reelyai download --session <sessionId|latest> --output ./final.mp4
+  reelyai handoff --session <sessionId|latest> [--open]
   reelyai skill <install|print|path> [options]
   reelyai status [options]
   reelyai configure [options]
@@ -43,6 +45,8 @@ Global options:
   --access-token <token>        Shared deployment token, also read from REELYAI_ACCESS_TOKEN
   --agent-plan-token <token>    Browser-scoped Agent Plan key for model generation
   --json                        Print machine-readable JSON
+  --jsonl                       Print newline-delimited progress events; final result is a complete event
+  --progress                    Print human-readable progress events to stderr
 
 workflow options:
   --title <title>               Session title
@@ -54,6 +58,7 @@ workflow options:
   --no-storyboard               Skip /storyboard
   --render                      Continue into shot generation after storyboard
   --stitch                      Stitch after render, or after storyboard if shots are ready
+  --stitch-partial              Stitch ready shots even when some shots failed or were skipped
   --open                        Open the created session in the browser
 
 render options:
@@ -61,6 +66,22 @@ render options:
   --mode <missing|all>          Workflow plan mode. Default: missing
   --max-parallel-shots <n>      Max parallel independent shots. Default: 1
   --stitch                      Stitch after shots are ready
+  --stitch-partial              Stitch ready shots even when some shots failed or were skipped
+  --repair-policy <none|safe-retry>
+                                Retry policy failures with a safer prompt. Default: none
+  --max-attempts <n>            Max attempts per shot when --repair-policy safe-retry is set. Default: 1
+
+status options:
+  --session <sessionId|latest>  Show one session. Use with --deep for shot/render details
+  --deep                        Include shots, renders, errors, stitch state, and download URL
+
+download options:
+  --session <sessionId|latest>  Session to download. Default: latest
+  --output <path>               Local output file. Default: ./reelyai-<sessionId>.mp4
+
+handoff options:
+  --session <sessionId|latest>  Session to transfer to the current browser user. Default: latest
+  --open                        Open the one-time handoff link in the browser
 
 node options:
   --id <nodeId>                 Shot, asset, or session id. Also accepts --shot / --asset
@@ -85,7 +106,10 @@ Examples:
   reelyai node update-prompt --id shot_xxx --prompt "new Seedance prompt"
   reelyai node tailframe --id shot_xxx --publish-tos --canvas-node
   reelyai node review --id shot_xxx --frame-count 8
-  reelyai render --session latest --stitch
+  reelyai render --session latest --stitch --progress
+  reelyai status --session latest --deep --json
+  reelyai download --session latest --output ./final.mp4
+  reelyai handoff --session latest --open
 `;
 
 class CliError extends Error {
@@ -94,6 +118,34 @@ class CliError extends Error {
     this.name = "CliError";
     this.code = code;
   }
+}
+
+function createReporter(options) {
+  const jsonl = Boolean(options.jsonl);
+  const progress = Boolean(options.progress);
+  return {
+    event(event, payload = {}) {
+      if (!jsonl && !progress) return;
+      const line = { event, at: new Date().toISOString(), ...payload };
+      if (jsonl) console.log(JSON.stringify(line));
+      if (progress) console.error(formatProgressLine(line));
+    },
+    complete(result) {
+      if (jsonl) this.event("complete", { result });
+    }
+  };
+}
+
+function formatProgressLine(event) {
+  const parts = [event.event];
+  if (event.sessionId) parts.push(`session=${event.sessionId}`);
+  if (event.shotId) parts.push(`shot=${event.shotId}`);
+  if (event.index !== undefined) parts.push(`index=${event.index}`);
+  if (event.status) parts.push(`status=${event.status}`);
+  if (event.taskId) parts.push(`task=${event.taskId}`);
+  if (event.attempt !== undefined) parts.push(`attempt=${event.attempt}`);
+  if (event.reason) parts.push(`reason=${event.reason}`);
+  return `[reelyai] ${parts.join(" ")}`;
 }
 
 function parseArgs(argv) {
@@ -254,14 +306,45 @@ async function api(runtime, route, init = {}) {
   return body;
 }
 
-async function ensureAgentPlan(runtime) {
-  if (!runtime.agentPlanToken) return undefined;
+async function downloadToFile(runtime, route, outputPath) {
+  const headers = {
+    ...(runtime.accessToken ? { "x-reelyai-access": runtime.accessToken } : {}),
+    ...(cookieHeader(runtime) ? { Cookie: cookieHeader(runtime) } : {})
+  };
+  const res = await fetch(`${runtime.baseUrl}${route}`, { headers });
+  const changedCookies = rememberCookies(runtime, res.headers);
+  if (changedCookies) {
+    const config = await readConfig();
+    config.cookies = runtime.cookies;
+    await writeConfig(config);
+  }
+  if (!res.ok) {
+    const text = await res.text();
+    throw new CliError(`${route} download failed: ${text || `${res.status} ${res.statusText}`}`);
+  }
+  const bytes = Buffer.from(await res.arrayBuffer());
+  await mkdir(path.dirname(outputPath), { recursive: true });
+  await writeFile(outputPath, bytes);
+  return { bytes: bytes.length };
+}
+
+async function ensureAgentPlan(runtime, options = {}) {
   const status = await api(runtime, "/api/credentials/agent-plan");
   if (status?.configured) return status;
-  return api(runtime, "/api/credentials/agent-plan", {
-    method: "POST",
-    body: JSON.stringify({ apiKey: runtime.agentPlanToken })
-  });
+  if (runtime.agentPlanToken) {
+    const configured = await api(runtime, "/api/credentials/agent-plan", {
+      method: "POST",
+      body: JSON.stringify({ apiKey: runtime.agentPlanToken })
+    });
+    options.reporter?.event("agent_plan_configured", { fingerprint: configured?.fingerprint });
+    return configured;
+  }
+  if (options.required) {
+    throw new CliError(
+      "Agent Plan token is not configured for this CLI/browser scope. Run `reelyai configure --agent-plan-token \"<AGENT_PLAN_API_KEY>\"`, or set REELYAI_AGENT_PLAN_TOKEN / ARK_AGENT_PLAN_KEY before render/review commands."
+    );
+  }
+  return status;
 }
 
 function sessionUrl(baseUrl, sessionId) {
@@ -270,6 +353,10 @@ function sessionUrl(baseUrl, sessionId) {
 
 function downloadUrl(baseUrl, sessionId) {
   return `${baseUrl}/api/sessions/${encodeURIComponent(sessionId)}/download`;
+}
+
+async function createSessionHandoff(runtime, sessionId) {
+  return api(runtime, `/api/sessions/${encodeURIComponent(sessionId)}/handoff`, { method: "POST" });
 }
 
 function clampInt(value, fallback, { min = 1, max = Number.MAX_SAFE_INTEGER } = {}) {
@@ -344,9 +431,75 @@ function summarizeShot(shot) {
   };
 }
 
+function summarizeRender(render) {
+  if (!render) return undefined;
+  return {
+    id: render.id,
+    status: render.status,
+    seedancePhase: render.seedancePhase,
+    generationTaskId: render.generationTaskId,
+    taskAgeSec: ageSec(render.generationStartedAt),
+    durationSec: render.durationSec,
+    videoUrl: render.videoUrl,
+    remoteVideoUrl: render.remoteVideoUrl,
+    error: render.error,
+    model: render.model,
+    createdAt: render.createdAt,
+    generationStartedAt: render.generationStartedAt,
+    videoGeneratedAt: render.videoGeneratedAt
+  };
+}
+
+function summarizeDeepShot(shot) {
+  const selectedRender = Array.isArray(shot.renders) ? shot.renders[0] : undefined;
+  return {
+    ...summarizeShot(shot),
+    seedancePhase: shot.seedancePhase,
+    generationTaskId: shot.generationTaskId || selectedRender?.generationTaskId,
+    taskAgeSec: ageSec(shot.generationStartedAt || selectedRender?.generationStartedAt),
+    error: shot.error || selectedRender?.error,
+    selectedRenderId: selectedRender?.id,
+    renderCount: Array.isArray(shot.renders) ? shot.renders.length : 0,
+    renders: (shot.renders || []).map(summarizeRender)
+  };
+}
+
+function summarizeDeepSession(runtime, session, state) {
+  const shots = (state.shots || [])
+    .filter((shot) => shot.sessionId === session.id)
+    .sort((a, b) => (a.index || 0) - (b.index || 0));
+  const readyShots = shots.filter((shot) => Boolean(shot.videoUrl));
+  const failedShots = shots.filter((shot) => shot.status === "error" || shot.status === "cancelled" || !shot.videoUrl);
+  return {
+    id: session.id,
+    title: session.title,
+    webUrl: sessionUrl(runtime.baseUrl, session.id),
+    finalVideoUrl: session.finalVideoUrl,
+    downloadUrl: session.finalVideoUrl ? downloadUrl(runtime.baseUrl, session.id) : undefined,
+    stitchStatus: session.stitchStatus,
+    stitchProgress: session.stitchProgress,
+    stitchError: session.stitchError,
+    stitchShotIds: session.stitchShotIds,
+    finalVideoReviewStatus: session.finalVideoReviewStatus,
+    finalVideoReview: session.finalVideoReview,
+    readyShotCount: readyShots.length,
+    failedShotCount: failedShots.length,
+    skippedShots: summarizeShots(failedShots),
+    stitchJobs: session.stitchJobs || [],
+    shots: shots.map(summarizeDeepShot)
+  };
+}
+
+function ageSec(value) {
+  if (!value) return undefined;
+  const time = Date.parse(value);
+  if (!Number.isFinite(time)) return undefined;
+  return Math.max(0, Math.round((Date.now() - time) / 1000));
+}
+
 async function commandWorkflow(runtime, positionals, options) {
   await api(runtime, "/api/healthz");
-  const agentPlan = await ensureAgentPlan(runtime);
+  const agentPlan = await ensureAgentPlan(runtime, { required: Boolean(options.render), reporter: options.reporter });
   const prompt = await readPrompt(positionals);
   const duration = clampInt(options.duration, 60, { min: 1, max: 3600 });
   const shotCount = clampInt(options.shots, Math.ceil(duration / 15), { min: 1, max: 120 });
@@ -365,15 +518,20 @@ async function commandWorkflow(runtime, positionals, options) {
       shotCount
     })
   });
+  options.reporter?.event("session_created", { sessionId: session.id, title });
 
   let currentSession = session;
   let storyboard;
   if (options.script !== false) {
+    options.reporter?.event("script_generating", { sessionId: session.id });
     currentSession = await api(runtime, `/api/sessions/${session.id}/script/generate`, { method: "POST" });
+    options.reporter?.event("script_ready", { sessionId: session.id });
   }
   if (options.storyboard !== false) {
+    options.reporter?.event("storyboard_generating", { sessionId: session.id });
     storyboard = await api(runtime, `/api/sessions/${session.id}/storyboard`, { method: "POST" });
     currentSession = storyboard.session || currentSession;
+    options.reporter?.event("storyboard_ready", { sessionId: session.id, shotCount: (storyboard?.shots || currentSession.shots || []).length });
   }
 
   let renderResult;
@@ -382,38 +540,50 @@ async function commandWorkflow(runtime, positionals, options) {
       mode: "missing",
       maxParallelShots: clampInt(options.maxParallelShots, 1, { min: 1, max: 8 }),
       stitch: Boolean(options.stitch),
+      stitchPartial: Boolean(options.stitchPartial),
+      repairPolicy: normalizeRepairPolicy(options.repairPolicy),
+      maxAttempts: clampInt(options.maxAttempts, 1, { min: 1, max: 5 }),
       timeoutMs: clampInt(options.timeoutMs, DEFAULT_TIMEOUT_MS, { min: 10_000 }),
-      pollIntervalMs: clampInt(options.pollIntervalMs, DEFAULT_POLL_INTERVAL_MS, { min: 1000 })
+      pollIntervalMs: clampInt(options.pollIntervalMs, DEFAULT_POLL_INTERVAL_MS, { min: 1000 }),
+      reporter: options.reporter
     });
   } else if (options.stitch) {
     renderResult = { stitched: await stitchSession(runtime, session.id, options) };
   }
 
+  const handoff = await createSessionHandoff(runtime, session.id);
   const result = {
     baseUrl: runtime.baseUrl,
     sessionId: session.id,
     title: currentSession.title || title,
     webUrl: sessionUrl(runtime.baseUrl, session.id),
+    webUrlVisibleInBrowser: false,
+    handoffUrl: handoff.handoffUrl,
+    handoffExpiresAt: handoff.handoffExpiresAt,
     agentPlan,
     story: currentSession.story,
     shots: summarizeShots(storyboard?.shots || currentSession.shots || session.shots || []),
     render: renderResult
   };
 
-  if (options.open) openUrl(result.webUrl);
+  if (options.open) openUrl(result.handoffUrl || result.webUrl);
   return result;
 }
 
 async function commandRender(runtime, options) {
   await api(runtime, "/api/healthz");
-  await ensureAgentPlan(runtime);
+  await ensureAgentPlan(runtime, { required: true, reporter: options.reporter });
   const sessionId = await resolveSessionId(runtime, options.session || "latest");
   return renderSession(runtime, sessionId, {
     mode: options.mode === "all" ? "all" : "missing",
     maxParallelShots: clampInt(options.maxParallelShots, 1, { min: 1, max: 8 }),
     stitch: Boolean(options.stitch),
+    stitchPartial: Boolean(options.stitchPartial),
+    repairPolicy: normalizeRepairPolicy(options.repairPolicy),
+    maxAttempts: clampInt(options.maxAttempts, 1, { min: 1, max: 5 }),
     timeoutMs: clampInt(options.timeoutMs, DEFAULT_TIMEOUT_MS, { min: 10_000 }),
-    pollIntervalMs: clampInt(options.pollIntervalMs, DEFAULT_POLL_INTERVAL_MS, { min: 1000 })
+    pollIntervalMs: clampInt(options.pollIntervalMs, DEFAULT_POLL_INTERVAL_MS, { min: 1000 }),
+    reporter: options.reporter
   });
 }
 
@@ -448,13 +618,16 @@ async function commandNode(runtime, positionals, options, forcedKind) {
   }
 
   if (action === "generate") {
-    await ensureAgentPlan(runtime);
+    await ensureAgentPlan(runtime, { required: true, reporter: options.reporter });
     if (node.kind === "shot") {
+      options.reporter?.event("shot_submitted", { shotId: node.id, index: node.value.index, attempt: 1 });
       const generated = await api(runtime, `/api/shots/${node.id}/generate`, { method: "POST" });
+      reportShotTask(options.reporter, "task_id", generated);
       if (!options.wait) return nodeResult(runtime, { kind: "shot", id: generated.id, value: generated }, { action: "generate" });
       const rendered = await waitForShot(runtime, node.id, {
         timeoutMs: clampInt(options.timeoutMs, DEFAULT_TIMEOUT_MS, { min: 10_000 }),
-        pollIntervalMs: clampInt(options.pollIntervalMs, DEFAULT_POLL_INTERVAL_MS, { min: 1000 })
+        pollIntervalMs: clampInt(options.pollIntervalMs, DEFAULT_POLL_INTERVAL_MS, { min: 1000 }),
+        reporter: options.reporter
       });
       return { action: "generate", kind: "shot", webUrl: sessionUrl(runtime.baseUrl, rendered.sessionId || node.value.sessionId), shot: summarizeShot(rendered) };
     }
@@ -497,7 +670,7 @@ async function commandNode(runtime, positionals, options, forcedKind) {
   }
 
   if (action === "review" || action === "vlm") {
-    await ensureAgentPlan(runtime);
+    await ensureAgentPlan(runtime, { required: true, reporter: options.reporter });
     if (node.kind === "shot") {
       const reviewed = await api(runtime, `/api/shots/${node.id}/review`, {
         method: "POST",
@@ -516,7 +689,7 @@ async function commandNode(runtime, positionals, options, forcedKind) {
   }
 
   if (action === "repair" || action === "repair-prompts") {
-    await ensureAgentPlan(runtime);
+    await ensureAgentPlan(runtime, { required: true, reporter: options.reporter });
     if (node.kind === "shot") {
       const repaired = await api(runtime, `/api/shots/${node.id}/review/repair-prompts`, { method: "POST" });
       return nodeResult(runtime, { kind: "shot", id: repaired.id, value: repaired }, { action: "repair" });
@@ -545,7 +718,7 @@ async function commandPublishStoryboards(runtime, options) {
 
 async function commandFinalReview(runtime, options) {
   await api(runtime, "/api/healthz");
-  await ensureAgentPlan(runtime);
+  await ensureAgentPlan(runtime, { required: true, reporter: options.reporter });
   const sessionId = await resolveSessionId(runtime, options.session || "latest");
   const route = options.repair ? `/api/sessions/${sessionId}/final-review/repair-prompts` : `/api/sessions/${sessionId}/final-review`;
   const result = await api(runtime, route, {
@@ -570,19 +743,34 @@ async function commandFinalReview(runtime, options) {
 }
 
 async function renderSession(runtime, sessionId, options) {
+  options.reporter?.event("render_plan_requested", { sessionId, mode: options.mode });
   const plan = await api(runtime, `/api/sessions/${sessionId}/workflow/plan`, {
     method: "POST",
     body: JSON.stringify({ mode: options.mode, maxParallelShots: options.maxParallelShots })
   });
+  options.reporter?.event("render_plan_ready", { sessionId, summary: plan.summary, layerCount: (plan.layers || []).length });
   const layerResults = [];
-  for (const layer of plan.layers || []) {
+  for (let layerIndex = 0; layerIndex < (plan.layers || []).length; layerIndex += 1) {
+    const layer = plan.layers[layerIndex];
+    options.reporter?.event("render_layer_started", { sessionId, layerIndex, shotCount: layer.length });
     const rendered = await Promise.all(layer.map((item) => renderShot(runtime, item, options)));
     layerResults.push(rendered);
+    options.reporter?.event("render_layer_finished", { sessionId, layerIndex });
   }
   const state = await api(runtime, "/api/state");
   const shots = state.shots?.filter((shot) => shot.sessionId === sessionId) || [];
   const failed = shots.filter((shot) => shot.status === "error" || shot.status === "cancelled" || !shot.videoUrl);
-  const stitched = options.stitch && failed.length === 0 ? await stitchSession(runtime, sessionId, options) : undefined;
+  const ready = shots.filter((shot) => shot.videoUrl);
+  let stitched;
+  if (options.stitch && (failed.length === 0 || options.stitchPartial) && ready.length > 0) {
+    stitched = await stitchSession(runtime, sessionId, options);
+  } else if (options.stitch && failed.length > 0) {
+    options.reporter?.event("stitch_skipped", {
+      sessionId,
+      reason: "failed_or_missing_shots",
+      skippedShotIds: failed.map((shot) => shot.id)
+    });
+  }
   return {
     baseUrl: runtime.baseUrl,
     sessionId,
@@ -591,6 +779,7 @@ async function renderSession(runtime, sessionId, options) {
     layers: layerResults,
     shots: summarizeShots(shots),
     failed: summarizeShots(failed),
+    skippedShots: summarizeShots(failed),
     stitched
   };
 }
@@ -598,14 +787,55 @@ async function renderSession(runtime, sessionId, options) {
 async function renderShot(runtime, item, options) {
   const shotId = item.shotId || item.id;
   if (!shotId) throw new CliError(`Workflow item is missing shot id: ${JSON.stringify(item)}`);
-  if (item.index > 1 && item.action !== "skip") {
+  const maxAttempts = options.repairPolicy === "safe-retry" ? Math.max(1, options.maxAttempts || 1) : 1;
+  let lastResult;
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    if (item.index > 1 && item.action !== "skip") {
+      await api(runtime, `/api/shots/${shotId}`, {
+        method: "PATCH",
+        body: JSON.stringify({ usePreviousShotClip: true, previousShotClipSec: 2 })
+      });
+    }
+    options.reporter?.event("shot_submitted", { shotId, index: item.index, attempt });
+    const submitted = await api(runtime, `/api/shots/${shotId}/generate`, { method: "POST" });
+    reportShotTask(options.reporter, "task_id", submitted, { attempt });
+    let rendered;
+    try {
+      rendered = await waitForShot(runtime, shotId, options);
+    } catch (error) {
+      if (attempt >= maxAttempts || options.repairPolicy !== "safe-retry") throw error;
+      const state = await api(runtime, "/api/state");
+      const current = (state.shots || []).find((shot) => shot.id === shotId) || submitted;
+      const patch = buildSafeRetryPatch(current);
+      options.reporter?.event("retrying", {
+        shotId,
+        index: current.index || item.index,
+        attempt: attempt + 1,
+        reason: error instanceof Error ? error.message : String(error),
+        durationSec: patch.durationSec
+      });
+      await api(runtime, `/api/shots/${shotId}/cancel`, { method: "POST" }).catch(() => undefined);
+      await api(runtime, `/api/shots/${shotId}`, { method: "PATCH", body: JSON.stringify(patch) });
+      continue;
+    }
+    lastResult = rendered;
+    if (rendered.status !== "error" && rendered.status !== "cancelled") return rendered;
+    if (attempt >= maxAttempts || !isSafeRetryableShotError(rendered.error)) return rendered;
+    const patch = buildSafeRetryPatch(rendered);
+    options.reporter?.event("retrying", {
+      shotId,
+      index: rendered.index,
+      attempt: attempt + 1,
+      reason: rendered.error,
+      durationSec: patch.durationSec
+    });
+    await api(runtime, `/api/shots/${shotId}/cancel`, { method: "POST" }).catch(() => undefined);
     await api(runtime, `/api/shots/${shotId}`, {
       method: "PATCH",
-      body: JSON.stringify({ usePreviousShotClip: true, previousShotClipSec: 2 })
+      body: JSON.stringify(patch)
     });
   }
-  await api(runtime, `/api/shots/${shotId}/generate`, { method: "POST" });
-  return waitForShot(runtime, shotId, options);
+  return lastResult;
 }
 
 async function waitForShot(runtime, shotId, options) {
@@ -613,19 +843,85 @@ async function waitForShot(runtime, shotId, options) {
   let snapshot;
   while (Date.now() - started < options.timeoutMs) {
     snapshot = await api(runtime, `/api/shots/${shotId}/poll`, { method: "POST" });
+    options.reporter?.event("poll_status", {
+      shotId,
+      index: snapshot.index,
+      status: snapshot.status,
+      phase: snapshot.seedancePhase,
+      taskId: snapshot.generationTaskId || latestRender(snapshot)?.generationTaskId,
+      elapsedSec: Math.round((Date.now() - started) / 1000)
+    });
     if (["ready", "error", "cancelled"].includes(snapshot.status)) {
       return {
         id: snapshot.id,
+        sessionId: snapshot.sessionId,
         index: snapshot.index,
         title: snapshot.title,
+        durationSec: snapshot.durationSec,
         status: snapshot.status,
         videoUrl: snapshot.videoUrl,
-        error: snapshot.error
+        error: snapshot.error || latestRender(snapshot)?.error,
+        rawPrompt: snapshot.rawPrompt,
+        prompt: snapshot.prompt
       };
     }
     await sleep(options.pollIntervalMs);
   }
+  await api(runtime, `/api/shots/${shotId}/cancel`, { method: "POST" }).catch(() => undefined);
   throw new CliError(`Timed out waiting for shot ${shotId}`);
+}
+
+function latestRender(shot) {
+  return Array.isArray(shot?.renders) ? shot.renders[0] : undefined;
+}
+
+function reportShotTask(reporter, event, shot, extra = {}) {
+  const render = latestRender(shot);
+  const taskId = shot?.generationTaskId || render?.generationTaskId;
+  if (!taskId) return;
+  reporter?.event(event, {
+    shotId: shot.id,
+    index: shot.index,
+    taskId,
+    status: shot.status,
+    ...extra
+  });
+}
+
+function normalizeRepairPolicy(value) {
+  const raw = stringOption(value) || "none";
+  if (raw === "none" || raw === "safe-retry") return raw;
+  throw new CliError(`Unknown --repair-policy: ${raw}. Expected none or safe-retry.`);
+}
+
+function isSafeRetryableShotError(error) {
+  const text = String(error || "");
+  return /SensitiveContent|PolicyViolation|content.*policy|sensitive|risk|violation|审核|敏感|安全|策略/i.test(text);
+}
+
+function buildSafeRetryPatch(shot) {
+  const original = shot.rawPrompt || shot.prompt || "";
+  const prompt = safeRetryPrompt(original);
+  const currentDuration = Number(shot.durationSec) || 15;
+  return {
+    rawPrompt: prompt,
+    prompt,
+    durationSec: Math.max(3, Math.min(8, currentDuration > 8 ? 8 : currentDuration))
+  };
+}
+
+function safeRetryPrompt(prompt) {
+  const replacements = [
+    [/台北\s*101|taipei\s*101/gi, "一座虚构现代城市地标高楼"],
+    [/纽约|new\s*york|东京|tokyo|巴黎|paris|北京|beijing|上海|shanghai|台北|taipei/gi, "虚构现代城市"],
+    [/apple|iphone|tesla|bytedance|tiktok|douyin|volcengine|openai|google|microsoft|meta|nvidia/gi, "虚构科技品牌"],
+    [/苹果|特斯拉|字节跳动|抖音|火山引擎|谷歌|微软|英伟达/gi, "虚构科技品牌"],
+    [/logo|商标|品牌标识/gi, "无可识别品牌标识"]
+  ];
+  let next = prompt;
+  for (const [pattern, replacement] of replacements) next = next.replace(pattern, replacement);
+  const safety = "安全重试约束：使用虚构地点、虚构建筑和虚构品牌；不要出现真实品牌、真实地名、可识别商标、政治符号、血腥暴力、危险行为或敏感标识；保持电影感和原镜头意图。";
+  return next.includes("安全重试约束") ? next : `${next.trim()}\n${safety}`;
 }
 
 function resolveNodeArg(positionals, options) {
@@ -680,6 +976,14 @@ function nodeResult(runtime, node, extra = {}) {
 }
 
 async function stitchSession(runtime, sessionId, options) {
+  const beforeState = await api(runtime, "/api/state");
+  const sessionShots = (beforeState.shots || []).filter((shot) => shot.sessionId === sessionId);
+  const skippedShots = sessionShots.filter((shot) => !shot.videoUrl);
+  options.reporter?.event("stitch_started", {
+    sessionId,
+    readyShotCount: sessionShots.length - skippedShots.length,
+    skippedShotIds: skippedShots.map((shot) => shot.id)
+  });
   let session = await api(runtime, `/api/sessions/${sessionId}/stitch`, {
     method: "POST",
     body: JSON.stringify({ force: Boolean(options.force) })
@@ -690,7 +994,18 @@ async function stitchSession(runtime, sessionId, options) {
   while (session.stitchStatus === "running" && Date.now() - started < timeoutMs) {
     await sleep(pollIntervalMs);
     session = await api(runtime, `/api/sessions/${sessionId}/stitch/poll`, { method: "POST" });
+    options.reporter?.event("stitch_poll", {
+      sessionId,
+      status: session.stitchStatus,
+      progress: session.stitchProgress
+    });
   }
+  options.reporter?.event("stitch_ready", {
+    sessionId,
+    status: session.stitchStatus,
+    finalVideoUrl: session.finalVideoUrl,
+    downloadUrl: session.finalVideoUrl ? downloadUrl(runtime.baseUrl, sessionId) : undefined
+  });
   return {
     sessionId,
     status: session.stitchStatus,
@@ -698,7 +1013,8 @@ async function stitchSession(runtime, sessionId, options) {
     error: session.stitchError,
     finalVideoUrl: session.finalVideoUrl,
     webUrl: sessionUrl(runtime.baseUrl, sessionId),
-    downloadUrl: session.finalVideoUrl ? downloadUrl(runtime.baseUrl, sessionId) : undefined
+    downloadUrl: session.finalVideoUrl ? downloadUrl(runtime.baseUrl, sessionId) : undefined,
+    skippedShots: summarizeShots(skippedShots)
   };
 }
 
@@ -712,20 +1028,51 @@ async function resolveSessionId(runtime, value) {
 
 async function commandStatus(runtime, options) {
   const health = await api(runtime, "/api/healthz");
-  const agentPlan = await ensureAgentPlan(runtime);
+  const agentPlan = await ensureAgentPlan(runtime, { reporter: options.reporter });
   const state = await api(runtime, "/api/state");
+  const limit = clampInt(options.limit, 10, { min: 1, max: 100 });
+  const sessions = (state.sessions || []).slice(0, limit);
+  const sessionId = options.deep || options.session ? await resolveSessionIdFromState(runtime, state, options.session || "latest") : undefined;
+  const session = sessionId ? (state.sessions || []).find((item) => item.id === sessionId) : undefined;
   return {
+    action: "status",
     baseUrl: runtime.baseUrl,
     health,
     agentPlan,
-    sessions: (state.sessions || []).slice(0, clampInt(options.limit, 10, { min: 1, max: 100 })).map((session) => ({
+    deep: Boolean(options.deep),
+    session: session && options.deep ? summarizeDeepSession(runtime, session, state) : undefined,
+    sessions: sessions.map((session) => ({
       id: session.id,
       title: session.title,
       webUrl: sessionUrl(runtime.baseUrl, session.id),
       finalVideoUrl: session.finalVideoUrl,
-      stitchStatus: session.stitchStatus
+      downloadUrl: session.finalVideoUrl ? downloadUrl(runtime.baseUrl, session.id) : undefined,
+      stitchStatus: session.stitchStatus,
+      readyShotCount: (state.shots || []).filter((shot) => shot.sessionId === session.id && shot.videoUrl).length,
+      failedShotCount: (state.shots || []).filter((shot) => shot.sessionId === session.id && (shot.status === "error" || shot.status === "cancelled")).length
     }))
   };
+}
+
+async function commandDownload(runtime, options) {
+  await api(runtime, "/api/healthz");
+  const sessionId = await resolveSessionId(runtime, options.session || "latest");
+  const output = path.resolve(stringOption(options.output) || `reelyai-${sessionId}.mp4`);
+  const result = await downloadToFile(runtime, `/api/sessions/${sessionId}/download`, output);
+  return {
+    action: "download",
+    sessionId,
+    output,
+    bytes: result.bytes,
+    webUrl: sessionUrl(runtime.baseUrl, sessionId)
+  };
+}
+
+async function resolveSessionIdFromState(runtime, state, value) {
+  if (value && value !== true && value !== "latest") return String(value);
+  const latest = state.sessions?.[0];
+  if (!latest) return undefined;
+  return latest.id;
 }
 
 async function commandConfigure(config, options) {
@@ -811,6 +1158,22 @@ async function commandOpen(runtime, options) {
   return { webUrl };
 }
 
+async function commandHandoff(runtime, options) {
+  await api(runtime, "/api/healthz");
+  const sessionId = await resolveSessionId(runtime, options.session || "latest");
+  const handoff = await createSessionHandoff(runtime, sessionId);
+  const result = {
+    action: "handoff",
+    sessionId,
+    webUrl: sessionUrl(runtime.baseUrl, sessionId),
+    webUrlVisibleInBrowser: false,
+    handoffUrl: handoff.handoffUrl,
+    handoffExpiresAt: handoff.handoffExpiresAt
+  };
+  if (options.open) openUrl(result.handoffUrl);
+  return result;
+}
+
 function openUrl(url) {
   const command =
     process.platform === "darwin" ? "open" :
@@ -842,6 +1205,20 @@ function printHuman(result, command) {
     console.log(`ReelyAI: ${result.baseUrl}`);
     console.log(`Health: ${result.health?.ok ? "ok" : "unknown"}`);
     console.log(`Agent Plan: ${result.agentPlan?.configured ? `configured (${result.agentPlan.fingerprint})` : "not configured"}`);
+    if (result.session) {
+      console.log(`Session: ${result.session.title || result.session.id} [${result.session.id}]`);
+      console.log(`Web: ${result.session.webUrl}`);
+      console.log(`Shots: ${result.session.readyShotCount} ready / ${result.session.failedShotCount} failed-or-missing`);
+      console.log(`Stitch: ${result.session.stitchStatus || "idle"}${result.session.stitchProgress ? ` (${result.session.stitchProgress})` : ""}`);
+      if (result.session.downloadUrl) console.log(`Download: ${result.session.downloadUrl}`);
+      for (const shot of result.session.shots || []) {
+        const age = shot.taskAgeSec !== undefined ? ` age=${shot.taskAgeSec}s` : "";
+        const task = shot.generationTaskId ? ` task=${shot.generationTaskId}` : "";
+        const error = shot.error ? ` error=${shot.error}` : "";
+        console.log(`  ${shot.index}. ${shot.title || shot.id} - ${shot.status || "draft"}${task}${age}${error}`);
+      }
+      return;
+    }
     for (const session of result.sessions) {
       console.log(`- ${session.title || session.id} [${session.id}] ${session.webUrl}`);
     }
@@ -855,6 +1232,10 @@ function printHuman(result, command) {
     }
     if (result.kind) console.log(`Node: ${result.kind} ${result.id || ""}`.trim());
     if (result.webUrl) console.log(`Web: ${result.webUrl}`);
+    if (result.webUrlVisibleInBrowser === false) console.log("Web visible in normal browser: no (use Handoff)");
+    if (result.handoffUrl) console.log(`Handoff: ${result.handoffUrl}`);
+    if (result.handoffExpiresAt) console.log(`Handoff expires: ${result.handoffExpiresAt}`);
+    if (result.output) console.log(`Output: ${result.output}${result.bytes ? ` (${result.bytes} bytes)` : ""}`);
     if (result.shot) {
       console.log(`Shot: ${result.shot.index || ""} ${result.shot.title || result.shot.id} - ${result.shot.status || "unknown"}`.trim());
       if (result.shot.videoUrl) console.log(`Video: ${result.shot.videoUrl}`);
@@ -874,6 +1255,9 @@ function printHuman(result, command) {
   }
   console.log(`Session: ${result.title || result.sessionId} [${result.sessionId}]`);
   console.log(`Web: ${result.webUrl}`);
+  if (result.webUrlVisibleInBrowser === false) console.log("Web visible in normal browser: no (use Handoff)");
+  if (result.handoffUrl) console.log(`Handoff: ${result.handoffUrl}`);
+  if (result.handoffExpiresAt) console.log(`Handoff expires: ${result.handoffExpiresAt}`);
   if (result.story?.premise) console.log(`Premise: ${result.story.premise}`);
   if (result.planSummary) console.log(`Plan: ${result.planSummary}`);
   if (Array.isArray(result.shots) && result.shots.length) {
@@ -897,6 +1281,7 @@ async function main() {
 
   const config = await readConfig();
   const runtime = resolveRuntime(config, options);
+  options.reporter = createReporter(options);
   let result;
   if (command === "configure" || command === "config") {
     result = await commandConfigure(config, options);
@@ -923,13 +1308,18 @@ async function main() {
     result = await commandSkill(positionals, options);
   } else if (command === "status") {
     result = await commandStatus(runtime, options);
+  } else if (command === "download") {
+    result = await commandDownload(runtime, options);
+  } else if (command === "handoff") {
+    result = await commandHandoff(runtime, options);
   } else if (command === "open") {
     result = await commandOpen(runtime, options);
   } else {
     throw new CliError(`Unknown command: ${rawCommand}\n\n${HELP.trim()}`);
   }
 
-  if (options.json) console.log(JSON.stringify(result, null, 2));
+  if (options.jsonl) options.reporter.complete(result);
+  else if (options.json) console.log(JSON.stringify(result, null, 2));
   else printHuman(result, command);
 }
 

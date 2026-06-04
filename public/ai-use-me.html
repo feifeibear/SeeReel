@@ -41,6 +41,30 @@
         border-bottom: 1px solid var(--line);
       }
 
+      .top-actions {
+        display: flex;
+        justify-content: flex-start;
+        margin-bottom: 18px;
+      }
+
+      .back-link {
+        display: inline-flex;
+        align-items: center;
+        min-height: 38px;
+        padding: 8px 13px;
+        border: 1px solid var(--line-strong);
+        border-radius: 8px;
+        background: rgba(16, 23, 32, 0.82);
+        color: var(--text);
+        font-weight: 700;
+      }
+
+      .back-link:hover {
+        border-color: rgba(92, 203, 197, 0.58);
+        color: #ffffff;
+        text-decoration: none;
+      }
+
       .eyebrow {
         margin: 0 0 8px;
         color: var(--cyan);
@@ -184,6 +208,9 @@
   <body>
     <main>
       <header>
+        <nav class="top-actions" aria-label="Page navigation">
+          <a class="back-link" href="/#/" id="back-to-canvas">← 返回画布</a>
+        </nav>
         <p class="eyebrow">ReelyAI Agent CLI</p>
         <h1>AI use me</h1>
         <p class="lede">
@@ -241,7 +268,7 @@ reelyai --help</code></pre>
         </ol>
         <pre><code>reelyai configure --base-url https://reelyai.app --agent-plan-token "&lt;human-pastes-key-here&gt;"</code></pre>
         <p>
-          The browser key and CLI key are separate because ReelyAI isolates visitors by cookie. Treat that isolation as a safety feature.
+          The browser key and CLI key are separate because ReelyAI isolates visitors by cookie. Treat that isolation as a safety feature, and use <code>handoffUrl</code> when a human should claim a CLI-created session for browser editing.
         </p>
       </section>
 
@@ -291,7 +318,7 @@ reelyai configure --base-url https://reelyai.app --agent-plan-token "&lt;human-p
 
 or set `REELYAI_AGENT_PLAN_TOKEN` / `ARK_AGENT_PLAN_KEY` in the AI runtime environment.
 
-Browser credentials and CLI credentials are cookie-scoped separately. Treat that isolation as intentional.
+Browser credentials and CLI credentials are cookie-scoped separately. Treat that isolation as intentional. A raw `webUrl` belongs to the CLI cookie scope; return `handoffUrl` when a human needs to open and continue editing the AI-created workflow in a normal browser.
 
 ## Install
 
@@ -351,29 +378,36 @@ reelyai workflow "一个失眠导演在午夜便利店遇见未来的自己" \
   --json
 ```
 
-Return the `webUrl` to the user. It should look like:
+Return the one-time `handoffUrl` to the user, not the raw `webUrl`. It should look like:
 
 ```text
-https://reelyai.app/#/s/ses_xxxxxxxx
+https://reelyai.app/handoff/xxxxxxxx
 ```
 
-Tell the human they can edit script, shot prompts, assets, duration, references, and generation choices in the web UI.
+Tell the human the handoff link transfers the session from the CLI cookie identity to their current browser identity, then they can edit script, shot prompts, assets, duration, references, and generation choices in the web UI. After a handoff is claimed, keep using the browser/web UI as source of truth unless the human asks you to continue from a CLI-owned session.
 
 ## Full Video Flow
 
 Only continue after the human confirms Agent Plan is configured and the workflow is acceptable.
 
 ```bash
-reelyai render --session latest --stitch --json
+reelyai status --session latest --deep --json
+reelyai render --session latest --stitch --progress --json
 ```
 
 If the human explicitly asks for full automation:
 
 ```bash
-reelyai workflow "用户的视频创意" --duration 60 --render --stitch --json
+reelyai workflow "用户的视频创意" --duration 60 --render --stitch --jsonl
 ```
 
-Report the final `downloadUrl`. If a shot fails, report the shot id and failure; do not silently skip it.
+Report the final `downloadUrl`. If a shot fails, report the shot id and failure; do not silently skip it. Use `--stitch-partial` only when the human accepts a shorter cut made from ready shots.
+
+Download locally with:
+
+```bash
+reelyai download --session latest --output ./final.mp4
+```
 
 ## Node Operations
 
@@ -437,7 +471,9 @@ reelyai publish-storyboards --session latest --json
 
 - Prefer CLI/API over browser automation.
 - Always use `--json` when you need to parse results.
+- Use `--jsonl` or `--progress` for long render/stitch runs so the agent can observe progress without polling `/api/state` in another shell.
 - Refresh status before continuing after a human web edit.
+- Browser credentials and CLI credentials are cookie-scoped separately. Raw `webUrl` may not be visible in a bare browser; use `reelyai handoff --session latest --json` and return the one-time `handoffUrl` for human takeover.
 - Do not call paid generation before Agent Plan is configured and the human has approved continuing.
 - Keep local scratch media out of the final story; ReelyAI web state is the source of truth.
 - For Seedance references, only remote `http(s)` URLs are valid. Publish local references to TOS first.</code></pre>
@@ -459,19 +495,29 @@ reelyai skill install --agent all</code></pre>
   --duration 60 \
   --style "neo-noir, rain reflections, grounded sci-fi" \
   --json</code></pre>
-        <p>Return the <code>webUrl</code> to the human. It should look like:</p>
-        <pre><code>https://reelyai.app/#/s/ses_xxxxxxxx</code></pre>
+        <p>Return the one-time <code>handoffUrl</code> to the human, not the raw <code>webUrl</code>. It should look like:</p>
+        <pre><code>https://reelyai.app/handoff/xxxxxxxx</code></pre>
+        <p>The handoff link transfers the CLI-created session to the current browser cookie so the human can continue editing the AI workflow.</p>
       </section>
 
       <section>
         <h2>Generate the full video</h2>
         <p>Only continue after the human confirms Agent Plan is configured and the web workflow looks acceptable.</p>
-        <pre><code>reelyai render --session latest --stitch --json</code></pre>
+        <pre><code>reelyai status --session latest --deep --json
+reelyai render --session latest --stitch --progress --json</code></pre>
         <p>Or create, render, and stitch in one run when the human explicitly asks for full automation:</p>
-        <pre><code>reelyai workflow "用户的视频创意" --duration 60 --render --stitch --json</code></pre>
+        <pre><code>reelyai workflow "用户的视频创意" --duration 60 --render --stitch --jsonl</code></pre>
         <p>
           Poll until the CLI returns a final <code>downloadUrl</code>. If a shot fails, report the failed shot id and let the human edit or ask you to retry.
+          Use <code>--stitch-partial</code> only when the human accepts a shorter cut from ready shots.
         </p>
+        <h3>Recovery runbook</h3>
+        <pre><code>reelyai status --session latest --deep --json
+reelyai node poll --id shot_xxxxxxxx --json
+reelyai node update-prompt --id shot_xxxxxxxx --prompt "safer Seedance prompt" --duration 8 --json
+reelyai render --session latest --repair-policy safe-retry --max-attempts 2 --stitch-partial --progress --json</code></pre>
+        <h3>Download locally</h3>
+        <pre><code>reelyai download --session latest --output ./final.mp4</code></pre>
       </section>
 
       <section>
@@ -518,6 +564,8 @@ reelyai publish-storyboards --session latest --json</code></pre>
         <ul class="checklist">
           <li>Use ReelyAI API/CLI state as the source of truth. Do not hide generated media in private scratch folders.</li>
           <li>Refresh status before continuing after any human web edit.</li>
+          <li>Use <code>--progress</code> or <code>--jsonl</code> for long render runs instead of opening a second shell to guess progress from <code>/api/state</code>.</li>
+          <li>Browser and CLI sessions are cookie-scoped separately; raw <code>webUrl</code> may not be visible in a normal browser, so return <code>handoffUrl</code> for human takeover.</li>
           <li>Do not call paid video generation until Agent Plan is configured and the human has approved continuing.</li>
           <li>For local development, replace the base URL with <code>http://localhost:5173</code> or <code>REELYAI_AGENT_BASE_URL</code>.</li>
           <li>If the public backend requires a shared access token, use <code>REELYAI_ACCESS_TOKEN</code> or <code>--access-token</code>.</li>
@@ -528,5 +576,18 @@ reelyai publish-storyboards --session latest --json</code></pre>
         ReelyAI keeps the web canvas human-editable: sessions, scripts, shots, assets, renders, stitch state, and final videos remain visible in the app.
       </footer>
     </main>
+    <script>
+      document.getElementById("back-to-canvas")?.addEventListener("click", (event) => {
+        if (!document.referrer) return;
+        try {
+          const previous = new URL(document.referrer);
+          if (previous.origin !== window.location.origin) return;
+          event.preventDefault();
+          window.history.back();
+        } catch {
+          // Keep the default /#/ fallback when referrer parsing fails.
+        }
+      });
+    </script>
   </body>
 </html>

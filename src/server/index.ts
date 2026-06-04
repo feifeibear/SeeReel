@@ -117,6 +117,8 @@ const buildCommit = process.env.REELYAI_COMMIT_SHA || process.env.GITHUB_SHA || 
 const shotGenerateSubmissions = new Map<string, Promise<{ status: number; body: unknown }>>();
 const ADMIN_COOKIE = "reelyai_admin_session";
 const adminSessions = new Map<string, { createdAt: number }>();
+const HANDOFF_TOKEN_TTL_MS = 1000 * 60 * 60 * 24;
+const handoffTokens = new Map<string, { sessionId: string; ownerUserId: string; expiresAt: number; createdAt: string }>();
 // In-process singleflight registry for stitch background workers. Keyed by sessionId + stitch job id;
 // value is the signature currently being processed. Survives concurrent /stitch POSTs but does NOT
 // survive process restart (handled separately via resetOrphanStitchJobs() at startup).
@@ -377,6 +379,40 @@ app.get("/api/state", async (_req, res) => {
   res.json({ ...snapshotForCurrentUser(), runtime: runtimeInfo() });
 });
 
+app.post("/api/sessions/:sessionId/handoff", async (req, res) => {
+  const session = sessionById(req.params.sessionId);
+  const ownerUserId = userIdForRequest();
+  if (!session || !ownsSession(session, ownerUserId)) return res.status(404).json({ error: "Session not found" });
+
+  const token = randomUUID().replace(/-/g, "");
+  const createdAt = new Date().toISOString();
+  const expiresAtMs = Date.now() + HANDOFF_TOKEN_TTL_MS;
+  handoffTokens.set(token, {
+    sessionId: session.id,
+    ownerUserId,
+    createdAt,
+    expiresAt: expiresAtMs
+  });
+  cleanExpiredHandoffTokens();
+
+  const baseUrl = requestBaseUrl(req);
+  res.json({
+    sessionId: session.id,
+    webUrl: `${baseUrl}/#/s/${encodeURIComponent(session.id)}`,
+    webUrlVisibleInBrowser: false,
+    handoffUrl: `${baseUrl}/handoff/${encodeURIComponent(token)}`,
+    handoffToken: token,
+    handoffExpiresAt: new Date(expiresAtMs).toISOString(),
+    handoffCreatedAt: createdAt
+  });
+});
+
+app.get("/handoff/:token", async (req, res) => {
+  const claimed = await claimHandoffToken(req.params.token, userIdForRequest());
+  if (!claimed) return res.status(404).send("Handoff link is invalid or expired.");
+  res.redirect(302, `/#/s/${encodeURIComponent(claimed.id)}`);
+});
+
 app.get("/api/credentials/agent-plan", (_req, res) => {
   res.json(requestAgentPlanStatus());
 });
@@ -579,6 +615,32 @@ function ownsSession(session: Pick<Session, "ownerUserId"> | undefined, userId =
 function sessionById(sessionId: string | undefined) {
   if (!sessionId) return undefined;
   return store.snapshot().sessions.find((session) => session.id === sessionId);
+}
+
+function requestBaseUrl(req: Request) {
+  const forwardedProto = req.header("x-forwarded-proto")?.split(",")[0]?.trim();
+  const protocol = forwardedProto || req.protocol;
+  const host = req.header("x-forwarded-host")?.split(",")[0]?.trim() || req.get("host") || `localhost:${port}`;
+  return `${protocol}://${host}`;
+}
+
+function cleanExpiredHandoffTokens(now = Date.now()) {
+  for (const [token, record] of handoffTokens) {
+    if (record.expiresAt <= now) handoffTokens.delete(token);
+  }
+}
+
+async function claimHandoffToken(token: string | undefined, newOwnerUserId: string) {
+  cleanExpiredHandoffTokens();
+  const normalized = typeof token === "string" ? token.trim() : "";
+  if (!normalized) return undefined;
+  const record = handoffTokens.get(normalized);
+  if (!record) return undefined;
+
+  handoffTokens.delete(normalized);
+  const session = sessionById(record.sessionId);
+  if (!session || session.ownerUserId !== record.ownerUserId) return undefined;
+  return store.updateSession(session.id, { ownerUserId: newOwnerUserId });
 }
 
 function shotById(shotId: string | undefined) {

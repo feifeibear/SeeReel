@@ -35,9 +35,29 @@ reelyai configure --agent-plan-token "$ARK_AGENT_PLAN_KEY"
 Main commands:
 
 - `reelyai workflow "<idea>"`: create a session, generate script, and generate storyboard/workflow.
-- `reelyai render --session latest --stitch`: generate missing shots and stitch the final video.
-- `reelyai status`: list recent sessions in the configured user cookie scope.
+- `reelyai status --session latest --deep --json`: inspect shots, renders, errors, stitch state, and download URL.
+- `reelyai render --session latest --stitch --progress`: generate missing shots and stitch the final video with visible progress.
+- `reelyai render --session latest --stitch --stitch-partial --repair-policy safe-retry --max-attempts 2`: retry policy failures with a safer prompt and stitch ready shots.
+- `reelyai download --session latest --output ./final.mp4`: save the final video locally without custom fetch scripts.
+- `reelyai handoff --session latest --open`: create a one-time handoff link so a normal browser can claim and edit a CLI-owned session.
 - `reelyai open --session latest`: open the session URL (`#/s/<sessionId>`).
+
+Recommended agent flow:
+
+```bash
+reelyai workflow "<idea>" --duration 60 --json
+reelyai status --session latest --deep --json
+reelyai render --session latest --stitch --progress --json
+```
+
+`workflow --json` includes both `webUrl` and `handoffUrl`. Because CLI and
+browser identities are isolated by `reelyai_user_id` cookies, return `handoffUrl`
+when a human needs to see and continue editing the AI-created workflow in a
+normal browser. The raw `webUrl` is still useful inside the CLI cookie scope.
+
+Use `--jsonl` for long fully automated runs; it emits `session_created`,
+`shot_submitted`, `task_id`, `poll_status`, `retrying`, and `stitch_ready`
+events as newline-delimited JSON.
 
 The CLI stores only local configuration and cookies under `~/.reelyai/config.json`.
 The ReelyAI app remains the source of truth for sessions, shots, prompts, renders,
