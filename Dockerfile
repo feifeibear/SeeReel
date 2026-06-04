@@ -24,7 +24,6 @@ COPY --from=build /app/package*.json ./
 COPY --from=build /app/node_modules ./node_modules
 COPY --from=build /app/src ./src
 COPY --from=build /app/dist ./dist
-COPY --from=build /app/fixtures ./fixtures
 COPY --from=build /app/AGENTS.md ./AGENTS.md
 COPY --from=build /app/README.md ./README.md
 COPY --from=build /app/README.zh-CN.md ./README.zh-CN.md
