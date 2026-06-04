@@ -1,6 +1,6 @@
 import "dotenv/config";
 import { createHash, randomUUID } from "node:crypto";
-import { mkdir, readFile, stat, unlink, writeFile } from "node:fs/promises";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { Readable } from "node:stream";
 import type { ReadableStream as WebReadableStream } from "node:stream/web";
@@ -64,7 +64,6 @@ import { collectVisitorMetrics, visitorMetricsMiddleware } from "./visitorMetric
 import {
   composeSeedanceVideoText,
   composeSeedreamAssetPrompt,
-  composeSeedreamMultiFrameGroup,
   composeSeedreamSubStoryboardGrid,
   resolveLang
 } from "./promptCompose";
@@ -97,7 +96,6 @@ import type {
   WorkflowRunMode,
   WorkflowShotDependency,
   WorkflowShotPlanItem,
-  WorkflowShotPreflight,
   WorkflowStitchTarget
 } from "../shared/types";
 
@@ -3532,7 +3530,7 @@ app.post("/api/sessions/:sessionId/storyboard-grid", async (req, res) => {
         const panel = created[i];
         const panelPrompt = perPanelPrompts[i] || promptText;
         const otherUrls = created
-          .filter((p, j) => j !== i)
+          .filter((_, j) => j !== i)
           .map((p) => p.mediaUrl || p.imageUrl)
           .filter((u): u is string => typeof u === "string" && /^https?:\/\//.test(u))
           .slice(0, 2);
@@ -5172,7 +5170,6 @@ function composeFinalReviewContext(session: ReturnType<CinemaStore["getSession"]
 }
 
 async function buildShotReviewRepairPlan(shot: Shot, verdict: VideoReviewVerdict): Promise<VideoReviewRepairPlan> {
-  const allAssets = store.snapshot().assets;
   const reasons = [...verdict.fatalIssues, ...verdict.reasons, ...verdict.fixes.map((fix) => fix.action)].filter(Boolean);
   const reasonText = reasons.join("；");
   const targets: VideoReviewRepairPlan["targets"] = [];
@@ -5928,12 +5925,6 @@ async function runNarrationJobInBackground(
       narrationInflight.delete(sessionId);
     }
   }
-}
-
-async function sendNarrationDownload(res: Response, mediaUrl: string, filename: string) {
-  const localPath = resolveLocalMediaPath(mediaUrl);
-  if (localPath) return res.download(localPath, filename);
-  return res.status(500).json({ error: "Narration artifact missing locally" });
 }
 
 if (isProduction) {

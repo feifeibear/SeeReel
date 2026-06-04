@@ -229,28 +229,6 @@ interface CallVisionParams {
   >;
 }
 
-async function callArkVisionResponses({ apiBase, apiKey, model, systemPrompt, userContent }: CallVisionParams): Promise<ReviewVerdict> {
-  const first = await postArkVisionResponse({ apiBase, apiKey, model, systemPrompt, userContent, imageContentShape: "input_image", tag: "ark:vision-review" });
-  let response = first.response;
-  let text = first.text;
-  if (!response.ok && shouldRetryWithImageUrlContent(text)) {
-    const retry = await postArkVisionResponse({ apiBase, apiKey, model, systemPrompt, userContent, imageContentShape: "image_url", tag: "ark:vision-review:image_url" });
-    response = retry.response;
-    text = retry.text;
-  }
-
-  if (!response.ok) {
-    return { ok: true, reasons: [`[skip] vision API ${response.status}: ${text.slice(0, 300)}`], rawText: text, model };
-  }
-  const body = text ? safeJson(text) : undefined;
-  const rawText = extractResponseText(body) || "";
-  const parsed = parseVerdict(rawText);
-  if (parsed) {
-    return { ok: parsed.ok, reasons: parsed.reasons, rawText, model };
-  }
-  return { ok: true, reasons: [`[skip] verdict not parseable: ${rawText.slice(0, 300)}`], rawText, model };
-}
-
 async function callArkVisionText({ apiBase, apiKey, model, systemPrompt, userContent }: CallVisionParams): Promise<{ rawText: string; tokenUsage?: TokenUsageBreakdown }> {
   const first = await postArkVisionResponse({ apiBase, apiKey, model, systemPrompt, userContent, imageContentShape: "input_image", tag: "ark:video-audit" });
   let response = first.response;
@@ -544,18 +522,6 @@ function extractResponseText(body: unknown): string | undefined {
     });
     const text = parts.join("").trim();
     if (text) return text;
-  }
-  return undefined;
-}
-
-function parseVerdict(rawText: string): { ok: boolean; reasons: string[] } | undefined {
-  const stripped = rawText.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/i, "").trim();
-  const parsed = safeJson(stripped);
-  if (isRecord(parsed) && typeof parsed.ok === "boolean") {
-    const reasons = Array.isArray(parsed.reasons)
-      ? parsed.reasons.filter((r): r is string => typeof r === "string").map((r) => r.trim()).filter(Boolean)
-      : [];
-    return { ok: parsed.ok, reasons };
   }
   return undefined;
 }

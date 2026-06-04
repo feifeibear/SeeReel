@@ -17,14 +17,14 @@ import {
 import "@xyflow/react/dist/style.css";
 
 import { api } from "../api";
-import type { Asset, AssetImageModel, AssetType, SessionWithShots, Shot, StitchJob, StoreSnapshot, WorkflowShotPlanItem } from "../../shared/types";
+import type { Asset, AssetImageModel, AssetType, SessionWithShots, Shot, StitchJob, StoreSnapshot } from "../../shared/types";
 import { buildSessionGraph, type FlowNodeData } from "./buildGraph";
 import { AssetNode, ReferenceVideoNode, VideoProcessorNode, StoryboardNode, ShotNode, StitchNode, TailframeNode } from "./nodes";
 import { Inspector } from "./Inspector";
 import { DownloadToast } from "./DownloadToast";
 import { CreateNodeMenu, type CreateMenuOption } from "./CreateNodeMenu";
 import { resolveCanvasCreatePosition } from "./canvasPosition";
-import { resolveReplacedStitchNodePosition } from "./stitchNodePosition";
+import { resolveReplacedOptimisticNodePosition } from "./optimisticNodePosition";
 import type { UndoableAction } from "./useUndoStack";
 import { useI18n, type UiLanguage } from "../i18n";
 
@@ -44,6 +44,18 @@ const MemoInspector = memo(Inspector);
 
 const flowProOptions = { hideAttribution: true };
 
+function flowNodeAssetMeta(data: FlowNodeData) {
+  if (
+    data.kind === "asset"
+    || data.kind === "referenceVideo"
+    || data.kind === "videoProcessor"
+    || data.kind === "tailframe"
+  ) {
+    return { assetId: data.asset.id, assetName: data.asset.name };
+  }
+  return {};
+}
+
 export interface FlowViewProps {
   snapshot: StoreSnapshot;
   session: SessionWithShots | undefined;
@@ -61,7 +73,6 @@ export interface FlowViewProps {
   /** Drop a video file onto the canvas → upload + auto-trigger reference-video analysis. */
   onUploadReferenceVideo: (file: File) => Promise<Asset | undefined> | Asset | undefined;
   onPushUndo?: (action: UndoableAction) => void;
-  onStitch: (options?: { force?: boolean }) => Promise<void> | void;
   /** Canvas-level undo / redo wired to the App-level useUndoStack. Disabled when stack is empty. */
   undo?: () => Promise<void> | void;
   redo?: () => Promise<void> | void;
@@ -71,7 +82,7 @@ export interface FlowViewProps {
   redoDescription?: string;
 }
 
-export function FlowView({ snapshot, session, visionReviewEnabled, defaultImageModel, onMutated, onCreateAnchorAsset, onCreateShot, onCreateStitchJob, onConnectStitchShot, onSetStitchOrder, onDeleteCanvasAsset, onDeleteCanvasShot, onUploadImageAsset, onUploadReferenceVideo, onPushUndo, onStitch, undo, redo, canUndo, canRedo, undoDescription, redoDescription }: FlowViewProps) {
+export function FlowView({ snapshot, session, visionReviewEnabled, defaultImageModel, onMutated, onCreateAnchorAsset, onCreateShot, onCreateStitchJob, onConnectStitchShot, onSetStitchOrder, onDeleteCanvasAsset, onDeleteCanvasShot, onUploadImageAsset, onUploadReferenceVideo, onPushUndo, undo, redo, canUndo, canRedo, undoDescription, redoDescription }: FlowViewProps) {
   const { lang, t } = useI18n();
   const allAssets = snapshot.assets;
   const { nodes: derivedNodes, edges: derivedEdges } = useMemo(() => {
@@ -91,8 +102,6 @@ export function FlowView({ snapshot, session, visionReviewEnabled, defaultImageM
   const canvasRef = useRef<HTMLDivElement | null>(null);
   const pendingFileKindRef = useRef<"character" | "scene">("character");
   const pendingFilePositionRef = useRef<XYPosition | undefined>(undefined);
-  const [workflowBusy, setWorkflowBusy] = useState(false);
-  const [workflowStatus, setWorkflowStatus] = useState("");
   const guardCreate = useCallback((_kind: string, fn: () => unknown | Promise<unknown>) => {
     void Promise.resolve(fn());
   }, []);
@@ -129,11 +138,14 @@ export function FlowView({ snapshot, session, visionReviewEnabled, defaultImageM
   useEffect(() => {
     setNodes((prev) => {
       const prevById = new Map(prev.map((n) => [n.id, n]));
-      const previousStitchNodes = prev.map((node) => {
+      const previousOptimisticNodes = prev.map((node) => {
         const data = node.data;
+        const assetMeta = flowNodeAssetMeta(data);
         return {
           id: node.id,
           kind: data.kind,
+          assetId: assetMeta.assetId,
+          assetName: assetMeta.assetName,
           jobId: data.kind === "stitch" ? data.job.id : undefined,
           jobName: data.kind === "stitch" ? data.job.name : undefined,
           position: node.position
@@ -151,17 +163,18 @@ export function FlowView({ snapshot, session, visionReviewEnabled, defaultImageM
             pendingCreatedPositionsRef.current.delete(next.id);
             merged.push({ ...next, position: pendingPosition });
           } else {
-            const replacementPosition = next.data.kind === "stitch"
-              ? resolveReplacedStitchNodePosition({
-                  next: {
-                    id: next.id,
-                    kind: next.data.kind,
-                    jobId: next.data.job.id,
-                    jobName: next.data.job.name
-                  },
-                  previous: previousStitchNodes
-                })
-              : undefined;
+            const assetMeta = flowNodeAssetMeta(next.data);
+            const replacementPosition = resolveReplacedOptimisticNodePosition({
+              next: {
+                id: next.id,
+                kind: next.data.kind,
+                assetId: assetMeta.assetId,
+                assetName: assetMeta.assetName,
+                jobId: next.data.kind === "stitch" ? next.data.job.id : undefined,
+                jobName: next.data.kind === "stitch" ? next.data.job.name : undefined
+              },
+              previous: previousOptimisticNodes
+            });
             merged.push(replacementPosition ? { ...next, position: replacementPosition } : next);
           }
         }
@@ -1190,102 +1203,6 @@ export function FlowView({ snapshot, session, visionReviewEnabled, defaultImageM
       return;
     }
   }, [centerNodeAt, flowPositionFromClient, onUploadImageAsset, onUploadReferenceVideo]);
-
-  const notifyWorkflow = useCallback((message: string) => {
-    window.dispatchEvent(new CustomEvent<string>("flow-download", { detail: message }));
-  }, []);
-
-  const runWorkflowShot = useCallback(async (
-    item: WorkflowShotPlanItem,
-    tailframePromises: Map<string, Promise<string>>
-  ) => {
-    for (const preflight of item.preflights) {
-      if (preflight.kind !== "fresh_tailframe") continue;
-      const cacheKey = preflight.sourceShotId;
-      let promise = tailframePromises.get(cacheKey);
-      if (!promise) {
-        promise = api.createShotTailFrame(preflight.sourceShotId, { publishToTos: true, canvasNode: true })
-          .then((result) => result.asset.id);
-        tailframePromises.set(cacheKey, promise);
-      }
-      const firstFrameAssetId = await promise;
-      await api.updateShot(item.shotId, {
-        firstFrameAssetId,
-        referenceVideoAssetId: "",
-        referenceVideoFromShotId: "",
-        referenceClipUrl: null,
-        referenceAudioUrl: null,
-        referenceClipPreviewUrl: null,
-        referenceAudioPreviewUrl: null,
-        usePreviousShotClip: false
-      });
-    }
-
-    let current = item.action === "generate"
-      ? await api.generateShot(item.shotId, { visionReview: visionReviewEnabled })
-      : await api.pollShot(item.shotId);
-
-    for (;;) {
-      if (current.status === "ready") return current;
-      if (current.status === "error" || current.status === "cancelled") {
-        throw new Error(`${item.title} ${current.status === "cancelled" ? "已取消" : "生成失败"}：${current.error || "未知错误"}`);
-      }
-      await new Promise((resolve) => setTimeout(resolve, 5000));
-      current = await api.pollShot(item.shotId);
-      void onMutated();
-    }
-  }, [onMutated, visionReviewEnabled]);
-
-  const executeWorkflowFast = useCallback(async () => {
-    if (!session || workflowBusy) return;
-    setWorkflowBusy(true);
-    setWorkflowStatus("规划执行顺序...");
-    const tailframePromises = new Map<string, Promise<string>>();
-    try {
-      const plan = await api.planWorkflow(session.id, { mode: "missing", maxParallelShots: 3 });
-      notifyWorkflow(`执行计划：${plan.summary}`);
-      if (plan.warnings.length) notifyWorkflow(`计划提醒：${plan.warnings.slice(0, 2).join("；")}`);
-
-      for (let i = 0; i < plan.layers.length; i += 1) {
-        const layer = plan.layers[i];
-        const names = layer.map((item) => item.title || `Shot ${item.index}`).join("、");
-        setWorkflowStatus(`第 ${i + 1}/${plan.layers.length} 批并发执行：${names}`);
-        notifyWorkflow(`第 ${i + 1}/${plan.layers.length} 批：${names}`);
-        const results = await Promise.allSettled(layer.map((item) => runWorkflowShot(item, tailframePromises)));
-        await onMutated();
-        const failed = results.find((result): result is PromiseRejectedResult => result.status === "rejected");
-        if (failed) throw failed.reason;
-      }
-
-      if (plan.stitchTargets.length) {
-        setWorkflowStatus(`拼接 ${plan.stitchTargets.length} 个输出节点...`);
-        await Promise.all(plan.stitchTargets.map((target) =>
-          api.stitch(session.id, { force: true, jobId: target.jobId })
-        ));
-        notifyWorkflow(`已完成 ${plan.stitchTargets.length} 个拼接输出`);
-      }
-
-      setWorkflowStatus("workflow 执行完成");
-      notifyWorkflow("workflow 执行完成");
-      await onMutated();
-    } catch (error) {
-      const message = error instanceof Error ? error.message : "workflow 执行失败";
-      setWorkflowStatus(message);
-      window.dispatchEvent(new CustomEvent<string>("flow-download", { detail: `❌ ${message}` }));
-    } finally {
-      setWorkflowBusy(false);
-      setTimeout(() => setWorkflowStatus(""), 8000);
-    }
-  }, [notifyWorkflow, onMutated, runWorkflowShot, session, workflowBusy]);
-
-  const toolbarStitchReady = session
-    ? (session.stitchShotIds && session.stitchShotIds.length > 0
-        ? session.stitchShotIds
-            .map((id) => (session.shots || []).find((shot) => shot.id === id))
-            .filter((shot): shot is Shot => Boolean(shot))
-            .every((shot) => Boolean(shot.videoUrl))
-        : (session.shots || []).length > 0 && (session.shots || []).every((shot) => Boolean(shot.videoUrl)))
-    : false;
 
   if (!session) {
     return (

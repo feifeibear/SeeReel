@@ -7,6 +7,7 @@ import { useUndoKeyboardShortcut, useUndoStack } from "./flow/useUndoStack";
 import { useI18n } from "./i18n";
 import { resolveSessionDockState } from "./sessionDockState";
 import { resolveRefreshSelectedSessionId } from "./sessionSelection";
+import { resolveCreatedAssetFollowupShotPatches } from "./assetOptimistic";
 import { resolveCreatedStitchJobFollowupPatch } from "./stitchOptimistic";
 
 const FlowView = lazy(() =>
@@ -311,7 +312,7 @@ function mergeStateById(prev: StoreSnapshot, next: StoreSnapshot): StoreSnapshot
   const stableArr = <T extends { id: string }>(prevArr: T[], nextArr: T[]): T[] => {
     const prevById = new Map(prevArr.map((row) => [row.id, row]));
     let changed = prevArr.length !== nextArr.length;
-    const out: T[] = nextArr.map((row, i) => {
+    const out: T[] = nextArr.map((row) => {
       const old = prevById.get(row.id);
       if (old && rowEqual(old, row)) return old;
       changed = changed || old !== row;
@@ -1053,7 +1054,7 @@ export function App() {
     }));
   };
 
-  const pushAssetCreateUndo = (description: string, payload: Partial<Asset>, created: Asset) => {
+  const pushAssetCreateUndo = (description: string, created: Asset) => {
     let currentAsset = created;
     undoStack.push({
       description,
@@ -1068,6 +1069,22 @@ export function App() {
         await refresh();
       }
     });
+  };
+
+  const replaceCreatedAssetReferences = async (sessionId: string, optimisticAssetId: string, createdAssetId: string) => {
+    const live = await api.state();
+    const patches = resolveCreatedAssetFollowupShotPatches({
+      shots: live.shots.filter((shot) => shot.sessionId === sessionId),
+      optimisticAssetId,
+      createdAssetId
+    });
+    if (!patches.length) return;
+    const updatedShots = await Promise.all(patches.map(({ shotId, patch }) => api.updateShot(shotId, patch)));
+    const updatedById = new Map(updatedShots.map((shot) => [shot.id, shot]));
+    setState((prev) => ({
+      ...prev,
+      shots: prev.shots.map((shot) => updatedById.get(shot.id) || shot)
+    }));
   };
 
   const pushShotCreateUndo = (created: Shot) => {
@@ -1353,8 +1370,9 @@ export function App() {
         await waitForSessionCreate(sessionForCreate.id);
         const asset = await api.saveAsset(payload);
         upsertAssetInState(asset);
+        await replaceCreatedAssetReferences(sessionForCreate.id, tempId, asset.id);
         setOptimisticAssets((prev) => prev.filter((item) => item.id !== tempId));
-        pushAssetCreateUndo(lang === "en" ? `Create ${kind}` : `新建${seedNames[kind].replace("未命名", "")}`, payload, asset);
+        pushAssetCreateUndo(lang === "en" ? `Create ${kind}` : `新建${seedNames[kind].replace("未命名", "")}`, asset);
       } catch (err) {
         setOptimisticAssets((prev) => prev.filter((item) => item.id !== tempId));
         setError(err instanceof Error ? err.message : t.errors.unknown);
@@ -1571,27 +1589,13 @@ export function App() {
       tags
     });
     upsertAssetInState(patched);
-    pushAssetCreateUndo(kind === "character" ? (lang === "en" ? "Upload character image" : "上传角色图") : (lang === "en" ? "Upload scene image" : "上传场景图"), {
-      name,
-      type: kind as AssetType,
-      description: uploadedDescription,
-      prompt: "",
-      mediaKind: "image",
-      ownerSessionId: selectedSession.id,
-      tags
-    }, patched);
+    pushAssetCreateUndo(kind === "character" ? (lang === "en" ? "Upload character image" : "上传角色图") : (lang === "en" ? "Upload scene image" : "上传场景图"), patched);
     return patched;
   });
 
   const handleDeleteCanvasAsset = useStableEvent(deleteCanvasAsset);
   const handleDeleteCanvasShot = useStableEvent(deleteCanvasShot);
   const handleUploadReferenceVideo = useStableEvent(uploadReferenceVideo);
-
-  const handleStitch = useStableEvent(async (options?: { force?: boolean }) => {
-    if (!selectedSession) return;
-    await api.stitch(selectedSession.id, { force: options?.force === true });
-    await refresh();
-  });
 
   return (
     <PendingGenerationsProvider>
@@ -2061,7 +2065,6 @@ export function App() {
             onDeleteCanvasShot={handleDeleteCanvasShot}
             onUploadImageAsset={handleUploadImageAsset}
             onUploadReferenceVideo={handleUploadReferenceVideo}
-            onStitch={handleStitch}
           />
         </Suspense>
       </section>

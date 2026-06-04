@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import type { Asset, AssetImageModel, Shot, SessionWithShots, StitchJob, PromptComposition, ImageReviewVerdict, VideoReviewVerdict } from "../../shared/types";
+import type { Asset, AssetImageModel, Shot, SessionWithShots, StitchJob, ImageReviewVerdict, VideoReviewVerdict } from "../../shared/types";
 import { api } from "../api";
 import type { FlowNodeData } from "./buildGraph";
 import { emitDownloadToast } from "./nodes";
@@ -352,7 +352,7 @@ export function Inspector({ selected, session, allAssets, visionReviewEnabled, d
     return <AssetInspector asset={selected.asset} session={session} allAssets={allAssets} onMutated={onMutated} onDeleteCanvasAsset={onDeleteCanvasAsset} onClose={onClose} visionReviewEnabled={visionReviewEnabled} defaultImageModel={defaultImageModel} />;
   }
   if (selected.kind === "storyboard") {
-    return <StoryboardInspector shot={selected.shot} asset={selected.asset} session={session} allAssets={allAssets} onMutated={onMutated} onClose={onClose} visionReviewEnabled={visionReviewEnabled} />;
+    return <StoryboardInspector shot={selected.shot} asset={selected.asset} session={session} allAssets={allAssets} onMutated={onMutated} onClose={onClose} />;
   }
   if (selected.kind === "shot") {
     return <ShotInspector shot={selected.shot} session={session} allAssets={allAssets} onMutated={onMutated} onDeleteCanvasShot={onDeleteCanvasShot} onClose={onClose} visionReviewEnabled={visionReviewEnabled} />;
@@ -854,12 +854,11 @@ function buildStoryboardMentionOptions(shot: Shot, allAssets: Asset[], session: 
   return options;
 }
 
-function StoryboardInspector({ shot, asset, session, allAssets, visionReviewEnabled, onMutated, onClose }: {
+function StoryboardInspector({ shot, asset, session, allAssets, onMutated, onClose }: {
   shot: Shot;
   asset?: Asset;
   session?: SessionWithShots;
   allAssets: Asset[];
-  visionReviewEnabled: boolean;
   onMutated: () => Promise<void> | void;
   onClose: () => void;
 }) {

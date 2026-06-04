@@ -849,7 +849,6 @@ async function renderFinalNarratedVideo(opts: {
   } catch (err) {
     // Clean up so the next attempt does not reuse a half-written file.
     await unlink(outputPath).catch(() => undefined);
-    const message = err instanceof Error ? err.message : String(err);
     throw err;
   }
   await report(`ffmpeg narration mix done in ${((Date.now() - start) / 1000).toFixed(1)}s`);
