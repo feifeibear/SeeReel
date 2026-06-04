@@ -5,6 +5,7 @@ import type { AdminAgentPlanStatus, AdminSecurityStatus, AdminUserAgentPlanCrede
 import { PendingGenerationsProvider } from "./flow/PendingGenerations";
 import { useUndoKeyboardShortcut, useUndoStack } from "./flow/useUndoStack";
 import { useI18n } from "./i18n";
+import { resolveRefreshSelectedSessionId } from "./sessionSelection";
 
 const FlowView = lazy(() =>
   import("./flow/FlowView").then((module) => ({ default: memo(module.FlowView) }))
@@ -332,6 +333,50 @@ function mergeStateById(prev: StoreSnapshot, next: StoreSnapshot): StoreSnapshot
   };
 }
 
+function mergeStateForDisplay({
+  prev,
+  next,
+  selectedSessionId,
+  pendingCreates,
+  pendingDeletes
+}: {
+  prev: StoreSnapshot;
+  next: StoreSnapshot;
+  selectedSessionId: string;
+  pendingCreates: ReadonlySet<string>;
+  pendingDeletes: ReadonlySet<string>;
+}): StoreSnapshot {
+  const merged = mergeStateById(prev, next);
+  const keepSessionIds = new Set<string>();
+  prev.sessions.forEach((session) => {
+    const missingFromSnapshot = !merged.sessions.some((item) => item.id === session.id);
+    if (!missingFromSnapshot || pendingDeletes.has(session.id)) return;
+    if (pendingCreates.has(session.id) || session.id === selectedSessionId) keepSessionIds.add(session.id);
+  });
+  const keptSessions = prev.sessions.filter((session) => keepSessionIds.has(session.id));
+  const sessions = [...keptSessions, ...merged.sessions].filter((session) => !pendingDeletes.has(session.id));
+  const sessionIds = new Set(sessions.map((session) => session.id));
+  const mergedShotIds = new Set(merged.shots.map((shot) => shot.id));
+  const keptShots = prev.shots.filter((shot) =>
+    keepSessionIds.has(shot.sessionId) && !mergedShotIds.has(shot.id)
+  );
+  const mergedAssetIds = new Set(merged.assets.map((asset) => asset.id));
+  const keptAssets = prev.assets.filter((asset) =>
+    asset.ownerSessionId
+    && keepSessionIds.has(asset.ownerSessionId)
+    && !mergedAssetIds.has(asset.id)
+  );
+  return {
+    ...merged,
+    sessions,
+    shots: [...keptShots, ...merged.shots].filter((shot) => sessionIds.has(shot.sessionId) && !pendingDeletes.has(shot.sessionId)),
+    assets: [...keptAssets, ...merged.assets].filter((asset) => {
+      if (asset.ownerSessionId && pendingDeletes.has(asset.ownerSessionId)) return false;
+      return true;
+    })
+  };
+}
+
 const hasPendingShotRender = (shot: Shot) =>
   shot.status === "generating" || (shot.renders || []).some((r) => r.status === "generating");
 
@@ -403,6 +448,8 @@ export function App() {
   // it on init means a paste-into-browser of "http://localhost:5173/#/s/ses_abc" boots straight
   // into that session, even before /api/state has loaded.
   const [selectedSessionId, setSelectedSessionId] = useState<string>(() => readSessionFromHash());
+  const selectedSessionIdRef = useRef(selectedSessionId);
+  useEffect(() => { selectedSessionIdRef.current = selectedSessionId; }, [selectedSessionId]);
   const [stateLoaded, setStateLoaded] = useState(false);
   const [sessionTitleDraft, setSessionTitleDraft] = useState("");
   const [showArchivedSessions, setShowArchivedSessions] = useState(false);
@@ -460,37 +507,26 @@ export function App() {
 
   const refresh = useCallback(async () => {
     const next = await api.state();
+    const fromHash = readSessionFromHash();
+    const pendingDeletesSnapshot = new Set(pendingSessionDeletesRef.current);
     setState((prev) => {
-      const merged = mergeStateById(prev, next);
-      const pendingCreates = pendingSessionCreatesRef.current;
-      const pendingDeletes = pendingSessionDeletesRef.current;
-      const missingLocalSessions = prev.sessions.filter((session) =>
-        pendingCreates.has(session.id)
-        && !merged.sessions.some((item) => item.id === session.id)
-        && !pendingDeletes.has(session.id)
-      );
-      const sessions = [...missingLocalSessions, ...merged.sessions].filter((session) => !pendingDeletes.has(session.id));
-      const sessionIds = new Set(sessions.map((session) => session.id));
-      return {
-        ...merged,
-        sessions,
-        shots: merged.shots.filter((shot) => sessionIds.has(shot.sessionId) && !pendingDeletes.has(shot.sessionId)),
-        assets: merged.assets.filter((asset) => {
-          if (asset.ownerSessionId && pendingDeletes.has(asset.ownerSessionId)) return false;
-          return true;
-        })
-      };
+      return mergeStateForDisplay({
+        prev,
+        next,
+        selectedSessionId: selectedSessionIdRef.current,
+        pendingCreates: pendingSessionCreatesRef.current,
+        pendingDeletes: pendingSessionDeletesRef.current
+      });
     });
     setStateLoaded(true);
     setSelectedSessionId((current) => {
-      // 1) keep current selection if it still exists (most common path)
-      if (current && next.sessions.some((s) => s.id === current)) return current;
-      // 2) try the URL hash — covers paste-link-into-browser before state loaded
-      const fromHash = readSessionFromHash();
-      if (fromHash && next.sessions.some((s) => s.id === fromHash)) return fromHash;
-      if (current && current === fromHash) return current;
-      // 3) fall back to most recent
-      return next.sessions[0]?.id || "";
+      const availableSessionIds = next.sessions.map((session) => session.id);
+      return resolveRefreshSelectedSessionId({
+        current,
+        fromHash,
+        availableSessionIds,
+        deletedSessionIds: [...pendingDeletesSnapshot]
+      });
     });
   }, []);
 
@@ -645,7 +681,13 @@ export function App() {
       try {
         const next = await api.state();
         if (cancelled) return;
-        setState((prev) => mergeStateById(prev, next));
+        setState((prev) => mergeStateForDisplay({
+          prev,
+          next,
+          selectedSessionId: selectedSessionIdRef.current,
+          pendingCreates: pendingSessionCreatesRef.current,
+          pendingDeletes: pendingSessionDeletesRef.current
+        }));
       } catch {
         // Network errors flip the api-network-down banner via api.ts; we don't surface here.
       }
