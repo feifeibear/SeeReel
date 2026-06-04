@@ -3,7 +3,7 @@
   "editable": true,
   "graphTooltip": 0,
   "schemaVersion": 39,
-  "title": "ReelyAI 总览",
+  "title": "SeeReel 总览",
   "uid": "reelyai-overview",
   "tags": ["reelyai"],
   "time": { "from": "now-6h", "to": "now" },

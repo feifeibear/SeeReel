@@ -3,7 +3,7 @@
   "editable": true,
   "graphTooltip": 0,
   "schemaVersion": 39,
-  "title": "ReelyAI 产品运营",
+  "title": "SeeReel 产品运营",
   "uid": "reelyai-product-ops",
   "tags": ["reelyai", "ops"],
   "time": { "from": "now-24h", "to": "now" },

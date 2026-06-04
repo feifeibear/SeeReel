@@ -1,8 +1,8 @@
-# ReelyAI：VLM 反馈与 Prompt 自动优化体系设计
+# SeeReel：VLM 反馈与 Prompt 自动优化体系设计
 
 ## 1. 背景与目标
 
-ReelyAI 已具备基础 VLM 审图、审片与 prompt 修复能力：图片生成可通过 `withImageReview` 自动审核与重试；视频生成在 Seedance 轮询成功后可触发 VLM 审片，失败时改写 prompt 后重提任务；完整片也支持终审与修复建议。
+SeeReel 已具备基础 VLM 审图、审片与 prompt 修复能力：图片生成可通过 `withImageReview` 自动审核与重试；视频生成在 Seedance 轮询成功后可触发 VLM 审片，失败时改写 prompt 后重提任务；完整片也支持终审与修复建议。
 
 当前问题是能力分散：图片闭环、视频闭环、终审修复、资产修复、参考视频分析分别散落在不同路由和函数中，缺少统一数据模型、评分标准、健康看板和自动优化策略。
 
@@ -442,4 +442,4 @@ POST /api/sessions/:sessionId/review-all
 
 ## 14. 总结
 
-这套体系的核心不是“多加一个 VLM 审核按钮”，而是把 VLM 变成 ReelyAI 的生产闭环控制器：读产物、判断问题、定位原因、改写 prompt、驱动重试，并把状态呈现在画布上。
+这套体系的核心不是“多加一个 VLM 审核按钮”，而是把 VLM 变成 SeeReel 的生产闭环控制器：读产物、判断问题、定位原因、改写 prompt、驱动重试，并把状态呈现在画布上。

@@ -3,7 +3,7 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>AI use me - ReelyAI CLI Guide</title>
+    <title>AI use me - SeeReel CLI Guide</title>
     <style>
       :root {
         color-scheme: dark;
@@ -211,11 +211,11 @@
         <nav class="top-actions" aria-label="Page navigation">
           <a class="back-link" href="/#/" id="back-to-canvas">← 返回画布</a>
         </nav>
-        <p class="eyebrow">ReelyAI Agent CLI</p>
+        <p class="eyebrow">SeeReel Agent CLI</p>
         <h1>AI use me</h1>
         <p class="lede">
           This page is written for Codex, Claude Code, Cursor Agent, and other local AI agents.
-          Use the CLI to turn a human video idea into a visible ReelyAI web workflow, then continue
+          Use the CLI to turn a human video idea into a visible SeeReel web workflow, then continue
           generation only after the human has configured Agent Plan access.
         </p>
       </header>
@@ -224,16 +224,16 @@
         <h2>Agent bootstrap</h2>
         <p>
           If you are an AI agent reading this page, run this first. It installs the CLI and the bundled
-          operating skill, then verifies that you can see the ReelyAI workflow commands.
+          operating skill, then verifies that you can see the SeeReel workflow commands.
         </p>
-        <pre><code>npm install -g reelyai
-reelyai skill install --agent all
-reelyai skill print
-reelyai --help</code></pre>
+        <pre><code>npm install -g seereelcli
+seereelcli skill install --agent all
+seereelcli skill print
+seereelcli --help</code></pre>
         <div class="callout">
           <strong>Current thread note.</strong>
-          Installing a skill helps future Codex / Claude Code / Cursor sessions auto-load the ReelyAI procedure.
-          In the same running thread, read <code>reelyai skill print</code> and follow it directly.
+          Installing a skill helps future Codex / Claude Code / Cursor sessions auto-load the SeeReel procedure.
+          In the same running thread, read <code>seereelcli skill print</code> and follow it directly.
         </div>
       </section>
 
@@ -250,7 +250,7 @@ reelyai --help</code></pre>
           </div>
           <div class="card">
             <strong>Continue to video</strong>
-            <p>After the human confirms credentials and prompt choices, render missing shots and stitch the final video through ReelyAI APIs.</p>
+            <p>After the human confirms credentials and prompt choices, render missing shots and stitch the final video through SeeReel APIs.</p>
           </div>
         </div>
       </section>
@@ -263,24 +263,24 @@ reelyai --help</code></pre>
         </div>
         <ol class="checklist">
           <li>Ask the human to open <a href="https://www.volcengine.com/activity/agentplan" target="_blank" rel="noreferrer">Volcengine Agent Plan</a> and create an Agent Plan API key in the Ark console.</li>
-          <li>Ask the human to open <a href="https://reelyai.app/" target="_blank" rel="noreferrer">https://reelyai.app/</a>, click the top-bar Agent Plan button, and paste the key for browser/manual generation.</li>
-          <li>For CLI automation, the CLI also needs the key in its own local user scope. Ask the human to run the configure command themselves, or set <code>REELYAI_AGENT_PLAN_TOKEN</code> in the agent runtime environment.</li>
+          <li>Ask the human to open <a href="https://seereel.studio/" target="_blank" rel="noreferrer">https://seereel.studio/</a>, click the top-bar Agent Plan button, and paste the key for browser/manual generation.</li>
+          <li>For CLI automation, the CLI also needs the key in its own local user scope. Ask the human to run the configure command themselves, or set <code>SEEREEL_AGENT_PLAN_TOKEN</code> in the agent runtime environment.</li>
         </ol>
-        <pre><code>reelyai configure --base-url https://reelyai.app --agent-plan-token "&lt;human-pastes-key-here&gt;"</code></pre>
+        <pre><code>seereelcli configure --base-url https://seereel.studio --agent-plan-token "&lt;human-pastes-key-here&gt;"</code></pre>
         <p>
-          The browser key and CLI key are separate because ReelyAI isolates visitors by cookie. Treat that isolation as a safety feature, and use <code>handoffUrl</code> when a human should claim a CLI-created session for browser editing.
+          The browser key and CLI key are separate because SeeReel isolates visitors by cookie. Treat that isolation as a safety feature, and use <code>handoffUrl</code> when a human should claim a CLI-created session for browser editing.
         </p>
       </section>
 
       <section>
         <h2>Install the CLI</h2>
         <h3>Install from npm</h3>
-        <pre><code>npm install -g reelyai
-reelyai --help</code></pre>
+        <pre><code>npm install -g seereelcli
+seereelcli --help</code></pre>
 
         <h3>Install the AI skill bundled with the CLI</h3>
-        <pre><code>reelyai skill install --agent all
-reelyai skill print</code></pre>
+        <pre><code>seereelcli skill install --agent all
+seereelcli skill print</code></pre>
         <p>
           The npm package includes the <code>reelyai-cli</code> skill. Installing it gives Codex, Claude Code,
           Cursor Agent, and other local agent runtimes the operating procedure for using the CLI safely.
@@ -289,14 +289,14 @@ reelyai skill print</code></pre>
           <summary>Bundled skill source for AI agents that cannot install immediately</summary>
           <pre><code>---
 name: reelyai-cli
-description: Use the local ReelyAI CLI to create, inspect, edit, render, review, repair, and stitch web-visible ReelyAI video workflows from natural language. Trigger when the user asks an AI agent to use ReelyAI, reelyai.app, the ReelyAI CLI, generate a web workflow, operate a shot/node prompt, generate a tailframe, run VLM review, repair prompts, publish storyboards to TOS, or produce a complete video through the site.
+description: Use the local SeeReel CLI to create, inspect, edit, render, review, repair, and stitch web-visible SeeReel video workflows from natural language. Trigger when the user asks an AI agent to use SeeReel, seereel.studio, the SeeReel CLI, generate a web workflow, operate a shot/node prompt, generate a tailframe, run VLM review, repair prompts, publish storyboards to TOS, or produce a complete video through the site.
 ---
 
-# ReelyAI CLI
+# SeeReel CLI
 
-Use this skill when the user wants an AI agent to operate ReelyAI through the local CLI instead of manually clicking the web UI.
+Use this skill when the user wants an AI agent to operate SeeReel through the local CLI instead of manually clicking the web UI.
 
-ReelyAI has two surfaces:
+SeeReel has two surfaces:
 
 - Web app: human review and takeover surface.
 - CLI/API: agent operation surface. Everything important must remain visible in the web app.
@@ -309,14 +309,14 @@ For real generation, the human must:
 
 1. Open/pay for Volcengine Agent Plan.
 2. Create an Agent Plan API key in Ark.
-3. Paste it into the ReelyAI web top-bar Agent Plan control for browser/manual work.
+3. Paste it into the SeeReel web top-bar Agent Plan control for browser/manual work.
 4. For CLI automation, either run:
 
 ```bash
-reelyai configure --base-url https://reelyai.app --agent-plan-token "&lt;human-pastes-key-here&gt;"
+seereelcli configure --base-url https://seereel.studio --agent-plan-token "&lt;human-pastes-key-here&gt;"
 ```
 
-or set `REELYAI_AGENT_PLAN_TOKEN` / `ARK_AGENT_PLAN_KEY` in the AI runtime environment.
+or set `SEEREEL_AGENT_PLAN_TOKEN` / `ARK_AGENT_PLAN_KEY` in the AI runtime environment.
 
 Browser credentials and CLI credentials are cookie-scoped separately. Treat that isolation as intentional. A raw `webUrl` belongs to the CLI cookie scope; return `handoffUrl` when a human needs to open and continue editing the AI-created workflow in a normal browser.
 
@@ -325,20 +325,20 @@ Browser credentials and CLI credentials are cookie-scoped separately. Treat that
 If the npm package is published:
 
 ```bash
-npm install -g reelyai
-reelyai skill install --agent all
+npm install -g seereelcli
+seereelcli skill install --agent all
 ```
 
-The npm package bundles this skill. `reelyai skill install --agent all` copies it into local Codex, Claude, Cursor, and generic `.agents` skill folders. `reelyai skill print` prints the bundled `SKILL.md` when an agent needs to read or mirror it manually.
+The npm package bundles this skill. `seereelcli skill install --agent all` copies it into local Codex, Claude, Cursor, and generic `.agents` skill folders. `seereelcli skill print` prints the bundled `SKILL.md` when an agent needs to read or mirror it manually.
 
 Current repo-local install:
 
 ```bash
-git clone https://github.com/feifeibear/reelyai-agent.git
-cd reelyai-agent
+git clone https://github.com/feifeibear/seereel-agent.git
+cd seereel-agent
 npm install
 npm install -g ./packages/reelyai-cli
-reelyai --help
+seereelcli --help
 ```
 
 From repo root without global install:
@@ -349,22 +349,22 @@ npm run cli -- --help
 
 ## Configure
 
-Default base URL is `https://reelyai.app`.
+Default base URL is `https://seereel.studio`.
 
 ```bash
-reelyai configure --base-url https://reelyai.app
+seereelcli configure --base-url https://seereel.studio
 ```
 
 If the deployment requires a shared access token:
 
 ```bash
-reelyai configure --access-token "$REELYAI_ACCESS_TOKEN"
+seereelcli configure --access-token "$SEEREEL_ACCESS_TOKEN"
 ```
 
 For local development:
 
 ```bash
-reelyai configure --base-url http://localhost:5173
+seereelcli configure --base-url http://localhost:5173
 ```
 
 ## Review-First Default Flow
@@ -372,7 +372,7 @@ reelyai configure --base-url http://localhost:5173
 Default: create a visible workflow, then stop for human review.
 
 ```bash
-reelyai workflow "一个失眠导演在午夜便利店遇见未来的自己" \
+seereelcli workflow "一个失眠导演在午夜便利店遇见未来的自己" \
   --duration 60 \
   --style "neo-noir, rain reflections, grounded sci-fi" \
   --json
@@ -381,7 +381,7 @@ reelyai workflow "一个失眠导演在午夜便利店遇见未来的自己" \
 Return the one-time `handoffUrl` to the user, not the raw `webUrl`. It should look like:
 
 ```text
-https://reelyai.app/api/handoff/xxxxxxxx
+https://seereel.studio/api/handoff/xxxxxxxx
 ```
 
 Tell the human the handoff link transfers the session from the CLI cookie identity to their current browser identity, then they can edit script, shot prompts, assets, duration, references, and generation choices in the web UI. After a handoff is claimed, keep using the browser/web UI as source of truth unless the human asks you to continue from a CLI-owned session.
@@ -391,14 +391,14 @@ Tell the human the handoff link transfers the session from the CLI cookie identi
 Only continue after the human confirms Agent Plan is configured and the workflow is acceptable.
 
 ```bash
-reelyai status --session latest --deep --json
-reelyai render --session latest --stitch --progress --json
+seereelcli status --session latest --deep --json
+seereelcli render --session latest --stitch --progress --json
 ```
 
 If the human explicitly asks for full automation:
 
 ```bash
-reelyai workflow "用户的视频创意" --duration 60 --render --stitch --jsonl
+seereelcli workflow "用户的视频创意" --duration 60 --render --stitch --jsonl
 ```
 
 Report the final `downloadUrl`. If a shot fails, report the shot id and failure; do not silently skip it. Use `--stitch-partial` only when the human accepts a shorter cut made from ready shots.
@@ -406,7 +406,7 @@ Report the final `downloadUrl`. If a shot fails, report the shot id and failure;
 Download locally with:
 
 ```bash
-reelyai download --session latest --output ./final.mp4
+seereelcli download --session latest --output ./final.mp4
 ```
 
 ## Node Operations
@@ -414,15 +414,15 @@ reelyai download --session latest --output ./final.mp4
 Inspect one node:
 
 ```bash
-reelyai node get --id shot_xxxxxxxx --json
-reelyai node get --id asset_xxxxxxxx --json
-reelyai node get --id ses_xxxxxxxx --json
+seereelcli node get --id shot_xxxxxxxx --json
+seereelcli node get --id asset_xxxxxxxx --json
+seereelcli node get --id ses_xxxxxxxx --json
 ```
 
 Update a video node prompt:
 
 ```bash
-reelyai node update-prompt --id shot_xxxxxxxx \
+seereelcli node update-prompt --id shot_xxxxxxxx \
   --prompt "新的 Seedance 视频 prompt，保留角色服装和场景连续性" \
   --title "03 重新追上自己" \
   --duration 15 \
@@ -432,14 +432,14 @@ reelyai node update-prompt --id shot_xxxxxxxx \
 Generate or poll one video node:
 
 ```bash
-reelyai node generate --id shot_xxxxxxxx --wait --json
-reelyai node poll --id shot_xxxxxxxx --json
+seereelcli node generate --id shot_xxxxxxxx --wait --json
+seereelcli node poll --id shot_xxxxxxxx --json
 ```
 
 Generate a rendered shot tailframe:
 
 ```bash
-reelyai node tailframe --id shot_xxxxxxxx --publish-tos --canvas-node --json
+seereelcli node tailframe --id shot_xxxxxxxx --publish-tos --canvas-node --json
 ```
 
 Use `--publish-tos` when the tailframe will be used as a Seedance reference. Seedance cannot fetch local `/media/...` URLs.
@@ -447,24 +447,24 @@ Use `--publish-tos` when the tailframe will be used as a Seedance reference. See
 Open VLM review and repair:
 
 ```bash
-reelyai node review --id shot_xxxxxxxx --frame-count 8 --json
-reelyai node repair --id shot_xxxxxxxx --json
-reelyai final-review --session latest --json
-reelyai final-review --session latest --repair --json
+seereelcli node review --id shot_xxxxxxxx --frame-count 8 --json
+seereelcli node repair --id shot_xxxxxxxx --json
+seereelcli final-review --session latest --json
+seereelcli final-review --session latest --repair --json
 ```
 
 Operate asset nodes:
 
 ```bash
-reelyai node update-prompt --id asset_xxxxxxxx --prompt "角色参考图 prompt" --json
-reelyai node generate --id asset_xxxxxxxx --model seedream-5-lite --json
-reelyai node review --id asset_xxxxxxxx --json
+seereelcli node update-prompt --id asset_xxxxxxxx --prompt "角色参考图 prompt" --json
+seereelcli node generate --id asset_xxxxxxxx --model seedream-5-lite --json
+seereelcli node review --id asset_xxxxxxxx --json
 ```
 
 Publish storyboard references to TOS:
 
 ```bash
-reelyai publish-storyboards --session latest --json
+seereelcli publish-storyboards --session latest --json
 ```
 
 ## Rules
@@ -473,51 +473,51 @@ reelyai publish-storyboards --session latest --json
 - Always use `--json` when you need to parse results.
 - Use `--jsonl` or `--progress` for long render/stitch runs so the agent can observe progress without polling `/api/state` in another shell.
 - Refresh status before continuing after a human web edit.
-- Browser credentials and CLI credentials are cookie-scoped separately. Raw `webUrl` may not be visible in a bare browser; use `reelyai handoff --session latest --json` and return the one-time `handoffUrl` for human takeover.
+- Browser credentials and CLI credentials are cookie-scoped separately. Raw `webUrl` may not be visible in a bare browser; use `seereelcli handoff --session latest --json` and return the one-time `handoffUrl` for human takeover.
 - Do not call paid generation before Agent Plan is configured and the human has approved continuing.
-- Keep local scratch media out of the final story; ReelyAI web state is the source of truth.
+- Keep local scratch media out of the final story; SeeReel web state is the source of truth.
 - For Seedance references, only remote `http(s)` URLs are valid. Publish local references to TOS first.</code></pre>
         </details>
 
         <h3>Repo-local fallback</h3>
-        <pre><code>git clone https://github.com/feifeibear/reelyai-agent.git
-cd reelyai-agent
+        <pre><code>git clone https://github.com/feifeibear/seereel-agent.git
+cd seereel-agent
 npm install
 npm install -g ./packages/reelyai-cli
-reelyai skill install --agent all</code></pre>
+seereelcli skill install --agent all</code></pre>
       </section>
 
       <section>
         <h2>Create a reviewable workflow</h2>
         <p>Start here. This is low risk because it creates visible planning nodes and stops before paid video rendering.</p>
-        <pre><code>reelyai workflow "一个失眠导演在午夜便利店遇见未来的自己" \
-  --base-url https://reelyai.app \
+        <pre><code>seereelcli workflow "一个失眠导演在午夜便利店遇见未来的自己" \
+  --base-url https://seereel.studio \
   --duration 60 \
   --style "neo-noir, rain reflections, grounded sci-fi" \
   --json</code></pre>
         <p>Return the one-time <code>handoffUrl</code> to the human, not the raw <code>webUrl</code>. It should look like:</p>
-        <pre><code>https://reelyai.app/api/handoff/xxxxxxxx</code></pre>
+        <pre><code>https://seereel.studio/api/handoff/xxxxxxxx</code></pre>
         <p>The handoff link transfers the CLI-created session to the current browser cookie so the human can continue editing the AI workflow.</p>
       </section>
 
       <section>
         <h2>Generate the full video</h2>
         <p>Only continue after the human confirms Agent Plan is configured and the web workflow looks acceptable.</p>
-        <pre><code>reelyai status --session latest --deep --json
-reelyai render --session latest --stitch --progress --json</code></pre>
+        <pre><code>seereelcli status --session latest --deep --json
+seereelcli render --session latest --stitch --progress --json</code></pre>
         <p>Or create, render, and stitch in one run when the human explicitly asks for full automation:</p>
-        <pre><code>reelyai workflow "用户的视频创意" --duration 60 --render --stitch --jsonl</code></pre>
+        <pre><code>seereelcli workflow "用户的视频创意" --duration 60 --render --stitch --jsonl</code></pre>
         <p>
           Poll until the CLI returns a final <code>downloadUrl</code>. If a shot fails, report the failed shot id and let the human edit or ask you to retry.
           Use <code>--stitch-partial</code> only when the human accepts a shorter cut from ready shots.
         </p>
         <h3>Recovery runbook</h3>
-        <pre><code>reelyai status --session latest --deep --json
-reelyai node poll --id shot_xxxxxxxx --json
-reelyai node update-prompt --id shot_xxxxxxxx --prompt "safer Seedance prompt" --duration 8 --json
-reelyai render --session latest --repair-policy safe-retry --max-attempts 2 --stitch-partial --progress --json</code></pre>
+        <pre><code>seereelcli status --session latest --deep --json
+seereelcli node poll --id shot_xxxxxxxx --json
+seereelcli node update-prompt --id shot_xxxxxxxx --prompt "safer Seedance prompt" --duration 8 --json
+seereelcli render --session latest --repair-policy safe-retry --max-attempts 2 --stitch-partial --progress --json</code></pre>
         <h3>Download locally</h3>
-        <pre><code>reelyai download --session latest --output ./final.mp4</code></pre>
+        <pre><code>seereelcli download --session latest --output ./final.mp4</code></pre>
       </section>
 
       <section>
@@ -525,55 +525,55 @@ reelyai render --session latest --repair-policy safe-retry --max-attempts 2 --st
         <p>Use these when the human edits the workflow or asks you to operate one canvas node precisely.</p>
 
         <h3>Inspect one node</h3>
-        <pre><code>reelyai node get --id shot_xxxxxxxx --json
-reelyai node get --id asset_xxxxxxxx --json
-reelyai node get --id ses_xxxxxxxx --json</code></pre>
+        <pre><code>seereelcli node get --id shot_xxxxxxxx --json
+seereelcli node get --id asset_xxxxxxxx --json
+seereelcli node get --id ses_xxxxxxxx --json</code></pre>
 
         <h3>Update a video node prompt</h3>
-        <pre><code>reelyai node update-prompt --id shot_xxxxxxxx \
+        <pre><code>seereelcli node update-prompt --id shot_xxxxxxxx \
   --prompt "新的 Seedance 视频 prompt，保留角色服装和场景连续性" \
   --title "03 重新追上自己" \
   --duration 15 \
   --json</code></pre>
 
         <h3>Generate or poll a single video node</h3>
-        <pre><code>reelyai node generate --id shot_xxxxxxxx --wait --json
-reelyai node poll --id shot_xxxxxxxx --json</code></pre>
+        <pre><code>seereelcli node generate --id shot_xxxxxxxx --wait --json
+seereelcli node poll --id shot_xxxxxxxx --json</code></pre>
 
         <h3>Generate a shot tailframe</h3>
-        <pre><code>reelyai node tailframe --id shot_xxxxxxxx --publish-tos --canvas-node --json</code></pre>
+        <pre><code>seereelcli node tailframe --id shot_xxxxxxxx --publish-tos --canvas-node --json</code></pre>
         <p>
           Use <code>--publish-tos</code> when the tailframe will become a Seedance reference. Remote Seedance cannot fetch local <code>/media/...</code> URLs.
         </p>
 
         <h3>Open VLM review and repair prompts</h3>
-        <pre><code>reelyai node review --id shot_xxxxxxxx --frame-count 8 --json
-reelyai node repair --id shot_xxxxxxxx --json
-reelyai final-review --session latest --json
-reelyai final-review --session latest --repair --json</code></pre>
+        <pre><code>seereelcli node review --id shot_xxxxxxxx --frame-count 8 --json
+seereelcli node repair --id shot_xxxxxxxx --json
+seereelcli final-review --session latest --json
+seereelcli final-review --session latest --repair --json</code></pre>
 
         <h3>Assets and storyboards</h3>
-        <pre><code>reelyai node update-prompt --id asset_xxxxxxxx --prompt "角色参考图 prompt" --json
-reelyai node generate --id asset_xxxxxxxx --model seedream-5-lite --json
-reelyai node review --id asset_xxxxxxxx --json
-reelyai publish-storyboards --session latest --json</code></pre>
+        <pre><code>seereelcli node update-prompt --id asset_xxxxxxxx --prompt "角色参考图 prompt" --json
+seereelcli node generate --id asset_xxxxxxxx --model seedream-5-lite --json
+seereelcli node review --id asset_xxxxxxxx --json
+seereelcli publish-storyboards --session latest --json</code></pre>
       </section>
 
       <section>
         <h2>Operational rules for AI agents</h2>
         <ul class="checklist">
-          <li>Use ReelyAI API/CLI state as the source of truth. Do not hide generated media in private scratch folders.</li>
+          <li>Use SeeReel API/CLI state as the source of truth. Do not hide generated media in private scratch folders.</li>
           <li>Refresh status before continuing after any human web edit.</li>
           <li>Use <code>--progress</code> or <code>--jsonl</code> for long render runs instead of opening a second shell to guess progress from <code>/api/state</code>.</li>
           <li>Browser and CLI sessions are cookie-scoped separately; raw <code>webUrl</code> may not be visible in a normal browser, so return <code>handoffUrl</code> for human takeover.</li>
           <li>Do not call paid video generation until Agent Plan is configured and the human has approved continuing.</li>
-          <li>For local development, replace the base URL with <code>http://localhost:5173</code> or <code>REELYAI_AGENT_BASE_URL</code>.</li>
-          <li>If the public backend requires a shared access token, use <code>REELYAI_ACCESS_TOKEN</code> or <code>--access-token</code>.</li>
+          <li>For local development, replace the base URL with <code>http://localhost:5173</code> or <code>SEEREEL_AGENT_BASE_URL</code>.</li>
+          <li>If the public backend requires a shared access token, use <code>SEEREEL_ACCESS_TOKEN</code> or <code>--access-token</code>.</li>
         </ul>
       </section>
 
       <footer>
-        ReelyAI keeps the web canvas human-editable: sessions, scripts, shots, assets, renders, stitch state, and final videos remain visible in the app.
+        SeeReel keeps the web canvas human-editable: sessions, scripts, shots, assets, renders, stitch state, and final videos remain visible in the app.
       </footer>
     </main>
     <script>

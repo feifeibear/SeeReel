@@ -1,6 +1,6 @@
 # Agent-Native Short Drama Workflow
 
-ReelyAI positions the web app as a production state layer for short-drama agents.
+SeeReel positions the web app as a production state layer for short-drama agents.
 
 The intended user experience is conversational first: the creator works with Codex, Cursor Agent, Claude Code, or another agent framework to develop the short drama. The agent can brainstorm story, cast roles, generate visual references, import assets, publish references, submit Seedance shots, recover failures, and stitch the final cut. The web app remains open as the inspectable production board.
 
@@ -10,7 +10,7 @@ Agent:
 
 - expands a loose idea into premise, synopsis, characters, beats, and shots
 - chooses when to use Codex imagegen, Seedream, or imported references
-- calls ReelyAI APIs and scripts to keep the app state current
+- calls SeeReel APIs and scripts to keep the app state current
 - handles long-running Seedance generation, polling, retries, and stitching
 
 Web app:
@@ -53,15 +53,15 @@ runtimes, `--agent all` to force every known target, and `--skill <name>` for a 
 All image providers should normalize into the same downstream flow:
 
 ```text
-image provider -> local media file or data URL -> ReelyAI asset/sketch import -> TOS publish -> Seedance reference_image
+image provider -> local media file or data URL -> SeeReel asset/sketch import -> TOS publish -> Seedance reference_image
 ```
 
-Codex imagegen is one provider. Seedream, OpenAI, Liblib, or internal image services can use the same path as long as they produce an image that can be imported into ReelyAI.
+Codex imagegen is one provider. Seedream, OpenAI, Liblib, or internal image services can use the same path as long as they produce an image that can be imported into SeeReel.
 
 For one Seedance shot, prefer this storyboard sequence:
 
 ```text
-shot script -> 3x3 cinematic storyboard contact sheet -> human approval -> clean keyframe/upscaled panel -> ReelyAI import -> TOS publish -> Seedance generation
+shot script -> 3x3 cinematic storyboard contact sheet -> human approval -> clean keyframe/upscaled panel -> SeeReel import -> TOS publish -> Seedance generation
 ```
 
 The contact sheet is best for planning and review. A clean keyframe is usually better as a direct Seedance `reference_image`.

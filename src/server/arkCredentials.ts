@@ -24,7 +24,7 @@ export function resolveArkCredential(opts: ResolveArkCredentialOpts): ArkCredent
   const agentPlanKey = env("ARK_AGENT_PLAN_KEY", "AGENT_PLAN_API_KEY", "VOLCENGINE_AGENT_PLAN_KEY");
   const standardKey = env(...opts.keyEnvNames);
   const standardBase = (env(...opts.baseEnvNames) || opts.defaultBase).replace(/\/$/, "");
-  const preferAgentPlan = opts.preferAgentPlan ?? (isEnabled("REELYAI_USE_AGENT_PLAN") || env("REELYAI_CREDENTIAL_MODE") === "agent-plan");
+  const preferAgentPlan = opts.preferAgentPlan ?? (isEnabled("SEEREEL_USE_AGENT_PLAN", "REELYAI_USE_AGENT_PLAN") || env("SEEREEL_CREDENTIAL_MODE", "REELYAI_CREDENTIAL_MODE") === "agent-plan");
   const allowRequestAgentPlan = opts.allowRequestAgentPlan ?? true;
   const allowEnvAgentPlan = opts.allowEnvAgentPlan ?? true;
 
@@ -62,8 +62,8 @@ function agentPlanBase() {
   return (env("ARK_AGENT_PLAN_BASE", "AGENT_PLAN_API_BASE") || ARK_AGENT_PLAN_BASE).replace(/\/$/, "");
 }
 
-function isEnabled(name: string) {
-  return /^(1|true|yes|on)$/i.test(env(name) || "");
+function isEnabled(...names: string[]) {
+  return /^(1|true|yes|on)$/i.test(env(...names) || "");
 }
 
 function env(...keys: string[]) {

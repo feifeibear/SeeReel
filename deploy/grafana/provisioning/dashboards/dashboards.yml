@@ -1,9 +1,9 @@
 apiVersion: 1
 
 providers:
-  - name: ReelyAI
+  - name: SeeReel
     orgId: 1
-    folder: ReelyAI
+    folder: SeeReel
     type: file
     disableDeletion: false
     updateIntervalSeconds: 30

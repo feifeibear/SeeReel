@@ -1,8 +1,8 @@
-const baseUrl = (process.env.REELYAI_BASE_URL || process.env.APP_PUBLIC_URL || "http://127.0.0.1:5173").replace(/\/$/, "");
-const accessToken = (process.env.REELYAI_ACCESS_TOKEN || "").trim();
+const baseUrl = (process.env.SEEREEL_BASE_URL || process.env.REELYAI_BASE_URL || process.env.APP_PUBLIC_URL || "http://127.0.0.1:5173").replace(/\/$/, "");
+const accessToken = (process.env.SEEREEL_ACCESS_TOKEN || process.env.REELYAI_ACCESS_TOKEN || "").trim();
 
 function authHeaders(extra?: Record<string, string>) {
-  return { accept: "application/json", ...(accessToken ? { "x-reelyai-access": accessToken } : {}), ...extra };
+  return { accept: "application/json", ...(accessToken ? { "x-seereel-access": accessToken, "x-reelyai-access": accessToken } : {}), ...extra };
 }
 
 async function getJson(path: string) {

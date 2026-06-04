@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-const baseUrl = (process.env.REELYAI_SMOKE_BASE_URL || "http://localhost:5174").replace(/\/+$/, "");
+const baseUrl = (process.env.SEEREEL_SMOKE_BASE_URL || process.env.REELYAI_SMOKE_BASE_URL || "http://localhost:5174").replace(/\/+$/, "");
 
 class CookieJar {
   cookies = new Map();
@@ -86,11 +86,10 @@ try {
   const handoff = await request(agent, `/api/sessions/${encodeURIComponent(sessionId)}/handoff`, { method: "POST" });
   assert(handoff.body.handoffUrl, "handoffUrl missing");
   assert(handoff.body.webUrlVisibleInBrowser === false, "handoff response should flag raw webUrl as not browser-visible");
-  const handoffUrl = new URL(handoff.body.handoffUrl);
-  const token = handoff.body.handoffToken || handoffUrl.pathname.split("/").pop();
+  const token = handoff.body.handoffToken || new URL(handoff.body.handoffUrl).pathname.split("/").pop();
   assert(token, "handoff token missing");
 
-  const claim = await request(browser, `${handoffUrl.pathname}${handoffUrl.search}`, {
+  const claim = await request(browser, `/handoff/${encodeURIComponent(token)}`, {
     redirect: "manual",
     expectOk: false
   });

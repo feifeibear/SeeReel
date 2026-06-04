@@ -1,7 +1,7 @@
 import { strict as assert } from "node:assert";
 import { spawn, type ChildProcess } from "node:child_process";
 
-const baseUrl = process.env.REELYAI_BASE_URL || "http://127.0.0.1:5173";
+const baseUrl = process.env.SEEREEL_BASE_URL || process.env.REELYAI_BASE_URL || "http://127.0.0.1:5173";
 let cookieHeader = "";
 
 function rememberCookies(headers: Headers) {

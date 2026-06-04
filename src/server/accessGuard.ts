@@ -7,11 +7,11 @@ import { incCounter } from "./metrics";
  *
  * Rationale: the backend has no real authentication — any client that can reach the server can call
  * every paid generation API and read the full app state. This guard is the smallest viable mitigation
- * for money/compliance risk on a public deployment: a single shared `REELYAI_ACCESS_TOKEN`.
+ * for money/compliance risk on a public deployment: a single shared `SEEREEL_ACCESS_TOKEN`.
  *
  * Behaviour:
  *  - Token env unset  -> gate disabled (local dev keeps zero friction; fully back-compatible).
- *  - Token env set    -> sensitive routes require a matching `x-reelyai-access` header (or cookie),
+ *  - Token env set    -> sensitive routes require a matching `x-seereel-access` header (or cookie),
  *                        otherwise respond 401. Probes (`/api/healthz`, `/api/readyz`) stay open so
  *                        load balancers and uptime checks are unaffected.
  *
@@ -19,14 +19,14 @@ import { incCounter } from "./metrics";
  * leak data or internals (`/api/state`, `/api/diagnostics`).
  */
 
-const ACCESS_HEADER = "x-reelyai-access";
-const ACCESS_COOKIE = "reelyai_access";
+const ACCESS_HEADERS = ["x-seereel-access", "x-reelyai-access"];
+const ACCESS_COOKIES = ["seereel_access", "reelyai_access"];
 
 const SENSITIVE_READ_PATHS = new Set(["/api/state", "/api/diagnostics"]);
 const ALWAYS_OPEN_PATHS = new Set(["/api/healthz", "/api/readyz"]);
 
 function configuredToken() {
-  const raw = process.env.REELYAI_ACCESS_TOKEN;
+  const raw = process.env.SEEREEL_ACCESS_TOKEN || process.env.REELYAI_ACCESS_TOKEN;
   const token = typeof raw === "string" ? raw.trim() : "";
   return token.length > 0 ? token : undefined;
 }
@@ -42,10 +42,15 @@ function isSensitive(req: Request) {
 }
 
 function presentedToken(req: Request) {
-  const header = req.header(ACCESS_HEADER);
-  if (typeof header === "string" && header.trim()) return header.trim();
-  const cookie = parseCookies(req.headers.cookie || "")[ACCESS_COOKIE];
-  if (typeof cookie === "string" && cookie.trim()) return cookie.trim();
+  for (const name of ACCESS_HEADERS) {
+    const header = req.header(name);
+    if (typeof header === "string" && header.trim()) return header.trim();
+  }
+  const cookies = parseCookies(req.headers.cookie || "");
+  for (const name of ACCESS_COOKIES) {
+    const cookie = cookies[name];
+    if (typeof cookie === "string" && cookie.trim()) return cookie.trim();
+  }
   return undefined;
 }
 

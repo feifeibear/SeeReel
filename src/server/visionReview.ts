@@ -11,13 +11,13 @@ const VISION_KEY_ENVS = ["VISION_REVIEW_API_KEY", "SEED_PROMPT_API_KEY", "BP_ARK
 const DEFAULT_AGENT_PLAN_VISION_MODEL = "doubao-seed-2.0-pro";
 
 function useAgentPlanForVisionReview() {
-  const value = process.env.REELYAI_VISION_REVIEW_USE_AGENT_PLAN?.trim();
+  const value = (process.env.SEEREEL_VISION_REVIEW_USE_AGENT_PLAN || process.env.REELYAI_VISION_REVIEW_USE_AGENT_PLAN)?.trim();
   if (!value) return true;
   return /^(1|true|yes|on)$/i.test(value);
 }
 
 function useEnvAgentPlanForVisionReview() {
-  return /^(1|true|yes|on)$/i.test(process.env.REELYAI_VISION_REVIEW_USE_AGENT_PLAN || "");
+  return /^(1|true|yes|on)$/i.test(process.env.SEEREEL_VISION_REVIEW_USE_AGENT_PLAN || process.env.REELYAI_VISION_REVIEW_USE_AGENT_PLAN || "");
 }
 
 const reviewCredential = () =>

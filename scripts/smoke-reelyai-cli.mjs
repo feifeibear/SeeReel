@@ -4,13 +4,13 @@ import { promisify } from "node:util";
 
 const execFileAsync = promisify(execFile);
 const cli = "packages/reelyai-cli/bin/reelyai.js";
-const baseUrl = process.env.REELYAI_SMOKE_BASE_URL || "http://localhost:5174";
+const baseUrl = process.env.SEEREEL_SMOKE_BASE_URL || process.env.REELYAI_SMOKE_BASE_URL || "http://localhost:5174";
 
 async function runCli(args) {
   const { stdout, stderr } = await execFileAsync(process.execPath, [cli, ...args], {
     env: {
       ...process.env,
-      REELYAI_CLI_HOME: process.env.REELYAI_CLI_HOME || "/tmp/reelyai-cli-smoke"
+      SEEREEL_CLI_HOME: process.env.SEEREEL_CLI_HOME || process.env.REELYAI_CLI_HOME || "/tmp/seereel-cli-smoke"
     },
     maxBuffer: 5 * 1024 * 1024
   });
@@ -24,8 +24,9 @@ async function main() {
   assert.match(help.stdout, /--stitch-partial/);
   assert.match(help.stdout, /--repair-policy <none\|safe-retry>/);
   assert.match(help.stdout, /--max-attempts <n>/);
-  assert.match(help.stdout, /reelyai download --session <sessionId\|latest> --output \.\/final\.mp4/);
-  assert.match(help.stdout, /reelyai handoff --session <sessionId\|latest> \[--open\]/);
+  assert.match(help.stdout, /seereelcli download --session <sessionId\|latest> --output \.\/final\.mp4/);
+  assert.match(help.stdout, /seereelcli handoff --session <sessionId\|latest> \[--open\]/);
+  assert.match(help.stdout, /Default: \.\/seereel-<sessionId>\.mp4/);
 
   const status = await runCli(["status", "--base-url", baseUrl, "--session", "latest", "--deep", "--json"]);
   const parsed = JSON.parse(status.stdout);

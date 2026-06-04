@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="docs/reelyai-logo.png" alt="ReelyAI" width="360" />
+  <img src="docs/seereel-logo.png" alt="SeeReel" width="360" />
 </p>
 
 <p align="center">
@@ -7,7 +7,7 @@
 </p>
 
 <p align="center">
-  Create reviewable video workflows with Codex, Claude Code, Cursor Agent, and the ReelyAI canvas — powered by <a href="https://www.volcengine.com/docs/82379/2366394?lang=zh">Volcengine Agent Plan</a>.
+  Create reviewable video workflows with Codex, Claude Code, Cursor Agent, and the SeeReel canvas — powered by <a href="https://www.volcengine.com/docs/82379/2366394?lang=zh">Volcengine Agent Plan</a>.
 </p>
 
 <p align="center">
@@ -15,30 +15,30 @@
 </p>
 
 <p align="center">
-  <a href="https://reelyai.app/"><strong>🎬 Live demo → reelyai.app</strong></a>
+  <a href="https://seereel.studio/"><strong>🎬 Live demo → seereel.studio</strong></a>
 </p>
 
 <p align="center">
   <sub>Public canvas — bring your own <a href="https://www.volcengine.com/activity/agentplan">Agent Plan</a> key in the top bar</sub>
 </p>
 
-ReelyAI lets you create a short video by talking to an agent in **Codex, Claude Code, Cursor Agent, or any AGENTS.md-compatible runtime**. The agent turns your creative instruction into a visible canvas workflow: character and scene assets, storyboard boards, Seedance video nodes, review nodes, stitch jobs, and the final downloadable cut.
+SeeReel lets you create a short video by talking to an agent in **Codex, Claude Code, Cursor Agent, or any AGENTS.md-compatible runtime**. The agent turns your creative instruction into a visible canvas workflow: character and scene assets, storyboard boards, Seedance video nodes, review nodes, stitch jobs, and the final downloadable cut.
 
-**ReelyAI is built to showcase [Volcengine Agent Plan](https://www.volcengine.com/docs/82379/2366394?lang=zh).** One Agent Plan subscription can fuel the core short-film generation loop — **Seedream** reference images and **Seedance 2.0** shot videos — through a single API key and the dedicated `/api/plan/v3` route, with session-level token usage visible in the canvas.
+**SeeReel is built to showcase [Volcengine Agent Plan](https://www.volcengine.com/docs/82379/2366394?lang=zh).** One Agent Plan subscription can fuel the core short-film generation loop — **Seedream** reference images and **Seedance 2.0** shot videos — through a single API key and the dedicated `/api/plan/v3` route, with session-level token usage visible in the canvas.
 
 The canvas is not just a progress screen. It is the human takeover surface. You can pause in the middle, edit prompts, reconnect references, regenerate weak nodes, inspect VLM feedback, and change the final result before the agent continues.
 
-![ReelyAI canvas workflow](docs/reelyai-workflow-ui.png)
+![SeeReel canvas workflow](docs/reelyai-workflow-ui.png)
 
 ## Local Agent CLI
 
-Install the repo CLI when you want local Codex or Claude Code to turn one natural-language request into a visible ReelyAI web workflow:
+Install the repo CLI when you want local Codex or Claude Code to turn one natural-language request into a visible SeeReel web workflow:
 
 ```bash
-npm install -g reelyai
-reelyai skill install --agent all
-reelyai configure --base-url https://reelyai.app --access-token "$REELYAI_ACCESS_TOKEN"
-reelyai workflow "a sleepless film director meets his future self in a midnight convenience store" --duration 60
+npm install -g seereelcli
+seereelcli skill install --agent all
+seereelcli configure --base-url https://seereel.studio --access-token "$SEEREEL_ACCESS_TOKEN"
+seereelcli workflow "a sleepless film director meets his future self in a midnight convenience store" --duration 60
 ```
 
 From this repo you can also run it without a global install:
@@ -47,31 +47,31 @@ From this repo you can also run it without a global install:
 npm run cli -- workflow "a sleepless film director meets his future self in a midnight convenience store" --duration 60
 ```
 
-By default the CLI creates the session, generates the script, generates the storyboard/workflow, then returns a shareable `https://reelyai.app/#/s/<sessionId>` URL so a human can review or take over in the canvas. Real video generation is opt-in:
+By default the CLI creates the session, generates the script, generates the storyboard/workflow, then returns a shareable `https://seereel.studio/#/s/<sessionId>` URL so a human can review or take over in the canvas. Real video generation is opt-in:
 
 ```bash
-reelyai render --session latest --stitch
+seereelcli render --session latest --stitch
 ```
 
 Configuration:
 
-- `REELYAI_AGENT_BASE_URL` / `CINEMA_AGENT_BASE_URL` or `--base-url`: switch between production and local servers.
-- `REELYAI_ACCESS_TOKEN` or `--access-token`: shared deployment token when the public backend is gated.
-- `REELYAI_AGENT_PLAN_TOKEN` / `ARK_AGENT_PLAN_KEY` or `--agent-plan-token`: browser-scoped Agent Plan key for Seedream, Seedance, and VLM calls.
-- Local config and cookies live at `~/.reelyai/config.json`; ReelyAI API/state remains the source of truth for sessions, shots, prompts, renders, stitch jobs, and final videos.
+- `SEEREEL_AGENT_BASE_URL` / `CINEMA_AGENT_BASE_URL` or `--base-url`: switch between production and local servers.
+- `SEEREEL_ACCESS_TOKEN` or `--access-token`: shared deployment token when the public backend is gated.
+- `SEEREEL_AGENT_PLAN_TOKEN` / `ARK_AGENT_PLAN_KEY` or `--agent-plan-token`: browser-scoped Agent Plan key for Seedream, Seedance, and VLM calls.
+- Local config and cookies live at `~/.seereel/config.json`; SeeReel API/state remains the source of truth for sessions, shots, prompts, renders, stitch jobs, and final videos.
 
 ## Recommended: Volcengine Agent Plan
 
 [Agent Plan](https://www.volcengine.com/docs/82379/2366394?lang=zh) is Volcengine Ark’s subscription package for **Agent workloads**. Instead of wiring separate pay-as-you-go keys for every model, Agent Plan bundles the models and harness tools an agent actually needs — text, image, video, web search, and memory — and meters usage with **Agent Fuel Points (AFP)**.
 
-| What you get | Why it matters for ReelyAI |
+| What you get | Why it matters for SeeReel |
 | --- | --- |
 | **Doubao-Seed** text models | Script planning, prompt expansion, and agent reasoning |
 | **Doubao-Seedream** (`doubao-seedream-5.0-lite`) | Character, scene, prop, and storyboard reference images |
 | **Doubao-Seedance 2.0** / **2.0-fast** | Multi-shot short-film video generation |
 | **Harness tools** | Web search, embeddings, and other agent-side capabilities documented in the [Agent Plan guide](https://www.volcengine.com/docs/82379/2366394?lang=zh) |
 
-**We recommend Agent Plan as the default way to run ReelyAI generation in production.** The project routes Seedream, Seedance, and VLM review calls through Plan-compatible model names, tracks usage per canvas node, and keeps the UI aligned with the models your plan actually exposes. Standard Ark VLM credentials remain available as a fallback when no browser Plan key is present.
+**We recommend Agent Plan as the default way to run SeeReel generation in production.** The project routes Seedream, Seedance, and VLM review calls through Plan-compatible model names, tracks usage per canvas node, and keeps the UI aligned with the models your plan actually exposes. Standard Ark VLM credentials remain available as a fallback when no browser Plan key is present.
 
 **Quick path**
 
@@ -81,10 +81,10 @@ Configuration:
 
 ```bash
 ARK_AGENT_PLAN_KEY=<your-agent-plan-key>
-REELYAI_USE_AGENT_PLAN=1
+SEEREEL_USE_AGENT_PLAN=1
 ARK_AGENT_PLAN_BASE=https://ark.cn-beijing.volces.com/api/plan/v3
 SEEDREAM_AGENT_PLAN_MODEL=doubao-seedream-5.0-lite
-REELYAI_VISION_REVIEW_USE_AGENT_PLAN=
+SEEREEL_VISION_REVIEW_USE_AGENT_PLAN=
 VISION_REVIEW_AGENT_PLAN_MODEL=doubao-seed-2.0-pro
 VIDEO_ANALYZE_AGENT_PLAN_MODEL=doubao-seed-2.0-pro
 SEEDANCE_AGENT_PLAN_MODEL=doubao-seedance-2-0-260128
@@ -99,11 +99,11 @@ See [Minimum Real-Generation Setup](#minimum-real-generation-setup) for the full
 
 - [Agent Plan package overview](https://www.volcengine.com/docs/82379/2366394?lang=zh)
 - [Connect multimodal generation models](https://www.volcengine.com/docs/82379/2373738?lang=zh)
-- [Build a short-video site with Agent Plan](https://www.volcengine.com/docs/82379/2366394?lang=zh) — ReelyAI is the open-source canvas version of that workflow
+- [Build a short-video site with Agent Plan](https://www.volcengine.com/docs/82379/2366394?lang=zh) — SeeReel is the open-source canvas version of that workflow
 
-## Why ReelyAI
+## Why SeeReel
 
-Most video-generation tools stop at “submit a prompt and hope.” ReelyAI is built around an agent loop where the conversation and the canvas stay synchronized:
+Most video-generation tools stop at “submit a prompt and hope.” SeeReel is built around an agent loop where the conversation and the canvas stay synchronized:
 
 - **Plan**: turn an idea into script beats, shots, prompts, and references.
 - **Build the workflow**: create visible graph nodes for assets, storyboards, videos, reviews, and stitching.
@@ -116,7 +116,7 @@ The core idea: every intermediate artifact stays visible and editable. Nothing i
 
 ## VLM Review Is A First-Class Feature
 
-ReelyAI includes review agents for generated media, not just generation buttons. Each important generation node can be checked by a VLM reviewer, and the latest review summary is shown in the Inspector so humans and agents can make better next moves.
+SeeReel includes review agents for generated media, not just generation buttons. Each important generation node can be checked by a VLM reviewer, and the latest review summary is shown in the Inspector so humans and agents can make better next moves.
 
 | Review surface | What it checks |
 | --- | --- |
@@ -126,14 +126,14 @@ ReelyAI includes review agents for generated media, not just generation buttons.
 | Node review summary | Inspector cards show the latest score, summary, reasons, and suggested fixes |
 | Token usage | Session-level usage panel tracks Seedream / Seedance / review model cost by node |
 
-When review is enabled, ReelyAI can retry image generation with VLM feedback folded back into the prompt. Even when a result is not perfect, the Inspector tells the user what is wrong and how to revise. This makes the product useful for real creative iteration, not only one-shot demos.
+When review is enabled, SeeReel can retry image generation with VLM feedback folded back into the prompt. Even when a result is not perfect, the Inspector tells the user what is wrong and how to revise. This makes the product useful for real creative iteration, not only one-shot demos.
 
 ## Product Flow
 
 ```mermaid
 flowchart LR
   Human[Human director] --> UI[Canvas review UI]
-  Agent[Codex / Claude Code / Cursor Agent] --> API[ReelyAI REST API]
+  Agent[Codex / Claude Code / Cursor Agent] --> API[SeeReel REST API]
   UI --> Store[(Session state)]
   API --> Store
   API --> Seedream[Seedream images]
@@ -176,8 +176,8 @@ Requirements:
 - npm
 
 ```bash
-git clone https://github.com/feifeibear/reelyai-agent.git
-cd reelyai-agent
+git clone https://github.com/feifeibear/seereel-agent.git
+cd seereel-agent
 npm install
 cp .env.example .env
 npm run dev
@@ -197,7 +197,7 @@ Without provider keys, the app still opens and can be explored in mock mode. For
 
 | Capability | Environment |
 | --- | --- |
-| **Recommended** Agent Plan route | `ARK_AGENT_PLAN_KEY` + `REELYAI_USE_AGENT_PLAN=1` — see [Agent Plan section](#recommended-volcengine-agent-plan) |
+| **Recommended** Agent Plan route | `ARK_AGENT_PLAN_KEY` + `SEEREEL_USE_AGENT_PLAN=1` — see [Agent Plan section](#recommended-volcengine-agent-plan) |
 | Fallback Ark model calls | `BP_ARK_API_KEY` / `ARK_API_KEY` / service-specific keys |
 | Seedream images | Agent Plan route (default `doubao-seedream-5.0-lite`) or Ark / `SEEDREAM_API_KEY` |
 | Seedance videos | Agent Plan route (default `doubao-seedance-2-0-260128`) or Ark with Seedance 2.0 access |
@@ -209,10 +209,10 @@ Agent Plan example:
 
 ```bash
 ARK_AGENT_PLAN_KEY=<your-agent-plan-key>
-REELYAI_USE_AGENT_PLAN=1
+SEEREEL_USE_AGENT_PLAN=1
 ARK_AGENT_PLAN_BASE=https://ark.cn-beijing.volces.com/api/plan/v3
 SEEDREAM_AGENT_PLAN_MODEL=doubao-seedream-5.0-lite
-REELYAI_VISION_REVIEW_USE_AGENT_PLAN=
+SEEREEL_VISION_REVIEW_USE_AGENT_PLAN=
 VISION_REVIEW_AGENT_PLAN_MODEL=doubao-seed-2.0-pro
 VIDEO_ANALYZE_AGENT_PLAN_MODEL=doubao-seed-2.0-pro
 SEEDANCE_AGENT_PLAN_MODEL=doubao-seedance-2-0-260128
@@ -323,37 +323,37 @@ a private Postgres container on the ECS and writes a stable encryption secret in
 set the database URL yourself:
 
 ```bash
-REELYAI_DATABASE_URL=postgres://user:password@host:5432/reelyai
-REELYAI_DATABASE_SSL=1
-REELYAI_AGENT_PLAN_KEY_ENCRYPTION_SECRET=$(openssl rand -hex 32)
+SEEREEL_DATABASE_URL=postgres://user:password@host:5432/seereel
+SEEREEL_DATABASE_SSL=1
+SEEREEL_AGENT_PLAN_KEY_ENCRYPTION_SECRET=$(openssl rand -hex 32)
 ```
 
 The admin panel can then list browser-entered Agent Plan keys after login. TOS remains a
 backend-only server credential, preferably with a private bucket and signed URLs.
 
 Public site mode uses anonymous browser ownership. Each visitor gets an isolated session list via
-the `reelyai_user_id` cookie, and `/api/state` only returns that visitor's sessions, assets, and
+the `seereel_user_id` cookie, and `/api/state` only returns that visitor's sessions, assets, and
 shots. Example sessions are runtime/admin content, not source-code fixtures. If a visitor has not
-entered their own Agent Plan key, the server can use `REELYAI_ADMIN_AGENT_PLAN_KEY` for a small
+entered their own Agent Plan key, the server can use `SEEREEL_ADMIN_AGENT_PLAN_KEY` for a small
 free quota:
 
 ```bash
-REELYAI_ADMIN_AGENT_PLAN_KEY=<site-agent-plan-key>
-REELYAI_FREE_TRIAL_LIMIT=10
-REELYAI_FREE_TRIAL_IP_DAILY_CAP=30
-REELYAI_FREE_TRIAL_GLOBAL_DAILY_CAP=300
+SEEREEL_ADMIN_AGENT_PLAN_KEY=<site-agent-plan-key>
+SEEREEL_FREE_TRIAL_LIMIT=10
+SEEREEL_FREE_TRIAL_IP_DAILY_CAP=30
+SEEREEL_FREE_TRIAL_GLOBAL_DAILY_CAP=300
 ```
 
 Once the free quota is used, generation/review APIs return `free_trial_exceeded` and the UI tells
 the visitor to paste their own Agent Plan key.
 
 Site operators can also set the free-trial key from the web console. The UI-stored key is written to
-`data/admin-settings.json` and takes precedence over `REELYAI_ADMIN_AGENT_PLAN_KEY`. Set an operator
+`data/admin-settings.json` and takes precedence over `SEEREEL_ADMIN_AGENT_PLAN_KEY`. Set an operator
 login through private environment variables before enabling the console:
 
 ```bash
-REELYAI_ADMIN_USER=<operator-user>
-REELYAI_ADMIN_PASSWORD=<strong-password>
+SEEREEL_ADMIN_USER=<operator-user>
+SEEREEL_ADMIN_PASSWORD=<strong-password>
 ```
 
 Health check:

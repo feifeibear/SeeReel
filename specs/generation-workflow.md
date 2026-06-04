@@ -1,12 +1,12 @@
 # Generation Workflow
 
 Status: active
-Owner: ReelyAI
+Owner: SeeReel
 Last Reviewed: 2026-06-04
 
 ## Purpose
 
-Define how ReelyAI creates, edits, reviews, retries, and stitches generated media while keeping user-visible canvas state as the source of truth.
+Define how SeeReel creates, edits, reviews, retries, and stitches generated media while keeping user-visible canvas state as the source of truth.
 
 ## Scope
 
@@ -31,14 +31,14 @@ Define how ReelyAI creates, edits, reviews, retries, and stitches generated medi
 
 ## Product Rules
 
-- Canvas state and ReelyAI APIs are the source of truth for prompts, references, renders, review settings, stitch order, and final video URLs.
+- Canvas state and SeeReel APIs are the source of truth for prompts, references, renders, review settings, stitch order, and final video URLs.
 - Manual filesystem recovery is allowed only as a recovery step, and recovered media must be written back into visible app state.
 - The project globally does not generate subtitles as part of video output.
 - Seedance reference inputs must be public or signed `http(s)` URLs, not local `/media/...` preview paths.
 - If a provider request has not been submitted, prompt edits must affect the next submission.
 - If a provider request has already been submitted, UI must make clear whether the current render uses the old prompt and whether retry/regeneration will use the new prompt.
 - Review controls must be interactive and must not be hard-coded differently between local and production.
-- CLI and browser identities are isolated by `reelyai_user_id` cookies. A raw CLI `webUrl` must not be described as browser-visible handoff; agents should return a one-time `handoffUrl` when a human needs to claim and edit the workflow.
+- CLI and browser identities are isolated by `seereel_user_id` cookies. A raw CLI `webUrl` must not be described as browser-visible handoff; agents should return a one-time `handoffUrl` when a human needs to claim and edit the workflow.
 - Handoff links must be unguessable, time-limited, one-time use, and transfer the session owner to the current browser identity before redirecting to the session workspace.
 
 ## Acceptance Criteria
@@ -50,7 +50,7 @@ Define how ReelyAI creates, edits, reviews, retries, and stitches generated medi
 - [ ] Stitching only uses ready shots and records the connected order in visible state.
 - [ ] No generated video workflow emits subtitle files or burns subtitles by default.
 - [ ] A session created under one cookie identity is hidden from a second cookie identity before handoff, visible to the second identity after claiming `handoffUrl`, and no longer visible to the original CLI identity after claim.
-- [ ] CLI `workflow --json` includes `webUrlVisibleInBrowser: false` and a `handoffUrl`; `reelyai handoff --session latest --json` can generate a new handoff link for an existing CLI-owned session.
+- [ ] CLI `workflow --json` includes `webUrlVisibleInBrowser: false` and a `handoffUrl`; `seereelcli handoff --session latest --json` can generate a new handoff link for an existing CLI-owned session.
 
 ## Verification
 

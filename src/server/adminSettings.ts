@@ -32,15 +32,15 @@ function saveSettings() {
 }
 
 function envAdminAgentPlanKey() {
-  return process.env.REELYAI_ADMIN_AGENT_PLAN_KEY?.trim() || undefined;
+  return process.env.SEEREEL_ADMIN_AGENT_PLAN_KEY?.trim() || process.env.REELYAI_ADMIN_AGENT_PLAN_KEY?.trim() || undefined;
 }
 
 function envAdminUsername() {
-  return process.env.REELYAI_ADMIN_USER?.trim() || process.env.ADMIN_USER?.trim() || undefined;
+  return process.env.SEEREEL_ADMIN_USER?.trim() || process.env.REELYAI_ADMIN_USER?.trim() || process.env.ADMIN_USER?.trim() || undefined;
 }
 
 function envAdminPassword() {
-  return process.env.REELYAI_ADMIN_PASSWORD?.trim() || process.env.ADMIN_PASSWORD?.trim() || undefined;
+  return process.env.SEEREEL_ADMIN_PASSWORD?.trim() || process.env.REELYAI_ADMIN_PASSWORD?.trim() || process.env.ADMIN_PASSWORD?.trim() || undefined;
 }
 
 export function currentAdminUsername() {
@@ -79,7 +79,7 @@ export function adminSecurityStatus() {
 }
 
 export function getAdminAgentPlanKey() {
-  if (/^(1|true|yes|on)$/i.test(process.env.REELYAI_DISABLE_ADMIN_AGENT_PLAN || "")) return undefined;
+  if (/^(1|true|yes|on)$/i.test(process.env.SEEREEL_DISABLE_ADMIN_AGENT_PLAN || process.env.REELYAI_DISABLE_ADMIN_AGENT_PLAN || "")) return undefined;
   return settings.adminAgentPlanKey?.trim() || envAdminAgentPlanKey();
 }
 
@@ -102,7 +102,7 @@ export function clearStoredAdminAgentPlanKey() {
 }
 
 export function adminAgentPlanStatus() {
-  if (/^(1|true|yes|on)$/i.test(process.env.REELYAI_DISABLE_ADMIN_AGENT_PLAN || "")) {
+  if (/^(1|true|yes|on)$/i.test(process.env.SEEREEL_DISABLE_ADMIN_AGENT_PLAN || process.env.REELYAI_DISABLE_ADMIN_AGENT_PLAN || "")) {
     return {
       configured: false,
       fingerprint: undefined,

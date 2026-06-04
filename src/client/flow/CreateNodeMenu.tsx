@@ -14,7 +14,7 @@ interface CreateNodeMenuProps {
 
 /**
  * Floating "新建节点" mini-menu shown when the user right-clicks an empty area of the canvas.
- * Project-specific quick-create menu constrained to the node types supported by the ReelyAI
+ * Project-specific quick-create menu constrained to the node types supported by the SeeReel
  * workflow canvas (the design rationale lives in docs/canvas-node-model.md):
  *   - 角色锚 (character)
  *   - 场景锚 (scene)

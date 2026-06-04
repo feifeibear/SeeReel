@@ -1,6 +1,6 @@
-# ReelyAI Agent Guide
+# SeeReel Agent Guide
 
-ReelyAI is an Agent-native short-drama production workstation. Use the agent for creative direction and automation, and use the web app as the review and manual takeover surface.
+SeeReel is an Agent-native short-drama production workstation. Use the agent for creative direction and automation, and use the web app as the review and manual takeover surface.
 
 ## Before Work
 
@@ -33,7 +33,7 @@ npm run install:skill -- --agent all
 Skip automatic postinstall writes with:
 
 ```bash
-REELYAI_SKIP_SKILL_INSTALL=1 npm install
+SEEREEL_SKIP_SKILL_INSTALL=1 npm install
 ```
 
 For a single skill:
@@ -59,10 +59,10 @@ NODE_ENV=production PORT=5174 npm run start
 This repo also ships a local npm CLI package for Codex / Claude Code / Cursor Agent to create visible web workflows from natural language:
 
 ```bash
-npm install -g reelyai
-reelyai skill install --agent all
-reelyai configure --base-url https://reelyai.app --access-token "$REELYAI_ACCESS_TOKEN"
-reelyai workflow "a short video idea in natural language" --duration 60
+npm install -g seereelcli
+seereelcli skill install --agent all
+seereelcli configure --base-url https://seereel.studio --access-token "$SEEREEL_ACCESS_TOKEN"
+seereelcli workflow "a short video idea in natural language" --duration 60
 ```
 
 Repo-local fallback:
@@ -72,7 +72,7 @@ npm install -g ./packages/reelyai-cli
 npm run cli -- workflow "a short video idea in natural language" --duration 60
 ```
 
-Default CLI behavior is intentionally review-first: create/select the CLI cookie-scoped user session, save the prompt as the session logline, generate the script, generate the storyboard/workflow, then return a one-time `handoffUrl` for human takeover in the browser. Raw `webUrl` links belong to the CLI cookie identity and may not be visible in a normal browser. Use `reelyai render --session latest --stitch` only when the user explicitly wants paid video generation to continue.
+Default CLI behavior is intentionally review-first: create/select the CLI cookie-scoped user session, save the prompt as the session logline, generate the script, generate the storyboard/workflow, then return a one-time `handoffUrl` for human takeover in the browser. Raw `webUrl` links belong to the CLI cookie identity and may not be visible in a normal browser. Use `seereelcli render --session latest --stitch` only when the user explicitly wants paid video generation to continue.
 
 ## Operating Model
 
@@ -80,7 +80,7 @@ Default CLI behavior is intentionally review-first: create/select the CLI cookie
 - The app stores and displays scripts, beats, shots, prompts, assets, sketches, renders, stitch state, and final videos.
 - The user can take over in the web UI at any point. Treat manual UI edits as source of truth.
 - Keep generated intermediate results visible in the app; avoid private scratch artifacts unless they are imported afterward.
-- Prefer ReelyAI APIs and persisted canvas state over manual filesystem work. If an existing endpoint can create, import, publish, generate, poll, stitch, cache, or wire an artifact, use it. Manual downloads, `ffmpeg`, or file patches are recovery steps only; immediately write the result back through ReelyAI APIs/state so graph edges, Inspector data, `stitchShotIds`, `referenceVideoFromShotId`, `firstFrameAssetId`, `assetIds`, renders, and `finalVideoUrl` stay auditable in the UI.
+- Prefer SeeReel APIs and persisted canvas state over manual filesystem work. If an existing endpoint can create, import, publish, generate, poll, stitch, cache, or wire an artifact, use it. Manual downloads, `ffmpeg`, or file patches are recovery steps only; immediately write the result back through SeeReel APIs/state so graph edges, Inspector data, `stitchShotIds`, `referenceVideoFromShotId`, `firstFrameAssetId`, `assetIds`, renders, and `finalVideoUrl` stay auditable in the UI.
 
 ## Spec Coding
 

@@ -1,12 +1,12 @@
 # Observability
 
 Status: active
-Owner: ReelyAI
+Owner: SeeReel
 Last Reviewed: 2026-06-04
 
 ## Purpose
 
-Define what ReelyAI must expose so operators can understand traffic, service health, and generation-provider usage.
+Define what SeeReel must expose so operators can understand traffic, service health, and generation-provider usage.
 
 ## Scope
 

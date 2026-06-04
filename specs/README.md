@@ -1,6 +1,6 @@
-# ReelyAI Spec Coding
+# SeeReel Spec Coding
 
-This directory is the project-native spec coding system for ReelyAI. It is intentionally lightweight: Markdown specs are the source of product intent, and existing smoke tests plus GitHub Actions are the execution gate.
+This directory is the project-native spec coding system for SeeReel. It is intentionally lightweight: Markdown specs are the source of product intent, and existing smoke tests plus GitHub Actions are the execution gate.
 
 ## When To Use Specs
 

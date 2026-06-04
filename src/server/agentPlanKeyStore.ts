@@ -160,7 +160,7 @@ export async function agentPlanCredentialStoreReadiness() {
     return {
       ok: false,
       status: "error" as const,
-      message: "REELYAI_AGENT_PLAN_KEY_ENCRYPTION_SECRET is required when Agent Plan key database storage is enabled.",
+      message: "SEEREEL_AGENT_PLAN_KEY_ENCRYPTION_SECRET is required when Agent Plan key database storage is enabled.",
       storage
     };
   }
@@ -208,6 +208,7 @@ async function databasePool() {
 
 function databaseUrl() {
   return (
+    process.env.SEEREEL_DATABASE_URL?.trim() ||
     process.env.REELYAI_DATABASE_URL?.trim() ||
     process.env.AGENT_PLAN_KEYS_DATABASE_URL?.trim() ||
     process.env.DATABASE_URL?.trim() ||
@@ -217,7 +218,7 @@ function databaseUrl() {
 }
 
 function databaseSsl() {
-  const raw = process.env.REELYAI_DATABASE_SSL || process.env.DATABASE_SSL || "";
+  const raw = process.env.SEEREEL_DATABASE_SSL || process.env.REELYAI_DATABASE_SSL || process.env.DATABASE_SSL || "";
   if (/^(1|true|yes|on)$/i.test(raw)) return { rejectUnauthorized: false };
   return undefined;
 }
@@ -239,7 +240,7 @@ function ensureTable(db: Pool) {
 
 function encryptApiKey(apiKey: string) {
   const secret = encryptionSecret();
-  if (!secret) throw new Error("Missing REELYAI_AGENT_PLAN_KEY_ENCRYPTION_SECRET for database credential storage");
+  if (!secret) throw new Error("Missing SEEREEL_AGENT_PLAN_KEY_ENCRYPTION_SECRET for database credential storage");
   const iv = randomBytes(12);
   const cipher = createCipheriv("aes-256-gcm", encryptionKey(secret), iv);
   const encrypted = Buffer.concat([cipher.update(apiKey, "utf8"), cipher.final()]);
@@ -252,7 +253,7 @@ function decryptApiKey(value: string) {
   const [ivRaw, tagRaw, encryptedRaw] = encoded.split(":");
   if (!ivRaw || !tagRaw || !encryptedRaw) throw new Error("Invalid encrypted Agent Plan key payload");
   const secret = encryptionSecret();
-  if (!secret) throw new Error("Missing REELYAI_AGENT_PLAN_KEY_ENCRYPTION_SECRET for database credential storage");
+  if (!secret) throw new Error("Missing SEEREEL_AGENT_PLAN_KEY_ENCRYPTION_SECRET for database credential storage");
   const decipher = createDecipheriv("aes-256-gcm", encryptionKey(secret), Buffer.from(ivRaw, "base64url"));
   decipher.setAuthTag(Buffer.from(tagRaw, "base64url"));
   return Buffer.concat([
@@ -262,11 +263,13 @@ function decryptApiKey(value: string) {
 }
 
 function encryptionSecret() {
-  return configuredEncryptionSecret() || (process.env.NODE_ENV === "production" ? "" : "reelyai-dev-agent-plan-key-secret");
+  return configuredEncryptionSecret() || (process.env.NODE_ENV === "production" ? "" : "seereel-dev-agent-plan-key-secret");
 }
 
 function configuredEncryptionSecret() {
   return (
+    process.env.SEEREEL_AGENT_PLAN_KEY_ENCRYPTION_SECRET?.trim() ||
+    process.env.SEEREEL_CREDENTIAL_ENCRYPTION_SECRET?.trim() ||
     process.env.REELYAI_AGENT_PLAN_KEY_ENCRYPTION_SECRET?.trim() ||
     process.env.REELYAI_CREDENTIAL_ENCRYPTION_SECRET?.trim() ||
     ""

@@ -1,7 +1,7 @@
 # Spec Title
 
 Status: draft
-Owner: ReelyAI
+Owner: SeeReel
 Last Reviewed: 2026-06-04
 
 ## Purpose

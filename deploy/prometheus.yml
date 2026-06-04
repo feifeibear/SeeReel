@@ -16,7 +16,7 @@ scrape_configs:
     metrics_path: /metrics
     static_configs:
       - targets:
-          - reelyai:5173
+          - seereel:5173
 
   - job_name: node-exporter
     static_configs:
@@ -32,8 +32,8 @@ scrape_configs:
       module: [http_2xx]
     static_configs:
       - targets:
-          - http://reelyai:5173/api/healthz
-          - http://reelyai:5173/api/readyz
+          - http://seereel:5173/api/healthz
+          - http://seereel:5173/api/readyz
           # - https://your-domain.example/api/healthz
           # - https://your-domain.example/api/readyz
     relabel_configs:

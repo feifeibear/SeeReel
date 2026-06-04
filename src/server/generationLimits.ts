@@ -11,7 +11,7 @@ import { currentIpHash, currentUserId } from "./userCredentials";
  * This in-process counter (single-replica architecture is the deployment model) caps how many paid
  * submissions a session may trigger per UTC day and returns 429 once exceeded.
  *
- * Disabled when `REELYAI_SESSION_GENERATION_DAILY_CAP <= 0`.
+ * Disabled when `SEEREEL_SESSION_GENERATION_DAILY_CAP <= 0`.
  */
 
 const DEFAULT_DAILY_CAP = 1000;
@@ -30,7 +30,7 @@ function utcDay() {
 }
 
 function dailyCap() {
-  const raw = process.env.REELYAI_SESSION_GENERATION_DAILY_CAP;
+  const raw = process.env.SEEREEL_SESSION_GENERATION_DAILY_CAP || process.env.REELYAI_SESSION_GENERATION_DAILY_CAP;
   if (raw === undefined || raw.trim() === "") return DEFAULT_DAILY_CAP;
   const parsed = Number.parseInt(raw, 10);
   if (!Number.isFinite(parsed)) return DEFAULT_DAILY_CAP;
@@ -38,22 +38,23 @@ function dailyCap() {
 }
 
 function envInt(name: string, fallback: number) {
-  const raw = process.env[name];
+  const legacyName = name.startsWith("SEEREEL_") ? name.replace(/^SEEREEL_/, "REELYAI_") : "";
+  const raw = process.env[name] || (legacyName ? process.env[legacyName] : undefined);
   if (raw === undefined || raw.trim() === "") return fallback;
   const parsed = Number.parseInt(raw, 10);
   return Number.isFinite(parsed) ? parsed : fallback;
 }
 
 function freeTrialLimit() {
-  return envInt("REELYAI_FREE_TRIAL_LIMIT", DEFAULT_FREE_TRIAL_LIMIT);
+  return envInt("SEEREEL_FREE_TRIAL_LIMIT", DEFAULT_FREE_TRIAL_LIMIT);
 }
 
 function freeTrialIpDailyCap() {
-  return envInt("REELYAI_FREE_TRIAL_IP_DAILY_CAP", DEFAULT_FREE_TRIAL_IP_DAILY_CAP);
+  return envInt("SEEREEL_FREE_TRIAL_IP_DAILY_CAP", DEFAULT_FREE_TRIAL_IP_DAILY_CAP);
 }
 
 function freeTrialGlobalDailyCap() {
-  return envInt("REELYAI_FREE_TRIAL_GLOBAL_DAILY_CAP", DEFAULT_FREE_TRIAL_GLOBAL_DAILY_CAP);
+  return envInt("SEEREEL_FREE_TRIAL_GLOBAL_DAILY_CAP", DEFAULT_FREE_TRIAL_GLOBAL_DAILY_CAP);
 }
 
 function rolloverIfNeeded() {
@@ -150,7 +151,7 @@ export function generationCapMessage(result: GenerationLimitResult) {
     }
     return `免费试用已用完（${result.cap} 次）。请配置你自己的火山 Agent Plan Key 后继续生成，避免继续消耗站点演示额度。`;
   }
-  return `本会话今日生成次数已达上限（${result.cap} 次/日），请明日再试或调高 REELYAI_SESSION_GENERATION_DAILY_CAP。`;
+  return `本会话今日生成次数已达上限（${result.cap} 次/日），请明日再试或调高 SEEREEL_SESSION_GENERATION_DAILY_CAP。`;
 }
 
 /** Snapshot used by diagnostics/metrics. Returns total submissions counted today across sessions. */

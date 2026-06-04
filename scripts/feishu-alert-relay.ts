@@ -40,7 +40,7 @@ function formatAlerts(payload: AmPayload) {
   const firing = alerts.filter((a) => a.status === "firing");
   const resolved = alerts.filter((a) => a.status === "resolved");
   const lines: string[] = [];
-  const header = payload.status === "resolved" ? "✅ ReelyAI 告警已恢复" : "🚨 ReelyAI 告警";
+  const header = payload.status === "resolved" ? "✅ SeeReel 告警已恢复" : "🚨 SeeReel 告警";
   lines.push(header);
   for (const alert of [...firing, ...resolved]) {
     const sev = alert.labels?.severity || "-";

@@ -2,7 +2,7 @@ ARG NODE_IMAGE=docker.m.daocloud.io/library/node:22-bookworm-slim
 FROM ${NODE_IMAGE} AS build
 
 WORKDIR /app
-ENV REELYAI_SKIP_SKILL_INSTALL=1
+ENV SEEREEL_SKIP_SKILL_INSTALL=1
 
 COPY package*.json ./
 RUN npm config set registry https://registry.npmmirror.com \
@@ -17,8 +17,8 @@ FROM ${NODE_IMAGE} AS runtime
 WORKDIR /app
 ENV NODE_ENV=production \
     PORT=5173 \
-    REELYAI_COOKIE_SECURE=1 \
-    REELYAI_SKIP_SKILL_INSTALL=1
+    SEEREEL_COOKIE_SECURE=1 \
+    SEEREEL_SKIP_SKILL_INSTALL=1
 
 COPY --from=build /app/package*.json ./
 COPY --from=build /app/node_modules ./node_modules

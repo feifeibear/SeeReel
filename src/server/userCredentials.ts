@@ -10,7 +10,8 @@ import {
   storeAgentPlanCredential
 } from "./agentPlanKeyStore";
 
-const COOKIE_NAME = "reelyai_user_id";
+const COOKIE_NAME = "seereel_user_id";
+const LEGACY_COOKIE_NAME = "reelyai_user_id";
 const MAX_AGE_MS = 1000 * 60 * 60 * 24 * 30;
 
 interface RequestCredentialContext {
@@ -94,7 +95,7 @@ export function hasRequestAgentPlanKey() {
 
 function readUserId(req: Request) {
   const cookies = parseCookies(req.headers.cookie || "");
-  const value = cookies[COOKIE_NAME];
+  const value = cookies[COOKIE_NAME] || cookies[LEGACY_COOKIE_NAME];
   return typeof value === "string" && /^[A-Za-z0-9_-]{16,}$/.test(value) ? value : undefined;
 }
 
@@ -115,18 +116,19 @@ function parseCookies(header: string) {
 function requestIpHash(req: Request) {
   const forwarded = (req.headers["x-forwarded-for"] || "").toString().split(",")[0]?.trim();
   const rawIp = forwarded || req.ip || req.socket.remoteAddress || "unknown";
-  const salt = process.env.REELYAI_RATE_LIMIT_SALT || "reelyai-demo";
+  const salt = process.env.SEEREEL_RATE_LIMIT_SALT || process.env.REELYAI_RATE_LIMIT_SALT || "seereel-demo";
   return createHash("sha256").update(`${salt}|${rawIp}`).digest("hex").slice(0, 20);
 }
 
 function requestUserAgentHash(req: Request) {
   const rawUserAgent = (req.headers["user-agent"] || "unknown").toString();
-  const salt = process.env.REELYAI_RATE_LIMIT_SALT || "reelyai-demo";
+  const salt = process.env.SEEREEL_RATE_LIMIT_SALT || process.env.REELYAI_RATE_LIMIT_SALT || "seereel-demo";
   return createHash("sha256").update(`${salt}|${rawUserAgent}`).digest("hex").slice(0, 20);
 }
 
 function shouldUseSecureCookie() {
-  if (process.env.REELYAI_COOKIE_SECURE === "0") return false;
-  if (process.env.REELYAI_COOKIE_SECURE === "1") return true;
+  const setting = process.env.SEEREEL_COOKIE_SECURE || process.env.REELYAI_COOKIE_SECURE;
+  if (setting === "0") return false;
+  if (setting === "1") return true;
   return process.env.NODE_ENV === "production";
 }

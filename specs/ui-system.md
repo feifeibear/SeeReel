@@ -1,18 +1,18 @@
 # UI System
 
 Status: active
-Owner: ReelyAI
+Owner: SeeReel
 Last Reviewed: 2026-06-04
 
 ## Purpose
 
-Define the durable visual and interaction rules for the ReelyAI workstation so the canvas stays readable, premium, and useful across desktop, narrow desktop, and mobile screens.
+Define the durable visual and interaction rules for the SeeReel workstation so the canvas stays readable, premium, and useful across desktop, narrow desktop, and mobile screens.
 
 ## Scope
 
 - Canvas background, node contrast, panels, toolbars, inspector surfaces, and responsive behavior.
 - Local development, production local runs, and the deployed site.
-- Visual rules that affect the main ReelyAI session workspace.
+- Visual rules that affect the main SeeReel session workspace.
 
 ## Non-Goals
 
@@ -32,7 +32,7 @@ Define the durable visual and interaction rules for the ReelyAI workstation so t
 - Primary actions must remain reachable on desktop and mobile, but dense toolbars should collapse or wrap instead of clipping text.
 - Button text must fit its container at supported viewport widths.
 - UI hierarchy should be calm and product-focused; avoid decorative effects that reduce readability.
-- ReelyAI is an operational creative workstation, so the first screen should be usable product UI rather than a marketing splash.
+- SeeReel is an operational creative workstation, so the first screen should be usable product UI rather than a marketing splash.
 - UI must preserve spatial continuity: content or controls already shown to the user must not disappear and reappear somewhere else unless the movement is caused by an explicit user action such as navigation, tab switching, filtering, expanding, collapsing, or responsive layout transition.
 
 ## Acceptance Criteria
@@ -49,7 +49,7 @@ Define the durable visual and interaction rules for the ReelyAI workstation so t
 - [ ] `npm run verify:offline`
 - [ ] Open `http://localhost:5173/#/s/ses_demo_agent_plan` or the current demo session.
 - [ ] Check desktop, narrow desktop, and mobile widths.
-- [ ] For release changes, verify `https://reelyai.app` after deployment.
+- [ ] For release changes, verify `https://seereel.studio` after deployment.
 
 ## Change Policy
 

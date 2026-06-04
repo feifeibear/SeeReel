@@ -6,11 +6,12 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const DEFAULT_BASE_URL =
+  process.env.SEEREEL_AGENT_BASE_URL ||
   process.env.REELYAI_AGENT_BASE_URL ||
   process.env.CINEMA_AGENT_BASE_URL ||
-  "https://reelyai.app";
+  "https://seereel.studio";
 
-const CONFIG_DIR = process.env.REELYAI_CLI_HOME || path.join(os.homedir(), ".reelyai");
+const CONFIG_DIR = process.env.SEEREEL_CLI_HOME || process.env.REELYAI_CLI_HOME || path.join(os.homedir(), ".seereel");
 const CONFIG_FILE = path.join(CONFIG_DIR, "config.json");
 const PACKAGE_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const REELYAI_CLI_SKILL = path.join(PACKAGE_ROOT, "skills", "reelyai-cli", "SKILL.md");
@@ -18,31 +19,31 @@ const DEFAULT_POLL_INTERVAL_MS = 3000;
 const DEFAULT_TIMEOUT_MS = 30 * 60 * 1000;
 
 const HELP = `
-ReelyAI CLI
+SeeReel CLI
 
-Create visible ReelyAI canvas workflows from natural language, then let a human
+Create visible SeeReel canvas workflows from natural language, then let a human
 review or take over in the web app.
 
 Usage:
-  reelyai workflow "a 60s cyberpunk short about ..." [options]
-  reelyai node <get|update-prompt|generate|poll|tailframe|review|repair> --id <nodeId> [options]
-  reelyai publish-storyboards --session <sessionId|latest>
-  reelyai final-review --session <sessionId|latest> [--repair]
-  reelyai render --session <sessionId> [options]
-  reelyai stitch --session <sessionId> [options]
-  reelyai download --session <sessionId|latest> --output ./final.mp4
-  reelyai handoff --session <sessionId|latest> [--open]
-  reelyai skill <install|print|path> [options]
-  reelyai status [options]
-  reelyai configure [options]
-  reelyai open --session <sessionId> [options]
+  seereelcli workflow "a 60s cyberpunk short about ..." [options]
+  seereelcli node <get|update-prompt|generate|poll|tailframe|review|repair> --id <nodeId> [options]
+  seereelcli publish-storyboards --session <sessionId|latest>
+  seereelcli final-review --session <sessionId|latest> [--repair]
+  seereelcli render --session <sessionId> [options]
+  seereelcli stitch --session <sessionId> [options]
+  seereelcli download --session <sessionId|latest> --output ./final.mp4
+  seereelcli handoff --session <sessionId|latest> [--open]
+  seereelcli skill <install|print|path> [options]
+  seereelcli status [options]
+  seereelcli configure [options]
+  seereelcli open --session <sessionId> [options]
 
 Aliases:
   workflow: new, create, plan
 
 Global options:
-  --base-url <url>              ReelyAI server. Default: env or https://reelyai.app
-  --access-token <token>        Shared deployment token, also read from REELYAI_ACCESS_TOKEN
+  --base-url <url>              SeeReel server. Default: env or https://seereel.studio
+  --access-token <token>        Shared deployment token, also read from SEEREEL_ACCESS_TOKEN
   --agent-plan-token <token>    Browser-scoped Agent Plan key for model generation
   --json                        Print machine-readable JSON
   --jsonl                       Print newline-delimited progress events; final result is a complete event
@@ -77,7 +78,7 @@ status options:
 
 download options:
   --session <sessionId|latest>  Session to download. Default: latest
-  --output <path>               Local output file. Default: ./reelyai-<sessionId>.mp4
+  --output <path>               Local output file. Default: ./seereel-<sessionId>.mp4
 
 handoff options:
   --session <sessionId|latest>  Session to transfer to the current browser user. Default: latest
@@ -99,17 +100,17 @@ skill options:
                                 Install bundled reelyai-cli skill. Default: all
 
 Examples:
-  npm install -g reelyai
-  reelyai skill install --agent all
-  reelyai configure --base-url https://reelyai.app --access-token "$REELYAI_ACCESS_TOKEN"
-  reelyai workflow "一个失眠导演在午夜便利店遇见未来的自己" --duration 60 --style "neo-noir, rain"
-  reelyai node update-prompt --id shot_xxx --prompt "new Seedance prompt"
-  reelyai node tailframe --id shot_xxx --publish-tos --canvas-node
-  reelyai node review --id shot_xxx --frame-count 8
-  reelyai render --session latest --stitch --progress
-  reelyai status --session latest --deep --json
-  reelyai download --session latest --output ./final.mp4
-  reelyai handoff --session latest --open
+  npm install -g seereelcli
+  seereelcli skill install --agent all
+  seereelcli configure --base-url https://seereel.studio --access-token "$SEEREEL_ACCESS_TOKEN"
+  seereelcli workflow "一个失眠导演在午夜便利店遇见未来的自己" --duration 60 --style "neo-noir, rain"
+  seereelcli node update-prompt --id shot_xxx --prompt "new Seedance prompt"
+  seereelcli node tailframe --id shot_xxx --publish-tos --canvas-node
+  seereelcli node review --id shot_xxx --frame-count 8
+  seereelcli render --session latest --stitch --progress
+  seereelcli status --session latest --deep --json
+  seereelcli download --session latest --output ./final.mp4
+  seereelcli handoff --session latest --open
 `;
 
 class CliError extends Error {
@@ -205,18 +206,21 @@ async function writeConfig(config) {
 
 function resolveRuntime(config, options) {
   const baseUrl = normalizeBaseUrl(
-    String(options.baseUrl || process.env.REELYAI_AGENT_BASE_URL || process.env.CINEMA_AGENT_BASE_URL || config.baseUrl || DEFAULT_BASE_URL)
+    String(options.baseUrl || process.env.SEEREEL_AGENT_BASE_URL || process.env.REELYAI_AGENT_BASE_URL || process.env.CINEMA_AGENT_BASE_URL || config.baseUrl || DEFAULT_BASE_URL)
   );
   return {
     baseUrl,
     accessToken:
       stringOption(options.accessToken) ||
+      process.env.SEEREEL_ACCESS_TOKEN ||
       process.env.REELYAI_ACCESS_TOKEN ||
+      process.env.SEEREEL_CLI_ACCESS_TOKEN ||
       process.env.REELYAI_CLI_ACCESS_TOKEN ||
       config.accessToken ||
       "",
     agentPlanToken:
       stringOption(options.agentPlanToken) ||
+      process.env.SEEREEL_AGENT_PLAN_TOKEN ||
       process.env.REELYAI_AGENT_PLAN_TOKEN ||
       process.env.ARK_AGENT_PLAN_KEY ||
       config.agentPlanToken ||
@@ -277,7 +281,7 @@ async function api(runtime, route, init = {}) {
   const headers = {
     Accept: "application/json",
     ...(init.body ? { "Content-Type": "application/json" } : {}),
-    ...(runtime.accessToken ? { "x-reelyai-access": runtime.accessToken } : {}),
+    ...(runtime.accessToken ? { "x-seereel-access": runtime.accessToken, "x-reelyai-access": runtime.accessToken } : {}),
     ...(cookieHeader(runtime) ? { Cookie: cookieHeader(runtime) } : {}),
     ...(init.headers || {})
   };
@@ -299,7 +303,7 @@ async function api(runtime, route, init = {}) {
   if (!res.ok) {
     const message = body?.error || body?.message || text || `${res.status} ${res.statusText}`;
     if (body?.code === "access_token_required") {
-      throw new CliError(`${message}. Pass --access-token or set REELYAI_ACCESS_TOKEN.`);
+      throw new CliError(`${message}. Pass --access-token or set SEEREEL_ACCESS_TOKEN.`);
     }
     throw new CliError(`${route} failed: ${message}`);
   }
@@ -308,7 +312,7 @@ async function api(runtime, route, init = {}) {
 
 async function downloadToFile(runtime, route, outputPath) {
   const headers = {
-    ...(runtime.accessToken ? { "x-reelyai-access": runtime.accessToken } : {}),
+    ...(runtime.accessToken ? { "x-seereel-access": runtime.accessToken, "x-reelyai-access": runtime.accessToken } : {}),
     ...(cookieHeader(runtime) ? { Cookie: cookieHeader(runtime) } : {})
   };
   const res = await fetch(`${runtime.baseUrl}${route}`, { headers });
@@ -341,7 +345,7 @@ async function ensureAgentPlan(runtime, options = {}) {
   }
   if (options.required) {
     throw new CliError(
-      "Agent Plan token is not configured for this CLI/browser scope. Run `reelyai configure --agent-plan-token \"<AGENT_PLAN_API_KEY>\"`, or set REELYAI_AGENT_PLAN_TOKEN / ARK_AGENT_PLAN_KEY before render/review commands."
+      "Agent Plan token is not configured for this CLI/browser scope. Run `seereelcli configure --agent-plan-token \"<AGENT_PLAN_API_KEY>\"`, or set SEEREEL_AGENT_PLAN_TOKEN / ARK_AGENT_PLAN_KEY before render/review commands."
     );
   }
   return status;
@@ -368,7 +372,7 @@ function clampInt(value, fallback, { min = 1, max = Number.MAX_SAFE_INTEGER } = 
 function inferTitle(prompt, explicit) {
   if (explicit) return explicit;
   const compact = prompt.replace(/\s+/g, " ").trim();
-  return compact.slice(0, 28) || "ReelyAI Workflow";
+  return compact.slice(0, 28) || "SeeReel Workflow";
 }
 
 async function readPrompt(positionals) {
@@ -379,7 +383,7 @@ async function readPrompt(positionals) {
     for await (const chunk of process.stdin) chunks.push(Buffer.from(chunk));
     return Buffer.concat(chunks).toString("utf8").trim();
   }
-  throw new CliError("Missing natural-language prompt. Example: reelyai workflow \"a 60s short...\"");
+  throw new CliError("Missing natural-language prompt. Example: seereelcli workflow \"a 60s short...\"");
 }
 
 function summarizeShots(shots = []) {
@@ -1057,7 +1061,7 @@ async function commandStatus(runtime, options) {
 async function commandDownload(runtime, options) {
   await api(runtime, "/api/healthz");
   const sessionId = await resolveSessionId(runtime, options.session || "latest");
-  const output = path.resolve(stringOption(options.output) || `reelyai-${sessionId}.mp4`);
+  const output = path.resolve(stringOption(options.output) || `seereel-${sessionId}.mp4`);
   const result = await downloadToFile(runtime, `/api/sessions/${sessionId}/download`, output);
   return {
     action: "download",
@@ -1202,7 +1206,7 @@ function printHuman(result, command) {
     return;
   }
   if (command === "status") {
-    console.log(`ReelyAI: ${result.baseUrl}`);
+    console.log(`SeeReel: ${result.baseUrl}`);
     console.log(`Health: ${result.health?.ok ? "ok" : "unknown"}`);
     console.log(`Agent Plan: ${result.agentPlan?.configured ? `configured (${result.agentPlan.fingerprint})` : "not configured"}`);
     if (result.session) {

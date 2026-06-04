@@ -1,11 +1,11 @@
 {
-  "name": "reelyai",
-  "version": "0.1.2",
-  "description": "Local agent CLI for creating and driving ReelyAI web workflows.",
+  "name": "seereelcli",
+  "version": "0.1.0",
+  "description": "Local agent CLI for creating and driving SeeReel web workflows.",
   "license": "MIT",
   "type": "module",
   "bin": {
-    "reelyai": "bin/reelyai.js"
+    "seereelcli": "bin/reelyai.js"
   },
   "files": [
     "bin",

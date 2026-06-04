@@ -112,10 +112,10 @@ app.set("trust proxy", 1);
 const store = new CinemaStore();
 await store.load();
 const serviceStartedAt = Date.now();
-const buildVersion = process.env.REELYAI_VERSION || process.env.npm_package_version || "dev";
-const buildCommit = process.env.REELYAI_COMMIT_SHA || process.env.GITHUB_SHA || "";
+const buildVersion = process.env.SEEREEL_VERSION || process.env.REELYAI_VERSION || process.env.npm_package_version || "dev";
+const buildCommit = process.env.SEEREEL_COMMIT_SHA || process.env.REELYAI_COMMIT_SHA || process.env.GITHUB_SHA || "";
 const shotGenerateSubmissions = new Map<string, Promise<{ status: number; body: unknown }>>();
-const ADMIN_COOKIE = "reelyai_admin_session";
+const ADMIN_COOKIE = "seereel_admin_session";
 const adminSessions = new Map<string, { createdAt: number }>();
 const HANDOFF_TOKEN_TTL_MS = 1000 * 60 * 60 * 24;
 const handoffTokens = new Map<string, { sessionId: string; ownerUserId: string; expiresAt: number; createdAt: string }>();
@@ -400,17 +400,11 @@ app.post("/api/sessions/:sessionId/handoff", async (req, res) => {
     sessionId: session.id,
     webUrl: `${baseUrl}/#/s/${encodeURIComponent(session.id)}`,
     webUrlVisibleInBrowser: false,
-    handoffUrl: `${baseUrl}/api/handoff/${encodeURIComponent(token)}`,
+    handoffUrl: `${baseUrl}/handoff/${encodeURIComponent(token)}`,
     handoffToken: token,
     handoffExpiresAt: new Date(expiresAtMs).toISOString(),
     handoffCreatedAt: createdAt
   });
-});
-
-app.get("/api/handoff/:token", async (req, res) => {
-  const claimed = await claimHandoffToken(req.params.token, userIdForRequest());
-  if (!claimed) return res.status(404).send("Handoff link is invalid or expired.");
-  res.redirect(302, `/#/s/${encodeURIComponent(claimed.id)}`);
 });
 
 app.get("/handoff/:token", async (req, res) => {
@@ -598,14 +592,14 @@ function setAdminCookie(res: Response, token: string) {
   res.cookie(ADMIN_COOKIE, token, {
     httpOnly: true,
     sameSite: "lax",
-    secure: process.env.NODE_ENV === "production" && process.env.REELYAI_COOKIE_SECURE !== "0",
+    secure: process.env.NODE_ENV === "production" && (process.env.SEEREEL_COOKIE_SECURE || process.env.REELYAI_COOKIE_SECURE) !== "0",
     maxAge: 1000 * 60 * 60 * 8,
     path: "/"
   });
 }
 
 function legacyPublicSessionsEnabled() {
-  return /^(1|true|yes|on)$/i.test(process.env.REELYAI_LEGACY_PUBLIC_DATA || "");
+  return /^(1|true|yes|on)$/i.test(process.env.SEEREEL_LEGACY_PUBLIC_DATA || process.env.REELYAI_LEGACY_PUBLIC_DATA || "");
 }
 
 function userIdForRequest() {
@@ -6036,7 +6030,7 @@ app.use((err: unknown, req: express.Request, res: express.Response, _next: expre
 });
 
 app.listen(port, () => {
-  console.log(`reelyai-agent is running at http://localhost:${port}`);
+  console.log(`seereel-agent is running at http://localhost:${port}`);
 });
 
 /**

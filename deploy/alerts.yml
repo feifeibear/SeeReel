@@ -1,25 +1,25 @@
 groups:
   - name: reelyai-availability
     rules:
-      - alert: ReelyAIServiceDown
+      - alert: SeeReelServiceDown
         expr: up{job="reelyai"} == 0
         for: 2m
         labels:
           severity: P0
         annotations:
-          summary: "ReelyAI /metrics target is down"
-          description: "Prometheus cannot scrape reelyai:5173 for 2m. The app process may be crashed or hung."
+          summary: "SeeReel /metrics target is down"
+          description: "Prometheus cannot scrape seereel:5173 for 2m. The app process may be crashed or hung."
 
-      - alert: ReelyAINotReady
+      - alert: SeeReelNotReady
         expr: reelyai_ready == 0
         for: 2m
         labels:
           severity: P0
         annotations:
-          summary: "ReelyAI readiness is failing"
+          summary: "SeeReel readiness is failing"
           description: "A hard dependency (data dir / store file / media dir) is not ready for 2m."
 
-      - alert: ReelyAIHealthProbeFailing
+      - alert: SeeReelHealthProbeFailing
         expr: probe_success == 0
         for: 2m
         labels:
@@ -28,18 +28,18 @@ groups:
           summary: "Health probe failing for {{ $labels.instance }}"
           description: "Blackbox probe to {{ $labels.instance }} has failed for 2m."
 
-      - alert: ReelyAIComponentDegraded
+      - alert: SeeReelComponentDegraded
         expr: reelyai_component_up == 0
         for: 10m
         labels:
           severity: P1
         annotations:
-          summary: "ReelyAI component degraded: {{ $labels.component }}"
+          summary: "SeeReel component degraded: {{ $labels.component }}"
           description: "Component {{ $labels.component }} reported not-ok for 10m. readyz may still return 200 for soft deps (tos/seedream/seedance)."
 
   - name: reelyai-errors
     rules:
-      - alert: ReelyAIHigh5xxRate
+      - alert: SeeReelHigh5xxRate
         expr: |
           sum(rate(reelyai_http_requests_total{status=~"5.."}[5m]))
             / clamp_min(sum(rate(reelyai_http_requests_total[5m])), 1) > 0.05
@@ -47,64 +47,64 @@ groups:
         labels:
           severity: P0
         annotations:
-          summary: "ReelyAI 5xx error rate > 5%"
+          summary: "SeeReel 5xx error rate > 5%"
           description: "HTTP 5xx rate has exceeded 5% of all requests for 5m."
 
-      - alert: ReelyAIStoreSaveErrors
+      - alert: SeeReelStoreSaveErrors
         expr: increase(reelyai_store_save_total{status="error"}[5m]) > 0
         for: 0m
         labels:
           severity: P0
         annotations:
-          summary: "ReelyAI store save errors"
+          summary: "SeeReel store save errors"
           description: "cinema-store.json failed to persist in the last 5m; risk of data loss."
 
-      - alert: ReelyAIHighLatencyP95
+      - alert: SeeReelHighLatencyP95
         expr: |
           histogram_quantile(0.95, sum(rate(reelyai_http_request_duration_seconds_bucket[5m])) by (le)) > 2
         for: 10m
         labels:
           severity: P1
         annotations:
-          summary: "ReelyAI P95 latency > 2s"
+          summary: "SeeReel P95 latency > 2s"
           description: "95th percentile HTTP latency has exceeded 2s for 10m."
 
   - name: reelyai-cost-and-capacity
     rules:
-      - alert: ReelyAIGenerationCapBlocking
+      - alert: SeeReelGenerationCapBlocking
         expr: increase(reelyai_generation_blocked_total[15m]) > 0
         for: 0m
         labels:
           severity: P2
         annotations:
-          summary: "ReelyAI generation daily cap is blocking submissions"
+          summary: "SeeReel generation daily cap is blocking submissions"
           description: "{{ $value }} paid generation submissions were blocked by the per-session daily cap in the last 15m. A user may be hitting the limit, or the cap may be too low."
 
-      - alert: ReelyAIAccessGuardDisabled
+      - alert: SeeReelAccessGuardDisabled
         expr: reelyai_access_guard_enabled == 0
         for: 15m
         labels:
           severity: P1
         annotations:
-          summary: "ReelyAI access token guard is disabled"
-          description: "REELYAI_ACCESS_TOKEN is not configured on a running instance. Sensitive APIs are open to anyone who can reach the server."
+          summary: "SeeReel access token guard is disabled"
+          description: "SEEREEL_ACCESS_TOKEN is not configured on a running instance. Sensitive APIs are open to anyone who can reach the server."
 
-      - alert: ReelyAIMediaGrowthHigh
+      - alert: SeeReelMediaGrowthHigh
         expr: increase(reelyai_media_dir_size_bytes[1h]) > 5 * 1024 * 1024 * 1024
         for: 0m
         labels:
           severity: P2
         annotations:
-          summary: "ReelyAI media dir grew > 5GB in 1h"
+          summary: "SeeReel media dir grew > 5GB in 1h"
           description: "data/media grew rapidly; consider offloading to TOS/CDN and pruning local cache."
 
-      - alert: ReelyAIProcessMemoryHigh
+      - alert: SeeReelProcessMemoryHigh
         expr: reelyai_process_memory_rss_bytes > 1.5 * 1024 * 1024 * 1024
         for: 10m
         labels:
           severity: P1
         annotations:
-          summary: "ReelyAI RSS memory high"
+          summary: "SeeReel RSS memory high"
           description: "Process RSS has exceeded 1.5GB for 10m; tune the memory budget or investigate a leak."
 
   - name: host

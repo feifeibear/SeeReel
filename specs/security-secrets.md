@@ -1,12 +1,12 @@
 # Security And Secrets
 
 Status: active
-Owner: ReelyAI
+Owner: SeeReel
 Last Reviewed: 2026-06-04
 
 ## Purpose
 
-Protect ReelyAI credentials, API keys, access tokens, passwords, AK/SK pairs, private keys, and provider secrets from being uploaded to GitHub, exposed through online APIs, leaked into frontend bundles, or published in logs and dashboards.
+Protect SeeReel credentials, API keys, access tokens, passwords, AK/SK pairs, private keys, and provider secrets from being uploaded to GitHub, exposed through online APIs, leaked into frontend bundles, or published in logs and dashboards.
 
 ## Scope
 

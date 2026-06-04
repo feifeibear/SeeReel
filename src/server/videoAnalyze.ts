@@ -10,13 +10,13 @@ const VISION_KEY_ENVS = ["VISION_REVIEW_API_KEY", "SEED_PROMPT_API_KEY", "BP_ARK
 const DEFAULT_AGENT_PLAN_VISION_MODEL = "doubao-seed-2.0-pro";
 
 function useAgentPlanForVisionReview() {
-  const value = process.env.REELYAI_VISION_REVIEW_USE_AGENT_PLAN?.trim();
+  const value = (process.env.SEEREEL_VISION_REVIEW_USE_AGENT_PLAN || process.env.REELYAI_VISION_REVIEW_USE_AGENT_PLAN)?.trim();
   if (!value) return true;
   return /^(1|true|yes|on)$/i.test(value);
 }
 
 function useEnvAgentPlanForVisionReview() {
-  return /^(1|true|yes|on)$/i.test(process.env.REELYAI_VISION_REVIEW_USE_AGENT_PLAN || "");
+  return /^(1|true|yes|on)$/i.test(process.env.SEEREEL_VISION_REVIEW_USE_AGENT_PLAN || process.env.REELYAI_VISION_REVIEW_USE_AGENT_PLAN || "");
 }
 
 const credential = () =>
@@ -204,7 +204,7 @@ function parseShotsResponse(rawText: string): ParsedShotEntry[] {
 export async function analyzeReferenceVideo(opts: AnalyzeVideoOpts): Promise<AnalyzeVideoResult> {
   const ark = credential();
   if (!ark.apiKey) {
-    throw new Error(`${arkMissingKeyMessage("video analyze", VISION_KEY_ENVS)}. Paste a browser Agent/Coding Plan key, or configure a standard VLM key. Set REELYAI_VISION_REVIEW_USE_AGENT_PLAN=0 only when video analysis must ignore browser Plan keys.`);
+    throw new Error(`${arkMissingKeyMessage("video analyze", VISION_KEY_ENVS)}. Paste a browser Agent/Coding Plan key, or configure a standard VLM key. Set SEEREEL_VISION_REVIEW_USE_AGENT_PLAN=0 only when video analysis must ignore browser Plan keys.`);
   }
 
   // Resolve local file path: either a /media/X mapping or a real fs path.

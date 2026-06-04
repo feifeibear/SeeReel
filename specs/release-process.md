@@ -1,7 +1,7 @@
 # Release Process
 
 Status: active
-Owner: ReelyAI
+Owner: SeeReel
 Last Reviewed: 2026-06-04
 
 ## Purpose
@@ -12,7 +12,7 @@ Define the release path that keeps local, GitHub, Docker, ECS, and production be
 
 - Local verification, GitHub Actions, Docker builds, production deployment, and post-release checks.
 - Registry and network assumptions needed by public CI.
-- The public site `https://reelyai.app` and production app directory `/opt/reelyai-agent/app`.
+- The public site `https://seereel.studio` and production app directory `/opt/seereel-agent/app`.
 
 ## Non-Goals
 
@@ -28,7 +28,8 @@ Define the release path that keeps local, GitHub, Docker, ECS, and production be
 
 ## Product Rules
 
-- GitHub Actions must not depend on internal-only registry URLs such as `bnpm.byted.org`.
+- GitHub Actions must not depend on internal-only registry URLs.
+- Private registry hostnames must not be committed to specs or release docs; registry denylist checks may receive blocked hosts from CI/runtime environment.
 - Lockfiles must use public or otherwise CI-reachable dependency URLs.
 - Production must run committed code from GitHub, not untracked server edits.
 - Docker builds must only copy files that exist in the committed repository or are produced by the build.
@@ -47,9 +48,9 @@ Define the release path that keeps local, GitHub, Docker, ECS, and production be
 ## Verification
 
 - [ ] `npm run verify:offline`
-- [ ] `gh run list --repo feifeibear/reelyai-agent --limit 5`
+- [ ] `gh run list --repo feifeibear/seereel-agent --limit 5`
 - [ ] `gh run view <run-id> --json status,conclusion,url,jobs`
-- [ ] For deployment work, verify `https://reelyai.app` after the server is updated.
+- [ ] For deployment work, verify `https://seereel.studio` after the server is updated.
 
 ## Change Policy
 

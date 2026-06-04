@@ -1,4 +1,4 @@
-# ReelyAI 发布与监控体系
+# SeeReel 发布与监控体系
 
 ## 发布前质量闸门
 
@@ -20,7 +20,7 @@ npm run verify:release
 
 - 访问令牌门禁：`/api/healthz` 开放；`/api/state`、`/api/diagnostics`、写操作无令牌返回 401。
 - 生产环境缺 key 不再「静默假成功」：生成接口返回错误而非占位图 URL。
-- 单会话每日生成额度：超过 `REELYAI_SESSION_GENERATION_DAILY_CAP` 后返回 429。
+- 单会话每日生成额度：超过 `SEEREEL_SESSION_GENERATION_DAILY_CAP` 后返回 429。
 
 完整的发布前人工验收项见 [release-checklist.md](release-checklist.md)。
 
@@ -33,7 +33,7 @@ npm run verify:integration
 线上发布后 smoke：
 
 ```bash
-REELYAI_BASE_URL=https://your-domain.example npm run smoke:production
+SEEREEL_BASE_URL=https://your-domain.example npm run smoke:production
 ```
 
 ## GitHub Actions
@@ -44,13 +44,13 @@ REELYAI_BASE_URL=https://your-domain.example npm run smoke:production
 
 部署需要的新增 Secrets / Variables：
 
-- `REELYAI_ACCESS_TOKEN`（Secret）：访问令牌门禁的共享 token。
-- `REELYAI_SESSION_GENERATION_DAILY_CAP`（Variable，可选）：单会话每日生成额度。
+- `SEEREEL_ACCESS_TOKEN`（Secret）：访问令牌门禁的共享 token。
+- `SEEREEL_SESSION_GENERATION_DAILY_CAP`（Variable，可选）：单会话每日生成额度。
 
 CI 环境设置了：
 
 ```bash
-REELYAI_SKIP_SKILL_INSTALL=1
+SEEREEL_SKIP_SKILL_INSTALL=1
 ```
 
 避免 postinstall 在 CI 中写入本机 agent skill 目录。
@@ -152,7 +152,7 @@ docker compose \
 - blackbox-exporter: `127.0.0.1:9115`
 - feishu-alert-relay: 仅 Docker 网络内 `:8088`（不对外暴露）
 
-监控栈包含：Prometheus（抓取 + 告警规则）、Alertmanager（路由告警）、feishu-alert-relay（转飞书）、blackbox-exporter（探活 healthz/readyz）、Grafana（看板，已 provisioning 数据源与「ReelyAI 总览」看板）、node-exporter（主机指标）。
+监控栈包含：Prometheus（抓取 + 告警规则）、Alertmanager（路由告警）、feishu-alert-relay（转飞书）、blackbox-exporter（探活 healthz/readyz）、Grafana（看板，已 provisioning 数据源与「SeeReel 总览」看板）、node-exporter（主机指标）。
 
 远程访问建议用 SSH tunnel：
 
@@ -199,24 +199,24 @@ docker compose -f deploy/docker-compose.volcengine.yml -f deploy/docker-compose.
 
 P0（Alertmanager 10s 触发、1h 重复）：
 
-- `ReelyAIServiceDown`：`up{job="reelyai"} == 0` 持续 2m
-- `ReelyAINotReady`：`reelyai_ready == 0` 持续 2m
-- `ReelyAIHealthProbeFailing`：blackbox `probe_success == 0` 持续 2m
-- `ReelyAIHigh5xxRate`：5xx 占比 > 5% 持续 5m
-- `ReelyAIStoreSaveErrors`：store 保存出错
+- `SeeReelServiceDown`：`up{job="reelyai"} == 0` 持续 2m
+- `SeeReelNotReady`：`reelyai_ready == 0` 持续 2m
+- `SeeReelHealthProbeFailing`：blackbox `probe_success == 0` 持续 2m
+- `SeeReelHigh5xxRate`：5xx 占比 > 5% 持续 5m
+- `SeeReelStoreSaveErrors`：store 保存出错
 - `HostDiskAlmostFull`：磁盘 > 85%
 
 P1：
 
-- `ReelyAIComponentDegraded`：`reelyai_component_up == 0` 持续 10m（含 TOS/Seedance 软依赖降级）
-- `ReelyAIHighLatencyP95`：P95 > 2s 持续 10m
-- `ReelyAIAccessGuardDisabled`：`reelyai_access_guard_enabled == 0`（线上未配访问令牌）
-- `ReelyAIProcessMemoryHigh`：RSS > 1.5GB 持续 10m
+- `SeeReelComponentDegraded`：`reelyai_component_up == 0` 持续 10m（含 TOS/Seedance 软依赖降级）
+- `SeeReelHighLatencyP95`：P95 > 2s 持续 10m
+- `SeeReelAccessGuardDisabled`：`reelyai_access_guard_enabled == 0`（线上未配访问令牌）
+- `SeeReelProcessMemoryHigh`：RSS > 1.5GB 持续 10m
 
 P2：
 
-- `ReelyAIGenerationCapBlocking`：近 15m 有生成被额度拦截（用户触顶或额度过低）
-- `ReelyAIMediaGrowthHigh`：media 目录 1h 增长 > 5GB
+- `SeeReelGenerationCapBlocking`：近 15m 有生成被额度拦截（用户触顶或额度过低）
+- `SeeReelMediaGrowthHigh`：media 目录 1h 增长 > 5GB
 
 ## 推荐 Grafana Dashboard
 

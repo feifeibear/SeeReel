@@ -3,18 +3,18 @@ set -euo pipefail
 
 usage() {
   cat <<'USAGE'
-Deploy ReelyAI to an existing Volcengine ECS instance over SSH.
+Deploy SeeReel to an existing Volcengine ECS instance over SSH.
 
 Required:
-  REELYAI_ECS_HOST        ECS public IP or domain
+  SEEREEL_ECS_HOST        ECS public IP or domain
 
 Optional:
-  REELYAI_ECS_USER        SSH user, default root
-  REELYAI_ECS_PORT        SSH port, default 22
-  REELYAI_ECS_DIR         Remote app dir, default ~/reelyai-agent
-  APP_PUBLIC_URL          Public URL, default https://$REELYAI_ECS_HOST.sslip.io for IPv4 hosts
+  SEEREEL_ECS_USER        SSH user, default root
+  SEEREEL_ECS_PORT        SSH port, default 22
+  SEEREEL_ECS_DIR         Remote app dir, default ~/seereel-agent
+  APP_PUBLIC_URL          Public URL, default https://$SEEREEL_ECS_HOST.sslip.io for IPv4 hosts
   ACME_EMAIL              Optional email for Caddy/Let's Encrypt notices
-  REELYAI_DEPLOY_DRY_RUN  Set to 1 to validate inputs without SSH/rsync
+  SEEREEL_DEPLOY_DRY_RUN  Set to 1 to validate inputs without SSH/rsync
 
 Backend TOS env is read from the current shell and written only to the remote .env.production:
   TOS_ACCESS_KEY_ID
@@ -24,9 +24,9 @@ Backend TOS env is read from the current shell and written only to the remote .e
   TOS_ENDPOINT            default tos-cn-beijing.volces.com
 
 This script intentionally does NOT forward ARK_AGENT_PLAN_KEY. Public users enter their own
-Agent Plan token in the ReelyAI web UI. Browser-entered keys are persisted to PostgreSQL:
+Agent Plan token in the SeeReel web UI. Browser-entered keys are persisted to PostgreSQL:
 by default this deploy creates a Postgres container on the Volcengine ECS; set
-REELYAI_DATABASE_URL to use an external Volcengine RDS PostgreSQL instance instead.
+SEEREEL_DATABASE_URL to use an external Volcengine RDS PostgreSQL instance instead.
 USAGE
 }
 
@@ -43,19 +43,19 @@ required_env() {
   fi
 }
 
-required_env REELYAI_ECS_HOST
-ECS_USER="${REELYAI_ECS_USER:-root}"
-ECS_PORT="${REELYAI_ECS_PORT:-22}"
-ECS_DIR="${REELYAI_ECS_DIR:-~/reelyai-agent}"
+required_env SEEREEL_ECS_HOST
+ECS_USER="${SEEREEL_ECS_USER:-root}"
+ECS_PORT="${SEEREEL_ECS_PORT:-22}"
+ECS_DIR="${SEEREEL_ECS_DIR:-~/seereel-agent}"
 ssh_opts=(-p "$ECS_PORT")
-if [[ -n "${REELYAI_ECS_KEY:-}" ]]; then
-  ssh_opts=(-i "$REELYAI_ECS_KEY" -p "$ECS_PORT")
+if [[ -n "${SEEREEL_ECS_KEY:-}" ]]; then
+  ssh_opts=(-i "$SEEREEL_ECS_KEY" -p "$ECS_PORT")
 fi
-default_public_url="https://${REELYAI_ECS_HOST}"
-if [[ "$REELYAI_ECS_HOST" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-  default_public_url="https://${REELYAI_ECS_HOST}.sslip.io"
+default_public_url="https://${SEEREEL_ECS_HOST}"
+if [[ "$SEEREEL_ECS_HOST" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+  default_public_url="https://${SEEREEL_ECS_HOST}.sslip.io"
 fi
-remote="${ECS_USER}@${REELYAI_ECS_HOST}"
+remote="${ECS_USER}@${SEEREEL_ECS_HOST}"
 ssh_cmd=(ssh "${ssh_opts[@]}" "$remote")
 rsync_cmd=(rsync -az --delete -e "ssh ${ssh_opts[*]}")
 
@@ -112,12 +112,12 @@ require_value() {
   fi
 }
 
-echo "Deploying ReelyAI to $remote:$ECS_DIR"
+echo "Deploying SeeReel to $remote:$ECS_DIR"
 echo "Forwarding backend TOS/DB env; Agent Plan tokens remain user-provided in the browser."
 
-if [[ "${REELYAI_DEPLOY_DRY_RUN:-}" == "1" ]]; then
+if [[ "${SEEREEL_DEPLOY_DRY_RUN:-}" == "1" ]]; then
   echo "Dry run only. Required env is present; no SSH, rsync, Docker, or cloud changes were made."
-  echo "Remote env keys to write: NODE_ENV PORT REELYAI_COOKIE_SECURE REELYAI_ACCESS_TOKEN REELYAI_ADMIN_USER REELYAI_ADMIN_PASSWORD REELYAI_SESSION_GENERATION_DAILY_CAP REELYAI_DATABASE_URL REELYAI_DATABASE_SSL REELYAI_AGENT_PLAN_KEY_ENCRYPTION_SECRET POSTGRES_DB POSTGRES_USER POSTGRES_PASSWORD APP_PUBLIC_URL CADDY_SITE_ADDRESS ACME_EMAIL ARK_AGENT_PLAN_BASE SEEDREAM_AGENT_PLAN_MODEL SEEDANCE_AGENT_PLAN_MODEL SEEDANCE_AGENT_PLAN_FAST_MODEL VISION_REVIEW_* VIDEO_ANALYZE_* TOS_ACCESS_KEY_ID TOS_SECRET_ACCESS_KEY TOS_REGION TOS_ENDPOINT TOS_BUCKET"
+  echo "Remote env keys to write: NODE_ENV PORT SEEREEL_COOKIE_SECURE SEEREEL_ACCESS_TOKEN SEEREEL_ADMIN_USER SEEREEL_ADMIN_PASSWORD SEEREEL_SESSION_GENERATION_DAILY_CAP SEEREEL_DATABASE_URL SEEREEL_DATABASE_SSL SEEREEL_AGENT_PLAN_KEY_ENCRYPTION_SECRET POSTGRES_DB POSTGRES_USER POSTGRES_PASSWORD APP_PUBLIC_URL CADDY_SITE_ADDRESS ACME_EMAIL ARK_AGENT_PLAN_BASE SEEDREAM_AGENT_PLAN_MODEL SEEDANCE_AGENT_PLAN_MODEL SEEDANCE_AGENT_PLAN_FAST_MODEL VISION_REVIEW_* VIDEO_ANALYZE_* TOS_ACCESS_KEY_ID TOS_SECRET_ACCESS_KEY TOS_REGION TOS_ENDPOINT TOS_BUCKET"
   exit 0
 fi
 
@@ -134,27 +134,27 @@ if [[ "$PUBLIC_URL" == https://* ]]; then
 fi
 echo "Public URL: $PUBLIC_URL"
 
-existing_database_url="$(read_remote_env_value REELYAI_DATABASE_URL)"
-existing_database_ssl="$(read_remote_env_value REELYAI_DATABASE_SSL)"
-existing_encryption_secret="$(read_remote_env_value REELYAI_AGENT_PLAN_KEY_ENCRYPTION_SECRET)"
-existing_admin_user="$(read_remote_env_value REELYAI_ADMIN_USER)"
-existing_admin_password="$(read_remote_env_value REELYAI_ADMIN_PASSWORD)"
+existing_database_url="$(read_remote_env_value SEEREEL_DATABASE_URL)"
+existing_database_ssl="$(read_remote_env_value SEEREEL_DATABASE_SSL)"
+existing_encryption_secret="$(read_remote_env_value SEEREEL_AGENT_PLAN_KEY_ENCRYPTION_SECRET)"
+existing_admin_user="$(read_remote_env_value SEEREEL_ADMIN_USER)"
+existing_admin_password="$(read_remote_env_value SEEREEL_ADMIN_PASSWORD)"
 existing_postgres_db="$(read_remote_env_value POSTGRES_DB)"
 existing_postgres_user="$(read_remote_env_value POSTGRES_USER)"
 existing_postgres_password="$(read_remote_env_value POSTGRES_PASSWORD)"
 
-POSTGRES_DB_VALUE="${POSTGRES_DB:-${REELYAI_POSTGRES_DB:-${existing_postgres_db:-reelyai}}}"
-POSTGRES_USER_VALUE="${POSTGRES_USER:-${REELYAI_POSTGRES_USER:-${existing_postgres_user:-reelyai}}}"
-POSTGRES_PASSWORD_VALUE="${POSTGRES_PASSWORD:-${REELYAI_POSTGRES_PASSWORD:-${existing_postgres_password:-}}}"
+POSTGRES_DB_VALUE="${POSTGRES_DB:-${SEEREEL_POSTGRES_DB:-${existing_postgres_db:-reelyai}}}"
+POSTGRES_USER_VALUE="${POSTGRES_USER:-${SEEREEL_POSTGRES_USER:-${existing_postgres_user:-reelyai}}}"
+POSTGRES_PASSWORD_VALUE="${POSTGRES_PASSWORD:-${SEEREEL_POSTGRES_PASSWORD:-${existing_postgres_password:-}}}"
 if [[ -z "$POSTGRES_PASSWORD_VALUE" ]]; then
   POSTGRES_PASSWORD_VALUE="$(random_hex)"
 fi
-DATABASE_URL_VALUE="${REELYAI_DATABASE_URL:-${existing_database_url:-}}"
+DATABASE_URL_VALUE="${SEEREEL_DATABASE_URL:-${existing_database_url:-}}"
 if [[ -z "$DATABASE_URL_VALUE" ]]; then
   DATABASE_URL_VALUE="postgres://${POSTGRES_USER_VALUE}:${POSTGRES_PASSWORD_VALUE}@postgres:5432/${POSTGRES_DB_VALUE}"
 fi
-DATABASE_SSL_VALUE="${REELYAI_DATABASE_SSL:-${existing_database_ssl:-}}"
-ENCRYPTION_SECRET_VALUE="${REELYAI_AGENT_PLAN_KEY_ENCRYPTION_SECRET:-${existing_encryption_secret:-}}"
+DATABASE_SSL_VALUE="${SEEREEL_DATABASE_SSL:-${existing_database_ssl:-}}"
+ENCRYPTION_SECRET_VALUE="${SEEREEL_AGENT_PLAN_KEY_ENCRYPTION_SECRET:-${existing_encryption_secret:-}}"
 if [[ -z "$ENCRYPTION_SECRET_VALUE" ]]; then
   ENCRYPTION_SECRET_VALUE="$(random_hex)"
 fi
@@ -179,20 +179,20 @@ require_value TOS_BUCKET "$TOS_BUCKET_VALUE"
 remote_env="$(
   env_line NODE_ENV production
   env_line PORT 5173
-  env_line REELYAI_COOKIE_SECURE "$COOKIE_SECURE_VALUE"
-  env_line REELYAI_ACCESS_TOKEN "$(env_value REELYAI_ACCESS_TOKEN)"
-  env_line REELYAI_ADMIN_USER "${REELYAI_ADMIN_USER:-${existing_admin_user:-}}"
-  env_line REELYAI_ADMIN_PASSWORD "${REELYAI_ADMIN_PASSWORD:-${existing_admin_password:-}}"
-  env_line REELYAI_SESSION_GENERATION_DAILY_CAP "$(env_value REELYAI_SESSION_GENERATION_DAILY_CAP 1000)"
-  env_line REELYAI_DATABASE_URL "$DATABASE_URL_VALUE"
-  env_line REELYAI_DATABASE_SSL "$DATABASE_SSL_VALUE"
-  env_line REELYAI_AGENT_PLAN_KEY_ENCRYPTION_SECRET "$ENCRYPTION_SECRET_VALUE"
+  env_line SEEREEL_COOKIE_SECURE "$COOKIE_SECURE_VALUE"
+  env_line SEEREEL_ACCESS_TOKEN "$(env_value SEEREEL_ACCESS_TOKEN)"
+  env_line SEEREEL_ADMIN_USER "${SEEREEL_ADMIN_USER:-${existing_admin_user:-}}"
+  env_line SEEREEL_ADMIN_PASSWORD "${SEEREEL_ADMIN_PASSWORD:-${existing_admin_password:-}}"
+  env_line SEEREEL_SESSION_GENERATION_DAILY_CAP "$(env_value SEEREEL_SESSION_GENERATION_DAILY_CAP 1000)"
+  env_line SEEREEL_DATABASE_URL "$DATABASE_URL_VALUE"
+  env_line SEEREEL_DATABASE_SSL "$DATABASE_SSL_VALUE"
+  env_line SEEREEL_AGENT_PLAN_KEY_ENCRYPTION_SECRET "$ENCRYPTION_SECRET_VALUE"
   env_line POSTGRES_DB "$POSTGRES_DB_VALUE"
   env_line POSTGRES_USER "$POSTGRES_USER_VALUE"
   env_line POSTGRES_PASSWORD "$POSTGRES_PASSWORD_VALUE"
-  env_line REELYAI_NODE_IMAGE "$(env_value REELYAI_NODE_IMAGE docker.m.daocloud.io/library/node:22-bookworm-slim)"
-  env_line REELYAI_CADDY_IMAGE "$(env_value REELYAI_CADDY_IMAGE docker.m.daocloud.io/library/caddy:2-alpine)"
-  env_line REELYAI_POSTGRES_IMAGE "$(env_value REELYAI_POSTGRES_IMAGE docker.m.daocloud.io/library/postgres:16-alpine)"
+  env_line SEEREEL_NODE_IMAGE "$(env_value SEEREEL_NODE_IMAGE docker.m.daocloud.io/library/node:22-bookworm-slim)"
+  env_line SEEREEL_CADDY_IMAGE "$(env_value SEEREEL_CADDY_IMAGE docker.m.daocloud.io/library/caddy:2-alpine)"
+  env_line SEEREEL_POSTGRES_IMAGE "$(env_value SEEREEL_POSTGRES_IMAGE docker.m.daocloud.io/library/postgres:16-alpine)"
   env_line APP_PUBLIC_URL "$PUBLIC_URL"
   env_line CADDY_SITE_ADDRESS "$CADDY_SITE_ADDRESS"
   env_line ACME_EMAIL "$(env_value ACME_EMAIL)"
@@ -203,7 +203,7 @@ remote_env="$(
   env_line SEED_PROMPT_AGENT_PLAN_MODEL ""
   env_line PROMPT_REWRITE_AGENT_PLAN_MODEL ""
   env_line AGENT_PLAN_TEXT_MODEL ""
-  env_line REELYAI_VISION_REVIEW_USE_AGENT_PLAN "$(env_value REELYAI_VISION_REVIEW_USE_AGENT_PLAN)"
+  env_line SEEREEL_VISION_REVIEW_USE_AGENT_PLAN "$(env_value SEEREEL_VISION_REVIEW_USE_AGENT_PLAN)"
   env_line VISION_REVIEW_AGENT_PLAN_MODEL "$(env_value VISION_REVIEW_AGENT_PLAN_MODEL doubao-seed-2.0-pro)"
   env_line VIDEO_ANALYZE_AGENT_PLAN_MODEL "$(env_value VIDEO_ANALYZE_AGENT_PLAN_MODEL doubao-seed-2.0-pro)"
   env_line VISION_REVIEW_API_KEY "$(env_value VISION_REVIEW_API_KEY)"

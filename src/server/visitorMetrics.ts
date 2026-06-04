@@ -75,7 +75,7 @@ export function visitorMetricsMiddleware(req: Request, res: Response, next: () =
   visitorsByDay.set(day, daySet);
   lastSeenByVisitor.set(visitorId, now);
 
-  incCounter("reelyai_page_views_total", "Total ReelyAI app page views.", { route: "app" });
+  incCounter("reelyai_page_views_total", "Total SeeReel app page views.", { route: "app" });
   collectVisitorMetrics();
   next();
 }

@@ -1,6 +1,6 @@
 # Playbook — cockpit-POV 60s 一镜到底（基于 ses_0a7c9292）
 
-实战记录：用 reelyai-agent 把 6 段 × 10s 的虚构沙漠演习靶场短片串成一条 60s、9:16 竖屏、cockpit POV 一镜到底。本文沉淀 API 调用顺序、关键参数和踩到的坑。所有曲目均跑在 standard 档 doubao-seedance-2-0，质量优先。
+实战记录：用 seereel-agent 把 6 段 × 10s 的虚构沙漠演习靶场短片串成一条 60s、9:16 竖屏、cockpit POV 一镜到底。本文沉淀 API 调用顺序、关键参数和踩到的坑。所有曲目均跑在 standard 档 doubao-seedance-2-0，质量优先。
 
 ## 端到端流水线
 

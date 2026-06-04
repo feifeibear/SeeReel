@@ -15,7 +15,7 @@ import { spawn, type ChildProcess } from "node:child_process";
  * already-set var, so this smoke can never spend real money even if .env has live keys.
  */
 
-const PORT = process.env.REELYAI_GUARDRAILS_PORT || "5199";
+const PORT = process.env.SEEREEL_GUARDRAILS_PORT || process.env.REELYAI_GUARDRAILS_PORT || "5199";
 const baseUrl = `http://127.0.0.1:${PORT}`;
 const TOKEN = "guardrail-smoke-token";
 const CAP = 2;
@@ -53,7 +53,7 @@ async function call(path: string, init?: RequestInit & { token?: boolean }): Pro
     ...(cookieHeader ? { Cookie: cookieHeader } : {}),
     ...(init?.headers as Record<string, string>)
   };
-  if (init?.token) headers["x-reelyai-access"] = TOKEN;
+  if (init?.token) headers["x-seereel-access"] = TOKEN;
   const res = await fetch(`${baseUrl}${path}`, { ...init, headers });
   rememberCookies(res.headers);
   const text = await res.text();
@@ -145,18 +145,18 @@ async function run() {
     throw new Error(`Port ${PORT} already in use; stop the server there so the guardrail smoke can boot a controlled instance.`);
   }
   const emptyKeys = Object.fromEntries(EMPTY_KEY_ENVS.map((name) => [name, ""]));
-  const child: ChildProcess = spawn("npm", ["run", "start"], {
+  const child: ChildProcess = spawn("tsx", ["src/server/index.ts"], {
     cwd: process.cwd(),
     env: {
       ...process.env,
       ...emptyKeys,
       NODE_ENV: "production",
       PORT,
-      REELYAI_COOKIE_SECURE: "0",
-      REELYAI_ACCESS_TOKEN: TOKEN,
-      REELYAI_DISABLE_ADMIN_AGENT_PLAN: "1",
-      REELYAI_SESSION_GENERATION_DAILY_CAP: String(CAP),
-      REELYAI_SKIP_SKILL_INSTALL: "1"
+      SEEREEL_COOKIE_SECURE: "0",
+      SEEREEL_ACCESS_TOKEN: TOKEN,
+      SEEREEL_DISABLE_ADMIN_AGENT_PLAN: "1",
+      SEEREEL_SESSION_GENERATION_DAILY_CAP: String(CAP),
+      SEEREEL_SKIP_SKILL_INSTALL: "1"
     },
     detached: process.platform !== "win32",
     stdio: ["ignore", "pipe", "pipe"]

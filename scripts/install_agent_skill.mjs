@@ -19,8 +19,8 @@ const postinstall = args.includes("--postinstall");
 const agentArg = valueAfter("--agent"); // undefined / "auto" => detect installed runtimes
 const skillArg = valueAfter("--skill") || "all";
 
-if (postinstall && (process.env.CI || process.env.REELYAI_SKIP_SKILL_INSTALL === "1")) {
-  console.log("Skipping ReelyAI skill installation during postinstall.");
+if (postinstall && (process.env.CI || process.env.SEEREEL_SKIP_SKILL_INSTALL === "1" || process.env.REELYAI_SKIP_SKILL_INSTALL === "1")) {
+  console.log("Skipping SeeReel skill installation during postinstall.");
   process.exit(0);
 }
 

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-APP_DIR="${REELYAI_REMOTE_APP_DIR:-$(pwd)}"
+APP_DIR="${SEEREEL_REMOTE_APP_DIR:-$(pwd)}"
 PUBLIC_URL="${APP_PUBLIC_URL:-}"
 
 if [[ -z "$PUBLIC_URL" ]]; then
@@ -37,9 +37,9 @@ npm config set replace-registry-host always
 npm install --package-lock=false --no-audit --no-fund
 npm run build
 
-cat >/etc/systemd/system/reelyai-agent.service <<SERVICE
+cat >/etc/systemd/system/seereel-agent.service <<SERVICE
 [Unit]
-Description=ReelyAI Agent Web App
+Description=SeeReel Agent Web App
 After=network-online.target
 Wants=network-online.target
 
@@ -76,18 +76,18 @@ cat >/etc/caddy/Caddyfile <<CADDY
 CADDY
 
 systemctl daemon-reload
-systemctl enable --now reelyai-agent
+systemctl enable --now seereel-agent
 systemctl enable --now caddy
 systemctl reload caddy
 
 for _ in {1..60}; do
   if curl -fsS http://127.0.0.1:5173/api/healthz >/dev/null && curl -fsS http://127.0.0.1:5173/api/readyz >/dev/null; then
-    systemctl is-active reelyai-agent
+    systemctl is-active seereel-agent
     systemctl is-active caddy
     exit 0
   fi
   sleep 5
 done
 
-journalctl -u reelyai-agent --no-pager -n 120 >&2
+journalctl -u seereel-agent --no-pager -n 120 >&2
 exit 5

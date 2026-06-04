@@ -1,12 +1,12 @@
 # Default Demo Session
 
 Status: active
-Owner: ReelyAI
+Owner: SeeReel
 Last Reviewed: 2026-06-04
 
 ## Purpose
 
-Define how new users discover a working ReelyAI example immediately after opening the app.
+Define how new users discover a working SeeReel example immediately after opening the app.
 
 ## Scope
 
@@ -22,7 +22,7 @@ Define how new users discover a working ReelyAI example immediately after openin
 
 ## User Stories
 
-- As a new user, I can open ReelyAI and immediately see a complete example session.
+- As a new user, I can open SeeReel and immediately see a complete example session.
 - As a product evaluator, I can understand how to use Seedance, Seedream, Seed text, review, and stitching in one workflow.
 - As an operator, I can update the demo without breaking CI or Docker builds.
 
@@ -47,7 +47,7 @@ Define how new users discover a working ReelyAI example immediately after openin
 - [ ] `npm run verify:offline`
 - [ ] Open `http://localhost:5173/#/s/ses_demo_agent_plan`.
 - [ ] Open the app with no explicit session and confirm the default example is visible.
-- [ ] For release work, verify the same path on `https://reelyai.app`.
+- [ ] For release work, verify the same path on `https://seereel.studio`.
 
 ## Change Policy
 

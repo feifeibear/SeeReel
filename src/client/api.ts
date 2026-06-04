@@ -31,12 +31,17 @@ import { networkDownMessage } from "./i18n";
  *  3. **Better error messages**: `Failed to fetch` becomes "网络中断 / 服务端可能挂了 — 重启后再试一次"
  *     so the user knows the action is to restart the dev server, not retry the same click.
  */
-const ACCESS_TOKEN_STORAGE_KEY = "reelyai_access_token";
+const ACCESS_TOKEN_STORAGE_KEY = "seereel_access_token";
+const LEGACY_ACCESS_TOKEN_STORAGE_KEY = "reelyai_access_token";
 
 function readAccessToken() {
   if (typeof window === "undefined") return "";
   try {
-    return window.localStorage.getItem(ACCESS_TOKEN_STORAGE_KEY) || "";
+    const token = window.localStorage.getItem(ACCESS_TOKEN_STORAGE_KEY) || "";
+    if (token) return token;
+    const legacyToken = window.localStorage.getItem(LEGACY_ACCESS_TOKEN_STORAGE_KEY) || "";
+    if (legacyToken) window.localStorage.setItem(ACCESS_TOKEN_STORAGE_KEY, legacyToken);
+    return legacyToken;
   } catch {
     return "";
   }
@@ -44,7 +49,7 @@ function readAccessToken() {
 
 /**
  * Prompt the operator once for the shared access token and persist it. Used only when the backend
- * has `REELYAI_ACCESS_TOKEN` configured and answers 401; local dev without the env never hits this.
+ * has `SEEREEL_ACCESS_TOKEN` configured and answers 401; local dev without the env never hits this.
  */
 function promptForAccessToken() {
   if (typeof window === "undefined") return "";
@@ -61,7 +66,7 @@ function promptForAccessToken() {
 
 function accessHeaders(): Record<string, string> {
   const token = readAccessToken();
-  return token ? { "x-reelyai-access": token } : {};
+  return token ? { "x-seereel-access": token, "x-reelyai-access": token } : {};
 }
 
 async function request<T>(url: string, options?: RequestInit): Promise<T> {

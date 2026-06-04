@@ -1,4 +1,4 @@
-(reelyai_backend) {
+(seereel_backend) {
 	encode zstd gzip
 	log {
 		output stdout
@@ -10,14 +10,14 @@
 		respond "not found" 404
 	}
 
-	reverse_proxy reelyai:5173
+	reverse_proxy seereel:5173
 }
 
 {$CADDY_SITE_ADDRESS} {
 	{$CADDY_TLS_DIRECTIVE}
-	import reelyai_backend
+	import seereel_backend
 }
 
 {$CADDY_HTTP_SITE_ADDRESS::80} {
-	import reelyai_backend
+	import seereel_backend
 }

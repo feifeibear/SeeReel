@@ -26,8 +26,8 @@ set +a
 if systemctl is-active --quiet caddy 2>/dev/null; then
   systemctl stop caddy
 fi
-if systemctl is-active --quiet reelyai-agent 2>/dev/null; then
-  systemctl stop reelyai-agent
+if systemctl is-active --quiet seereel-agent 2>/dev/null; then
+  systemctl stop seereel-agent
 fi
 
 docker compose -f deploy/docker-compose.volcengine.yml up -d --build

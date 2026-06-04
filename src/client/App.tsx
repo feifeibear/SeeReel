@@ -1423,9 +1423,9 @@ export function App() {
       )}
       <aside className="sidebar">
         <div className="brand">
-          <img className="brand-logo" src="/reelyai-mark.png" alt="" aria-hidden="true" />
+          <img className="brand-logo" src="/seereel-mark.png" alt="" aria-hidden="true" />
           <div className="brand-copy">
-            <strong>ReelyAI</strong>
+            <strong>SeeReel</strong>
             <span>{t.app.brandSubtitle}</span>
           </div>
         </div>
