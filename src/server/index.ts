@@ -61,6 +61,7 @@ import { analyzeReferenceVideo } from "./videoAnalyze";
 import { directoryStats, fileSize, productionPaths, readableFileStatus, snapshotCounts, tokenUsageSummary, writableDirectoryStatus } from "./diagnostics";
 import { incCounter, metricsText, observeHttpRequest, setGauge, setHttpInflight } from "./metrics";
 import { collectVisitorMetrics, visitorMetricsMiddleware } from "./visitorMetrics";
+import { resolveNodeReviewEnabled } from "../shared/reviewSettings";
 import {
   composeSeedanceVideoText,
   composeSeedreamAssetPrompt,
@@ -2042,7 +2043,10 @@ app.post("/api/assets/:assetId/generate", async (req, res) => {
       return res.json(composeSeedreamAssetPrompt(asset, referenceImageUrls.length > 0, lang));
     }
 
-    const reviewEnabled = shouldEnableReview(reqBody.visionReview as boolean | undefined) && asset.vlmReviewEnabled !== false;
+    const reviewEnabled = resolveNodeReviewEnabled(
+      shouldEnableReview(reqBody.visionReview as boolean | undefined),
+      asset.vlmReviewEnabled
+    );
     const maxAttempts = clampMaxAttempts(reqBody.maxReviewAttempts as number | undefined);
     const rawAssetPrompt = (asset.prompt || asset.description || asset.name || "").toString();
     const explicitOverride = typeof reqBody.composedPrompt === "string" ? reqBody.composedPrompt : undefined;
@@ -4227,7 +4231,10 @@ async function submitShotGeneration(shotId: string, body: Partial<Shot>): Promis
       assetIds: mergeIds(shot.assetIds, assets.map((asset) => asset.id))
     };
     const pendingRender = createPendingShotRender(shot, assets);
-    pendingRender.reviewEnabled = shouldEnableReview((body as Record<string, unknown>)?.visionReview as boolean | undefined);
+    pendingRender.reviewEnabled = resolveNodeReviewEnabled(
+      shouldEnableReview((body as Record<string, unknown>)?.visionReview as boolean | undefined),
+      shot.vlmReviewEnabled
+    );
     pendingRender.reviewMaxAttempts = clampMaxAttempts((body as Record<string, unknown>)?.maxReviewAttempts as number | undefined);
     pendingRender.reviewAttempts = 0;
     // Snapshot the audio choice so review-driven retries inherit it.

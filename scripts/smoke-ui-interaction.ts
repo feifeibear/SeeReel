@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import { resolveSessionDockState } from "../src/client/sessionDockState";
 import { resolveCanvasCreatePosition } from "../src/client/flow/canvasPosition";
+import { buildPendingConnectEdge, mergePendingEdges } from "../src/client/flow/pendingConnection";
 
 function assertEqual<T>(actual: T, expected: T, label: string) {
   if (actual !== expected) {
@@ -40,6 +41,38 @@ const fallbackPosition = resolveCanvasCreatePosition({
 assertEqual(fallbackPosition?.x, 320, "fallback canvas x subtracts rect left");
 assertEqual(fallbackPosition?.y, 250, "fallback canvas y subtracts rect top");
 
+const pendingStitchEdge = buildPendingConnectEdge({
+  connection: { source: "shot_shotA".replace("shot_", "shot-"), target: "stitch-sesA-stitchA" },
+  session: {
+    id: "sesA",
+    title: "Session",
+    logline: "",
+    style: "",
+    targetDurationSec: 10,
+    createdAt: "",
+    updatedAt: "",
+    shots: [{ id: "shotA", sessionId: "sesA", index: 1, title: "Shot 1", durationSec: 5, rawPrompt: "", prompt: "", assetIds: [], renders: [], status: "draft", createdAt: "", updatedAt: "" }],
+    stitchJobs: [{ id: "stitchA", name: "Stitch", shotIds: [], status: "idle", createdAt: "", updatedAt: "" }]
+  },
+  snapshot: { sessions: [], shots: [], assets: [] },
+  targetNodeData: {
+    kind: "stitch",
+    legacy: false,
+    session: { id: "sesA", title: "Session", logline: "", style: "", targetDurationSec: 10, createdAt: "", updatedAt: "", shots: [] },
+    job: { id: "stitchA", name: "Stitch", shotIds: [], status: "idle", createdAt: "", updatedAt: "" }
+  }
+});
+assertEqual(pendingStitchEdge?.id, "e-stitch-shotA-sesA-stitchA", "pending stitch edge uses the final derived edge id");
+assertEqual(pendingStitchEdge?.source, "shot-shotA", "pending stitch edge source");
+assertEqual(pendingStitchEdge?.target, "stitch-sesA-stitchA", "pending stitch edge target");
+
+const mergedPendingEdges = mergePendingEdges(
+  [{ id: "edge-live", source: "a", target: "b" }],
+  [pendingStitchEdge].filter((edge): edge is NonNullable<typeof edge> => Boolean(edge))
+);
+assertEqual(mergedPendingEdges.length, 2, "pending edge appears immediately before server refresh");
+assertEqual(mergePendingEdges([pendingStitchEdge!], [pendingStitchEdge!]).length, 1, "server-confirmed edge replaces pending duplicate");
+
 const appSource = readFileSync(new URL("../src/client/App.tsx", import.meta.url), "utf8");
 const flowSource = readFileSync(new URL("../src/client/flow/FlowView.tsx", import.meta.url), "utf8");
 
@@ -56,7 +89,6 @@ const flowSource = readFileSync(new URL("../src/client/flow/FlowView.tsx", impor
 [
   "optimisticEdgesRef",
   "addOptimisticEdge",
-  "clientPending",
   "resolveReplacedOptimisticNodePosition"
 ].forEach((pattern) => {
   assertEqual(flowSource.includes(pattern), false, `FlowView does not render structural optimistic canvas state: ${pattern}`);

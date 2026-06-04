@@ -5216,3 +5216,160 @@ body {
     white-space: nowrap;
   }
 }
+
+/* ============================================================================
+   Canvas contrast pass
+   ============================================================================ */
+
+.flow-canvas-row {
+  border-color: rgba(182, 203, 218, 0.16);
+  background: #101820;
+}
+
+.flow-canvas {
+  background:
+    radial-gradient(circle at 18% 12%, rgba(75, 188, 178, 0.08), transparent 30%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.035), transparent 20%),
+    repeating-linear-gradient(90deg, rgba(188, 210, 224, 0.09) 0 1px, transparent 1px 56px),
+    repeating-linear-gradient(0deg, rgba(188, 210, 224, 0.055) 0 1px, transparent 1px 56px),
+    #101820;
+}
+
+.flow-node {
+  overflow: hidden;
+  border-color: rgba(221, 237, 246, 0.28);
+  background: linear-gradient(180deg, #2c3842 0%, #202b34 100%);
+  box-shadow:
+    0 24px 56px rgba(0, 0, 0, 0.5),
+    0 0 0 1px rgba(255, 255, 255, 0.055);
+}
+
+.flow-node::before {
+  content: "";
+  position: absolute;
+  z-index: 4;
+  inset: 0 auto 0 0;
+  width: 4px;
+  background: #4cc7bf;
+  pointer-events: none;
+}
+
+.asset-node::before {
+  background: #7dd3fc;
+}
+
+.storyboard-node::before {
+  background: #c4b5fd;
+}
+
+.shot-node::before {
+  background: #4cc7bf;
+}
+
+.stitch-node::before {
+  background: #f8c86b;
+}
+
+.refvideo-node::before,
+.videoproc-node::before {
+  background: #fb7185;
+}
+
+.flow-node.selected {
+  border-color: rgba(126, 217, 211, 0.95);
+  box-shadow:
+    0 0 0 2px rgba(76, 199, 191, 0.24),
+    0 30px 66px rgba(0, 0, 0, 0.58),
+    0 0 34px rgba(76, 199, 191, 0.14);
+}
+
+.flow-node-head,
+.flow-node-foot {
+  border: 1px solid rgba(230, 241, 247, 0.12);
+  background: rgba(15, 24, 31, 0.78);
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.25);
+}
+
+.flow-node-title {
+  color: #f8fcfd;
+  text-shadow: 0 1px 10px rgba(0, 0, 0, 0.62);
+}
+
+.flow-node-thumb,
+.flow-node-thumb.fit-contain {
+  border-top: 1px solid rgba(231, 241, 246, 0.12);
+  border-bottom: 1px solid rgba(0, 0, 0, 0.35);
+  background:
+    linear-gradient(135deg, rgba(255, 255, 255, 0.045) 0 25%, transparent 25% 50%, rgba(255, 255, 255, 0.035) 50% 75%, transparent 75%),
+    #151f28;
+  background-size: 18px 18px, auto;
+}
+
+.flow-empty {
+  color: rgba(239, 246, 249, 0.7);
+}
+
+.flow-tag {
+  color: #f5fbfc;
+  background: rgba(255, 255, 255, 0.14);
+  border-color: rgba(255, 255, 255, 0.2);
+}
+
+.tag-character,
+.tag-scene,
+.tag-prop,
+.tag-style,
+.tag-other {
+  background: rgba(125, 211, 252, 0.18);
+  border-color: rgba(125, 211, 252, 0.28);
+}
+
+.tag-storyboard {
+  background: rgba(196, 181, 253, 0.2);
+  border-color: rgba(196, 181, 253, 0.32);
+}
+
+.tag-shot {
+  background: rgba(76, 199, 191, 0.2);
+  border-color: rgba(76, 199, 191, 0.34);
+}
+
+.tag-stitch {
+  background: rgba(248, 200, 107, 0.22);
+  border-color: rgba(248, 200, 107, 0.34);
+}
+
+.tag-refvideo,
+.tag-videoproc {
+  background: rgba(251, 113, 133, 0.2);
+  border-color: rgba(251, 113, 133, 0.33);
+}
+
+.react-flow__edge-path {
+  stroke: rgba(128, 224, 217, 0.72);
+  stroke-width: 1.9;
+}
+
+.react-flow__edge.selected .react-flow__edge-path,
+.react-flow__connection-path {
+  stroke: #f5fcfd;
+  stroke-width: 2.4;
+}
+
+.react-flow__handle {
+  width: 10px;
+  height: 10px;
+  border: 2px solid #101820;
+  background: #c8f7f3;
+  box-shadow: 0 0 0 2px rgba(200, 247, 243, 0.2);
+}
+
+.flow-node .react-flow__handle {
+  width: 10px;
+  height: 10px;
+  border-color: #101820 !important;
+  background: #c8f7f3 !important;
+  box-shadow:
+    0 0 0 2px rgba(200, 247, 243, 0.25),
+    0 0 16px rgba(76, 199, 191, 0.32) !important;
+}

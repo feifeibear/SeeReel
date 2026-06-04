@@ -26,3 +26,4 @@ data/
 .claude/
 
 .DS_Store
+.vercel

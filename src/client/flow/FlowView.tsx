@@ -24,6 +24,7 @@ import { Inspector } from "./Inspector";
 import { DownloadToast } from "./DownloadToast";
 import { CreateNodeMenu, type CreateMenuOption } from "./CreateNodeMenu";
 import { resolveCanvasCreatePosition } from "./canvasPosition";
+import { buildPendingConnectEdge, mergePendingEdges } from "./pendingConnection";
 import type { UndoableAction } from "./useUndoStack";
 import { useI18n, type UiLanguage } from "../i18n";
 
@@ -105,6 +106,7 @@ export function FlowView({ snapshot, session, visionReviewEnabled, defaultImageM
   const pendingDeletionsRef = useRef<Set<string>>(new Set());
   const pendingNodeDeletionsRef = useRef<Set<string>>(new Set());
   const pendingCreatedPositionsRef = useRef<Map<string, XYPosition>>(new Map());
+  const pendingConnectEdgesRef = useRef<Map<string, Edge>>(new Map());
   const rfInstanceRef = useRef<ReactFlowInstance<Node<FlowNodeData>, Edge> | null>(null);
 
   const flowPositionFromClient = useCallback((x: number, y: number): XYPosition | undefined => {
@@ -150,11 +152,17 @@ export function FlowView({ snapshot, session, visionReviewEnabled, defaultImageM
       nodesRef.current = nextNodes;
       return nextNodes;
     });
-    setEdges(derivedEdges.filter((e) =>
+    const visibleDerivedEdges = derivedEdges.filter((e) =>
       !pendingDeletionsRef.current.has(e.id) &&
       !pendingNodeDeletionsRef.current.has(e.source) &&
       !pendingNodeDeletionsRef.current.has(e.target)
-    ));
+    );
+    const visiblePendingEdges = Array.from(pendingConnectEdgesRef.current.values()).filter((e) =>
+      !pendingDeletionsRef.current.has(e.id) &&
+      !pendingNodeDeletionsRef.current.has(e.source) &&
+      !pendingNodeDeletionsRef.current.has(e.target)
+    );
+    setEdges(mergePendingEdges(visibleDerivedEdges, visiblePendingEdges));
   }, [derivedNodes, derivedEdges]);
 
   // Listen for in-node mutations (model picker, etc.) that bypass the prop chain — they emit
@@ -199,6 +207,37 @@ export function FlowView({ snapshot, session, visionReviewEnabled, defaultImageM
   const onInit = useCallback((instance: ReactFlowInstance<Node<FlowNodeData>, Edge>) => {
     rfInstanceRef.current = instance;
   }, []);
+
+  const beginPendingConnect = useCallback((connection: Connection) => {
+    if (!session) return undefined;
+    const pendingEdge = buildPendingConnectEdge({
+      connection,
+      session,
+      snapshot,
+      targetNodeData: nodesRef.current.find((node) => node.id === connection.target)?.data
+    });
+    if (!pendingEdge) return undefined;
+    pendingConnectEdgesRef.current.set(pendingEdge.id, pendingEdge);
+    setEdges((prev) => mergePendingEdges(prev, [pendingEdge]));
+    return pendingEdge.id;
+  }, [session, snapshot]);
+
+  const clearPendingConnect = useCallback((edgeId: string | undefined, removeVisible: boolean) => {
+    if (!edgeId) return;
+    pendingConnectEdgesRef.current.delete(edgeId);
+    if (removeVisible) setEdges((prev) => prev.filter((edge) => edge.id !== edgeId));
+  }, []);
+
+  const runConnectMutation = useCallback(async (connection: Connection, mutation: () => Promise<void>) => {
+    const pendingEdgeId = beginPendingConnect(connection);
+    try {
+      await mutation();
+      clearPendingConnect(pendingEdgeId, false);
+    } catch (error) {
+      clearPendingConnect(pendingEdgeId, true);
+      throw error;
+    }
+  }, [beginPendingConnect, clearPendingConnect]);
 
   useEffect(() => {
     setSelectedNodeId(undefined);
@@ -273,13 +312,15 @@ export function FlowView({ snapshot, session, visionReviewEnabled, defaultImageM
           usePreviousShotClip: false
         });
         const revert = async () => api.updateShot(targetShotId, previous);
-        await apply();
-        onPushUndo?.({
-          description: "连接尾帧到镜头首帧",
-          undo: async () => { await revert(); await onMutated(); },
-          redo: async () => { await apply(); await onMutated(); }
+        await runConnectMutation(conn, async () => {
+          await apply();
+          onPushUndo?.({
+            description: "连接尾帧到镜头首帧",
+            undo: async () => { await revert(); await onMutated(); },
+            redo: async () => { await apply(); await onMutated(); }
+          });
+          await onMutated();
         });
-        await onMutated();
         return;
       }
     }
@@ -305,13 +346,15 @@ export function FlowView({ snapshot, session, visionReviewEnabled, defaultImageM
         const liveIds = liveShot?.assetIds || [];
         return api.updateShot(shotId, { assetIds: liveIds.filter((id) => id !== assetId) });
       };
-      await apply();
-      onPushUndo?.({
-        description: "连接资产到分镜",
-        undo: async () => { await revert(); await onMutated(); },
-        redo: async () => { await apply(); await onMutated(); }
+      await runConnectMutation(conn, async () => {
+        await apply();
+        onPushUndo?.({
+          description: "连接资产到分镜",
+          undo: async () => { await revert(); await onMutated(); },
+          redo: async () => { await apply(); await onMutated(); }
+        });
+        await onMutated();
       });
-      await onMutated();
       return;
     }
 
@@ -349,13 +392,15 @@ export function FlowView({ snapshot, session, visionReviewEnabled, defaultImageM
           ...(liveIds.filter((id) => id !== storyboardAssetId).length ? {} : { subShotPanelCount: 0 })
         });
       };
-      await apply();
-      onPushUndo?.({
-        description: "连接分镜板到镜头",
-        undo: async () => { await revert(); await onMutated(); },
-        redo: async () => { await apply(); await onMutated(); }
+      await runConnectMutation(conn, async () => {
+        await apply();
+        onPushUndo?.({
+          description: "连接分镜板到镜头",
+          undo: async () => { await revert(); await onMutated(); },
+          redo: async () => { await apply(); await onMutated(); }
+        });
+        await onMutated();
       });
-      await onMutated();
       return;
     }
 
@@ -405,13 +450,15 @@ export function FlowView({ snapshot, session, visionReviewEnabled, defaultImageM
         if (liveShot?.referenceVideoAssetId && liveShot.referenceVideoAssetId !== refAssetId) return liveShot;
         return api.updateShot(shotId, previous);
       };
-      await apply();
-      onPushUndo?.({
-        description: "连接参考视频到镜头",
-        undo: async () => { await revert(); await onMutated(); },
-        redo: async () => { await apply(); await onMutated(); }
+      await runConnectMutation(conn, async () => {
+        await apply();
+        onPushUndo?.({
+          description: "连接参考视频到镜头",
+          undo: async () => { await revert(); await onMutated(); },
+          redo: async () => { await apply(); await onMutated(); }
+        });
+        await onMutated();
       });
-      await onMutated();
       return;
     }
 
@@ -446,13 +493,15 @@ export function FlowView({ snapshot, session, visionReviewEnabled, defaultImageM
         usePreviousShotClip: false
       });
       const revert = async () => api.updateShot(targetShotId, previous);
-      await apply();
-      onPushUndo?.({
-        description: "连接尾帧到镜头首帧",
-        undo: async () => { await revert(); await onMutated(); },
-        redo: async () => { await apply(); await onMutated(); }
+      await runConnectMutation(conn, async () => {
+        await apply();
+        onPushUndo?.({
+          description: "连接尾帧到镜头首帧",
+          undo: async () => { await revert(); await onMutated(); },
+          redo: async () => { await apply(); await onMutated(); }
+        });
+        await onMutated();
       });
-      await onMutated();
       return;
     }
 
@@ -508,13 +557,15 @@ export function FlowView({ snapshot, session, visionReviewEnabled, defaultImageM
           progress: ""
         });
       };
-      await apply();
-      onPushUndo?.({
-        description: "连接视频到拼接",
-        undo: async () => { await revert(); await onMutated(); },
-        redo: async () => { await apply(); await onMutated(); }
+      await runConnectMutation(conn, async () => {
+        await apply();
+        onPushUndo?.({
+          description: "连接视频到拼接",
+          undo: async () => { await revert(); await onMutated(); },
+          redo: async () => { await apply(); await onMutated(); }
+        });
+        await onMutated();
       });
-      await onMutated();
       return;
     }
 
@@ -568,16 +619,18 @@ export function FlowView({ snapshot, session, visionReviewEnabled, defaultImageM
         subShotPanelCount: 0
       });
       const revert = async () => api.updateShot(tgtShotId, previous);
-      await apply();
-      onPushUndo?.({
-        description: "把上游镜头的视频接到下一镜（reference_video）",
-        undo: async () => { await revert(); await onMutated(); },
-        redo: async () => { await apply(); await onMutated(); }
+      await runConnectMutation(conn, async () => {
+        await apply();
+        onPushUndo?.({
+          description: "把上游镜头的视频接到下一镜（reference_video）",
+          undo: async () => { await revert(); await onMutated(); },
+          redo: async () => { await apply(); await onMutated(); }
+        });
+        await onMutated();
       });
-      await onMutated();
       return;
     }
-  }, [session, onMutated, onPushUndo, snapshot.assets]);
+  }, [session, onMutated, onPushUndo, runConnectMutation, snapshot.assets]);
 
   /**
    * Edge-deletion handler: dispatches by `data` shape:

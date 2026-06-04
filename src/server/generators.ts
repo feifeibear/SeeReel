@@ -1567,6 +1567,22 @@ function extractGenerationError(body: unknown): unknown {
 function buildAssetPromptExpansionInstruction(asset: Partial<Asset>) {
   const rawPrompt = [asset.name, asset.prompt || asset.description].filter(Boolean).join("，").trim() || "未命名电影资产";
   if (asset.type === "character") {
+    if (isLikelyNonHumanCharacterAsset(rawPrompt)) {
+      return [
+        "请把用户原始角色描述扩写成 Seedream 4.5 文生图最终 prompt。语言：中文。最长不超过 800 字。",
+        "**用途声明（写到 prompt 前部）**：这张图是下游 Seedance 视频生成的**非人类角色参考底板**，会被反复读取以保持主体身份。必须尊重用户原文的主体类别、物种、体型、毛色/羽色/鳞片/材质、标志性轮廓与道具；禁止拟人化，禁止改写成演员或人物肖像。",
+        "硬性输出：**一张** 16:9 横构图，photoreal live-action / cinema-grade reference sheet，画面内只能出现一个主体；**横向并排**展示同一主体三个完整视图——左：正面 / 中：三分之四侧面 / 右：背面。三个视图从主体最高点到最低点完整入画，不要裁切耳朵、尾巴、爪子、翅膀、角、轮廓边缘或底部接触点。",
+        "一致性约束：三个视图必须是同一个主体——体型比例、骨架/姿态结构、毛色/纹理/斑纹、眼睛颜色、鼻口/喙/角/尾巴/爪子/翅膀等识别特征、项圈/衣物/配饰/随身道具必须严格一致。",
+        "姿态：自然克制的 reference pose；正面视图朝向镜头，三分之四侧面展示轮廓和体量，背面展示背部、尾部、毛流/羽流/纹理走向。允许符合该物种或主体类别的自然站姿、坐姿或静止姿态，不加入奔跑、跳跃、攻击、夸张表演。",
+        "摄影规格：ARRI Alexa Mini LF + Zeiss Supreme Prime 50mm T1.5 + Kodak Vision3 250D 数字模拟胶片质感；f/5.6 中等景深，主体边缘、眼睛、毛流/羽毛/鳞片/材质纹理全部清晰锐利；禁止虚焦、散焦、motion blur、低清噪点。",
+        "光线：影棚四点布光——主光右上 45° 大尺寸柔光箱 + 正面柔和 fill + 后侧轻微 rim light + 顶部柔光勾主体轮廓。色温 5500K 日光平衡，CRI 95+，无硬阴影。",
+        "材质：按原始主体如实表现——动物毛流、绒毛、湿润鼻尖、爪垫、羽毛、鳞片、甲壳、布料或金属等都要有真实细节；不要塑料感，不要玩具化。",
+        "背景：纯净影棚——light grey to mid grey seamless paper backdrop，脚下极淡接触阴影；不要杂物、家具、地砖、纹理、装饰。",
+        "调色：胶片级低饱和、低对比、highlight 软卷曲，shadow 保留细节，Kodak Vision3 颗粒；不要数码 HDR、不要广告片 ACES 看法。",
+        "结尾负面（必须放在 prompt 最后）：**STRICT NEGATIVE**——不要任何屏幕文字 / 字幕 / 对白气泡 / 品牌 LOGO / UI / 水印 / 签名 / 二维码；不要额外主体；不要 anime / cartoon / illustration / painting / game CG / 3D 渲染感；不要玩具化；不要主体变形；不要额外肢体；不要饱和度过高；不要 HDR halo；不要现代乱入元素。",
+        `用户原始描述：${rawPrompt}`
+      ].join("\n");
+    }
     return [
       "请把用户原始角色描述扩写成 Seedream 4.5 文生图最终 prompt。语言：中文。最长不超过 800 字。结构必须按下面骨架填充。",
       "**用途声明（写到 prompt 前部）**：这张图是下游 Seedance 视频生成的**角色参考底板**，会被反复读取以保持角色身份。因此扩写必须强制五项中性原则：**中性表情**（嘴自然闭合，眼平视镜头，无笑无怒无嘟嘴无瞪眼）、**中性手势**（双手自然下垂或微贴大腿，不抱胸不插兜不指向不持物，除非用户原文显式列出随身道具）、**中性身姿**（站直自然，无奔跑无下蹲无跳跃）、**均匀中性光**（避免硬阴影、单方向强光、彩色 gel）、**中性调色**（不要 push 情绪 grade）。即便用户原文出现情绪词（如「好欺负」「自信」「凶狠」），也只能转化为五官与气质（眉眼造型、下颌线、姿态比例），**不能转化为表演动作或夸张表情**。",
@@ -1632,6 +1648,20 @@ function buildAssetPromptExpansionInstruction(asset: Partial<Asset>) {
 function buildLocalExpandedAssetPrompt(asset: Partial<Asset>) {
   const rawPrompt = [asset.name, asset.prompt || asset.description].filter(Boolean).join("，").trim() || "一个电影短片资产";
   if (asset.type === "character") {
+    if (isLikelyNonHumanCharacterAsset(rawPrompt)) {
+      return [
+        `非人类角色参考底板：${rawPrompt}。`,
+        "一张 16:9 横构图 photoreal live-action / cinema-grade reference sheet，画面内只能出现一个主体；横向并排展示同一主体三个完整视图——左：正面 / 中：三分之四侧面 / 右：背面。三个视图从主体最高点到最低点完整入画，不要裁切耳朵、尾巴、爪子、翅膀、角、轮廓边缘或底部接触点。",
+        "三个视图必须是同一个主体：体型比例、骨架/姿态结构、毛色/纹理/斑纹、眼睛颜色、鼻口/喙/角/尾巴/爪子/翅膀等识别特征、项圈/衣物/配饰/随身道具严格一致；尊重原始主体类别和物种，禁止拟人化，禁止改写成演员或人物肖像。",
+        "姿态自然克制，正面朝向镜头，三分之四侧面展示轮廓和体量，背面展示背部、尾部、毛流/羽流/纹理走向；不加入奔跑、跳跃、攻击、夸张表演。",
+        "ARRI Alexa Mini LF + Zeiss Supreme Prime 50mm T1.5 + Kodak Vision3 250D 数字胶片质感，f/5.6 中等景深，主体边缘、眼睛、毛流/羽毛/鳞片/材质纹理全部清晰锐利；禁止虚焦、散焦、motion blur、低清噪点。",
+        "影棚四点布光：主光右上 45° 大柔光箱 + 正面柔和 fill + 后侧轻微 rim light + 顶部柔光勾主体轮廓。5500K 日光平衡，CRI 95+，无硬阴影。",
+        "按原始主体如实表现材质：动物毛流、绒毛、湿润鼻尖、爪垫、羽毛、鳞片、甲壳、布料或金属等都要有真实细节；不要塑料感，不要玩具化。",
+        "纯净影棚：light-grey to mid-grey seamless paper backdrop，脚下极淡接触阴影，无杂物。",
+        "Kodak Vision3 调色：低饱和、低对比，highlight 软卷曲，shadow 保留细节，胶片颗粒，避免 HDR halo。",
+        "**STRICT NEGATIVE**：不要任何屏幕文字 / 字幕 / 对白气泡 / 品牌 LOGO / UI / 水印 / 签名；不要额外主体；不要 anime / cartoon / illustration / painting / game CG / 3D 渲染；不要玩具化；不要主体变形；不要额外肢体；不要饱和度过高；不要 HDR halo；不要现代乱入元素。"
+      ].join(" ");
+    }
     return [
       `电影角色设定参考表（character lookbook turnaround）：${rawPrompt}。`,
       "**一张** 16:9 横构图，**真实真人照片级 photoreal live-action** 角色参考图，画面内只能出现一个真实成年人角色；**横向并排**展示同一角色三个全身视图——左：正面 / 中：三分之四侧面 / 右：背面。每视图全身从头到脚完整入画，不要裁切头顶或鞋底。三视图脚踝水平线对齐。",
@@ -1678,6 +1708,14 @@ function buildLocalExpandedAssetPrompt(asset: Partial<Asset>) {
     ].join(" ");
   }
   return `${rawPrompt}。电影资产参考图，ARRI Alexa Mini LF + 50mm prime + 35mm 胶片质感；主体清晰，材质细节明确，构图干净高级。**STRICT NEGATIVE**：不要文字 / 字幕 / 水印 / UI / 现代乱入元素 / HDR halo。`;
+}
+
+function isLikelyNonHumanCharacterAsset(rawPrompt: string) {
+  const text = rawPrompt.toLowerCase();
+  const explicitHuman = /真人|人类|人物|成人|男人|女人|男性|女性|男孩|女孩|小孩|儿童|少年|少女|老人|老头|老太|青年|中年|演员|模特|老板|员工|学生|老师|医生|护士|警察|父亲|母亲|爸爸|妈妈|爷爷|奶奶|叔叔|阿姨|哥哥|姐姐|弟弟|妹妹|human|person|man|woman|boy|girl|actor|actress|model/i.test(text);
+  if (explicitHuman) return false;
+
+  return /一只|一条|动物|宠物|狗|犬|金毛|拉布拉多|哈士奇|柴犬|柯基|贵宾|猫|狸花|布偶|橘猫|老虎|狮子|豹子|熊|狼|狐狸|兔|马|牛|羊|猪|鹿|猴|猩猩|鸟|鹰|鸽|鹦鹉|鸡|鸭|鹅|鱼|鲨|鲸|海豚|蛇|蜥蜴|龟|乌龟|青蛙|昆虫|蝴蝶|蜜蜂|甲虫|恐龙|怪兽|龙|生物|精灵|机器人|机甲|玩偶|娃娃|puppy|dog|cat|animal|pet|golden retriever|labrador|husky|corgi|tiger|lion|bear|wolf|fox|rabbit|horse|bird|dragon|monster|creature|robot/i.test(text);
 }
 
 function extractResponseText(body: unknown): string | undefined {

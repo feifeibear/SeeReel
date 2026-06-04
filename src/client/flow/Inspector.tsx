@@ -7,6 +7,7 @@ import { Lightbox } from "./Lightbox";
 import { MentionTextarea, type MentionOption } from "./MentionTextarea";
 import { usePendingGenerationActions } from "./PendingGenerations";
 import { useI18n } from "../i18n";
+import { resolveNodeReviewEnabled } from "../../shared/reviewSettings";
 
 /**
  * Click-to-zoom preview for use inside Inspector. The thumbnail is rendered as a button so
@@ -548,7 +549,7 @@ function AssetInspector({ asset, onMutated, onDeleteCanvasAsset, onClose, vision
     void pending.run(asset.id, async () => {
       try {
         await api.generateAsset(asset.id, effectiveAssetGenerateModel(asset, defaultImageModel), {
-          visionReview: visionReviewEnabled && asset.vlmReviewEnabled !== false,
+          visionReview: resolveNodeReviewEnabled(visionReviewEnabled, asset.vlmReviewEnabled),
           composedPrompt: composedDraft || undefined
         });
         await onMutated();
@@ -1378,7 +1379,7 @@ function ShotInspector({ shot, session, allAssets, visionReviewEnabled, onMutate
     try {
       await api.updateShot(shot.id, { rawPrompt, prompt: rawPrompt, durationSec, composedSeedancePromptDraft: composedDraft });
       await api.generateShot(shot.id, {
-        visionReview: visionReviewEnabled,
+        visionReview: resolveNodeReviewEnabled(visionReviewEnabled, shot.vlmReviewEnabled),
         composedPrompt: composedDraft || undefined
       });
       // After a successful submit, the composedDraft (whether user-edited or empty) is the truth

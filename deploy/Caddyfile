@@ -1,4 +1,4 @@
-{$CADDY_SITE_ADDRESS} {
+(reelyai_backend) {
 	encode zstd gzip
 	log {
 		output stdout
@@ -11,4 +11,13 @@
 	}
 
 	reverse_proxy reelyai:5173
+}
+
+{$CADDY_SITE_ADDRESS} {
+	{$CADDY_TLS_DIRECTIVE}
+	import reelyai_backend
+}
+
+{$CADDY_HTTP_SITE_ADDRESS::80} {
+	import reelyai_backend
 }

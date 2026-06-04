@@ -30,8 +30,6 @@ services:
       - ./.env.production
     expose:
       - "5173"
-    ports:
-      - "5173:5173"
     volumes:
       - reelyai-data:/app/data
     healthcheck:
@@ -53,6 +51,7 @@ services:
       - "443:443"
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - ./certs:/certs:ro
       - caddy-data:/data
       - caddy-config:/config
 

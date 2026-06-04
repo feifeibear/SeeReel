@@ -16,12 +16,16 @@
   ],
   "rewrites": [
     {
+      "source": "/metrics",
+      "destination": "https://complement-arrested-batteries-believed.trycloudflare.com/metrics"
+    },
+    {
       "source": "/api/:path*",
-      "destination": "https://lenders-told-providence-gods.trycloudflare.com/api/:path*"
+      "destination": "https://complement-arrested-batteries-believed.trycloudflare.com/api/:path*"
     },
     {
       "source": "/media/:path*",
-      "destination": "https://lenders-told-providence-gods.trycloudflare.com/media/:path*"
+      "destination": "https://complement-arrested-batteries-believed.trycloudflare.com/media/:path*"
     },
     {
       "source": "/:path*",

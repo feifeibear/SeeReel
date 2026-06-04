@@ -24,5 +24,8 @@ If Vercel does not automatically assign `reelyai.app`, alias the deployment:
 npx vercel alias set <deployment-host>.vercel.app reelyai.app
 ```
 
-The backend target in `vercel-static-frontend.json` is the currently working Cloudflare tunnel.
-If the tunnel changes, update only the `/api` and `/media` rewrite destinations and redeploy.
+The backend target in `vercel-static-frontend.json` is the currently reachable Cloudflare Quick
+Tunnel. Direct Vercel rewrites to `https://api.reelyai.app` and raw ECS IP were tested and returned
+502/timeouts from Vercel Edge even though Caddy handled direct client requests successfully. Keep
+Caddy blocking `/metrics` and `/api/diagnostics` publicly. The current tunnel is
+`https://complement-arrested-batteries-believed.trycloudflare.com`.
