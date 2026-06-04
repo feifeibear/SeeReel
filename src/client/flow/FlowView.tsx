@@ -24,7 +24,6 @@ import { Inspector } from "./Inspector";
 import { DownloadToast } from "./DownloadToast";
 import { CreateNodeMenu, type CreateMenuOption } from "./CreateNodeMenu";
 import { resolveCanvasCreatePosition } from "./canvasPosition";
-import { resolveReplacedOptimisticNodePosition } from "./optimisticNodePosition";
 import type { UndoableAction } from "./useUndoStack";
 import { useI18n, type UiLanguage } from "../i18n";
 
@@ -44,18 +43,6 @@ const MemoInspector = memo(Inspector);
 
 const flowProOptions = { hideAttribution: true };
 
-function flowNodeAssetMeta(data: FlowNodeData) {
-  if (
-    data.kind === "asset"
-    || data.kind === "referenceVideo"
-    || data.kind === "videoProcessor"
-    || data.kind === "tailframe"
-  ) {
-    return { assetId: data.asset.id, assetName: data.asset.name };
-  }
-  return {};
-}
-
 export interface FlowViewProps {
   snapshot: StoreSnapshot;
   session: SessionWithShots | undefined;
@@ -63,9 +50,8 @@ export interface FlowViewProps {
   defaultImageModel?: AssetImageModel;
   onMutated: () => Promise<void> | void;
   onCreateAnchorAsset: (kind: AnchorKind) => Promise<Asset | undefined> | Asset | undefined;
-  onCreateShot: () => Promise<{ id: string } | undefined> | { id: string } | undefined;
+  onCreateShot: () => Promise<Shot | undefined> | Shot | undefined;
   onCreateStitchJob: () => Promise<StitchJob | undefined> | StitchJob | undefined;
-  onConnectStitchShot: (shotId: string, jobId: string, legacy?: boolean) => Promise<void> | void;
   onSetStitchOrder: (jobId: string, shotIds: string[], legacy?: boolean) => Promise<void> | void;
   onDeleteCanvasAsset: (asset: Asset) => Promise<boolean> | boolean;
   onDeleteCanvasShot: (shot: Shot) => Promise<boolean> | boolean;
@@ -82,7 +68,7 @@ export interface FlowViewProps {
   redoDescription?: string;
 }
 
-export function FlowView({ snapshot, session, visionReviewEnabled, defaultImageModel, onMutated, onCreateAnchorAsset, onCreateShot, onCreateStitchJob, onConnectStitchShot, onSetStitchOrder, onDeleteCanvasAsset, onDeleteCanvasShot, onUploadImageAsset, onUploadReferenceVideo, onPushUndo, undo, redo, canUndo, canRedo, undoDescription, redoDescription }: FlowViewProps) {
+export function FlowView({ snapshot, session, visionReviewEnabled, defaultImageModel, onMutated, onCreateAnchorAsset, onCreateShot, onCreateStitchJob, onSetStitchOrder, onDeleteCanvasAsset, onDeleteCanvasShot, onUploadImageAsset, onUploadReferenceVideo, onPushUndo, undo, redo, canUndo, canRedo, undoDescription, redoDescription }: FlowViewProps) {
   const { lang, t } = useI18n();
   const allAssets = snapshot.assets;
   const { nodes: derivedNodes, edges: derivedEdges } = useMemo(() => {
@@ -96,15 +82,22 @@ export function FlowView({ snapshot, session, visionReviewEnabled, defaultImageM
   const [selectedNodeId, setSelectedNodeId] = useState<string | undefined>();
   // Floating "新建节点" menu position. Right-click summons it; null hides it.
   const [createMenu, setCreateMenu] = useState<{ x: number; y: number; flowPosition?: XYPosition } | null>(null);
+  const [creatingKind, setCreatingKind] = useState<string>("");
   // Hidden file input pulled from the canvas surface for the "上传图" menu option and drop-on-canvas.
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const videoInputRef = useRef<HTMLInputElement | null>(null);
   const canvasRef = useRef<HTMLDivElement | null>(null);
   const pendingFileKindRef = useRef<"character" | "scene">("character");
   const pendingFilePositionRef = useRef<XYPosition | undefined>(undefined);
-  const guardCreate = useCallback((_kind: string, fn: () => unknown | Promise<unknown>) => {
-    void Promise.resolve(fn());
-  }, []);
+  const guardCreate = useCallback((kind: string, fn: () => unknown | Promise<unknown>) => {
+    if (creatingKind) return;
+    setCreatingKind(kind);
+    void Promise.resolve(fn())
+      .catch((error: unknown) => {
+        window.alert(`${lang === "en" ? "Create failed" : "创建失败"}：${error instanceof Error ? error.message : "未知错误"}`);
+      })
+      .finally(() => setCreatingKind(""));
+  }, [creatingKind, lang]);
 
   // Edge ids that the user has just deleted but the server hasn't yet acknowledged. Held in a
   // ref so a stray re-render of derivedEdges (e.g. from an unrelated snapshot refresh racing with
@@ -112,7 +105,6 @@ export function FlowView({ snapshot, session, visionReviewEnabled, defaultImageM
   const pendingDeletionsRef = useRef<Set<string>>(new Set());
   const pendingNodeDeletionsRef = useRef<Set<string>>(new Set());
   const pendingCreatedPositionsRef = useRef<Map<string, XYPosition>>(new Map());
-  const optimisticEdgesRef = useRef<Map<string, Edge>>(new Map());
   const rfInstanceRef = useRef<ReactFlowInstance<Node<FlowNodeData>, Edge> | null>(null);
 
   const flowPositionFromClient = useCallback((x: number, y: number): XYPosition | undefined => {
@@ -138,19 +130,6 @@ export function FlowView({ snapshot, session, visionReviewEnabled, defaultImageM
   useEffect(() => {
     setNodes((prev) => {
       const prevById = new Map(prev.map((n) => [n.id, n]));
-      const previousOptimisticNodes = prev.map((node) => {
-        const data = node.data;
-        const assetMeta = flowNodeAssetMeta(data);
-        return {
-          id: node.id,
-          kind: data.kind,
-          assetId: assetMeta.assetId,
-          assetName: assetMeta.assetName,
-          jobId: data.kind === "stitch" ? data.job.id : undefined,
-          jobName: data.kind === "stitch" ? data.job.name : undefined,
-          position: node.position
-        };
-      });
       const merged: Node<FlowNodeData>[] = [];
       for (const next of derivedNodes) {
         const old = prevById.get(next.id);
@@ -163,19 +142,7 @@ export function FlowView({ snapshot, session, visionReviewEnabled, defaultImageM
             pendingCreatedPositionsRef.current.delete(next.id);
             merged.push({ ...next, position: pendingPosition });
           } else {
-            const assetMeta = flowNodeAssetMeta(next.data);
-            const replacementPosition = resolveReplacedOptimisticNodePosition({
-              next: {
-                id: next.id,
-                kind: next.data.kind,
-                assetId: assetMeta.assetId,
-                assetName: assetMeta.assetName,
-                jobId: next.data.kind === "stitch" ? next.data.job.id : undefined,
-                jobName: next.data.kind === "stitch" ? next.data.job.name : undefined
-              },
-              previous: previousOptimisticNodes
-            });
-            merged.push(replacementPosition ? { ...next, position: replacementPosition } : next);
+            merged.push(next);
           }
         }
       }
@@ -183,12 +150,7 @@ export function FlowView({ snapshot, session, visionReviewEnabled, defaultImageM
       nodesRef.current = nextNodes;
       return nextNodes;
     });
-    const derivedIds = new Set(derivedEdges.map((edge) => edge.id));
-    derivedIds.forEach((id) => optimisticEdgesRef.current.delete(id));
-    setEdges([
-      ...derivedEdges,
-      ...[...optimisticEdgesRef.current.values()].filter((edge) => !derivedIds.has(edge.id))
-    ].filter((e) =>
+    setEdges(derivedEdges.filter((e) =>
       !pendingDeletionsRef.current.has(e.id) &&
       !pendingNodeDeletionsRef.current.has(e.source) &&
       !pendingNodeDeletionsRef.current.has(e.target)
@@ -219,11 +181,6 @@ export function FlowView({ snapshot, session, visionReviewEnabled, defaultImageM
     setCreateMenu(null);
   }, []);
 
-  const addOptimisticEdge = useCallback((edge: Edge) => {
-    optimisticEdgesRef.current.set(edge.id, edge);
-    setEdges((current) => current.some((item) => item.id === edge.id) ? current : [...current, edge]);
-  }, []);
-
   const onPaneClick = useCallback(() => {
     setSelectedNodeId(undefined);
     setCreateMenu(null);
@@ -246,8 +203,8 @@ export function FlowView({ snapshot, session, visionReviewEnabled, defaultImageM
   useEffect(() => {
     setSelectedNodeId(undefined);
     setCreateMenu(null);
+    setCreatingKind("");
     pendingCreatedPositionsRef.current.clear();
-    optimisticEdgesRef.current.clear();
     void rfInstanceRef.current?.setViewport({ x: 0, y: 0, zoom: 1 });
   }, [session?.id]);
 
@@ -336,14 +293,6 @@ export function FlowView({ snapshot, session, visionReviewEnabled, defaultImageM
       if (!shot) return;
       const current = shot.assetIds || [];
       if (current.includes(assetId)) return; // already wired
-      addOptimisticEdge({
-        id: `e-asset-${assetId}-shot-${shotId}`,
-        source: `asset-${assetId}`,
-        target: `shot-${shotId}`,
-        animated: false,
-        data: { canDisconnect: true, assetId, shotId, clientPending: true },
-        style: { stroke: "#fbbf24", strokeWidth: 2 }
-      });
       const apply = async () => {
         const live = await api.state();
         const liveShot = live.shots.find((item) => item.id === shotId);
@@ -517,22 +466,6 @@ export function FlowView({ snapshot, session, visionReviewEnabled, defaultImageM
       const legacy = Boolean(target.legacy);
       const current = target.job.shotIds || [];
       if (current.includes(srcShotId)) return;
-      addOptimisticEdge({
-        id: `e-stitch-${srcShotId}-${session.id}-${jobId}`,
-        source: `shot-${srcShotId}`,
-        target: tgt,
-        animated: false,
-        data: { canDisconnectStitch: true, stitchShotId: srcShotId, stitchJobId: jobId, stitchOrderIndex: current.length, clientPending: true },
-        label: String(current.length + 1),
-        style: {
-          stroke: "#34d399",
-          strokeWidth: 2,
-          ...(sourceShot.videoUrl ? {} : { strokeDasharray: "4 3", opacity: 0.65 })
-        }
-      });
-      void Promise.resolve(onConnectStitchShot(srcShotId, jobId, legacy));
-      if (jobId.startsWith("stitch_pending")) return;
-
       const apply = async () => {
         const live = await api.state();
         const liveSession = live.sessions.find((item) => item.id === session.id);
@@ -644,7 +577,7 @@ export function FlowView({ snapshot, session, visionReviewEnabled, defaultImageM
       await onMutated();
       return;
     }
-  }, [addOptimisticEdge, onConnectStitchShot, session, onMutated, onPushUndo, snapshot.assets]);
+  }, [session, onMutated, onPushUndo, snapshot.assets]);
 
   /**
    * Edge-deletion handler: dispatches by `data` shape:
@@ -1220,7 +1153,10 @@ export function FlowView({ snapshot, session, visionReviewEnabled, defaultImageM
       <header className="flow-toolbar">
         <div className="flow-toolbar-section">
           <strong>{session.title}</strong>
-          <small>{t.flow.summary((session.shots || []).length, session.targetDurationSec, (session.language || lang) as UiLanguage)}<em>{t.flow.createNodeHint}</em></small>
+          <small>
+            {t.flow.summary((session.shots || []).length, session.targetDurationSec, (session.language || lang) as UiLanguage)}
+            <em>{creatingKind ? (lang === "en" ? "Creating..." : "创建中...") : t.flow.createNodeHint}</em>
+          </small>
         </div>
         <div className="flow-toolbar-actions">
           {undo && (

@@ -7,8 +7,6 @@ import { useUndoKeyboardShortcut, useUndoStack } from "./flow/useUndoStack";
 import { useI18n } from "./i18n";
 import { resolveSessionDockState } from "./sessionDockState";
 import { resolveRefreshSelectedSessionId } from "./sessionSelection";
-import { resolveCreatedAssetFollowupShotPatches } from "./assetOptimistic";
-import { resolveCreatedStitchJobFollowupPatch } from "./stitchOptimistic";
 
 const FlowView = lazy(() =>
   import("./flow/FlowView").then((module) => ({ default: memo(module.FlowView) }))
@@ -481,12 +479,6 @@ export function App() {
   // carries `tags: ["reference-video", "client-pending-upload"]` so buildGraph routes it to the
   // refvideo pile and ReferenceVideoNode renders an "上传中…" badge instead of "待解析".
   const [pendingUploads, setPendingUploads] = useState<Asset[]>([]);
-  const [optimisticAssets, setOptimisticAssets] = useState<Asset[]>([]);
-  const [optimisticShots, setOptimisticShots] = useState<Shot[]>([]);
-  const [optimisticStitchJobs, setOptimisticStitchJobs] = useState<Array<{ sessionId: string; job: StitchJob }>>([]);
-  const optimisticStitchJobsRef = useRef(optimisticStitchJobs);
-  useEffect(() => { optimisticStitchJobsRef.current = optimisticStitchJobs; }, [optimisticStitchJobs]);
-  const optimisticIdRef = useRef(0);
   const pendingSessionCreatePromisesRef = useRef<Map<string, Promise<void>>>(new Map());
 
   // Vision-review (self-critique + retry) is opt-out: default on, persisted in localStorage so the
@@ -587,20 +579,13 @@ export function App() {
   // top-level shots explicitly before handing it to the canvas/inspector components.
   const selectedSessionShots = useMemo(
     () => {
-      const persisted = state.shots.filter((shot) => shot.sessionId === selectedSessionId);
-      const optimistic = optimisticShots.filter((shot) => shot.sessionId === selectedSessionId && !persisted.some((item) => item.id === shot.id));
-      return [...persisted, ...optimistic].sort((a, b) => a.index - b.index);
+      return state.shots.filter((shot) => shot.sessionId === selectedSessionId).sort((a, b) => a.index - b.index);
     },
-    [optimisticShots, state.shots, selectedSessionId]
+    [state.shots, selectedSessionId]
   );
   const selectedSessionStitchJobs = useMemo(() => {
-    const persisted = visibleSelectedSession?.stitchJobs || [];
-    const persistedIds = new Set(persisted.map((job) => job.id));
-    const optimistic = optimisticStitchJobs
-      .filter((item) => item.sessionId === selectedSessionId && !persistedIds.has(item.job.id))
-      .map((item) => item.job);
-    return [...persisted, ...optimistic];
-  }, [optimisticStitchJobs, selectedSessionId, visibleSelectedSession?.stitchJobs]);
+    return visibleSelectedSession?.stitchJobs || [];
+  }, [visibleSelectedSession?.stitchJobs]);
   const selectedSessionWithShots = useMemo(
     () => visibleSelectedSession ? { ...visibleSelectedSession, shots: selectedSessionShots, stitchJobs: selectedSessionStitchJobs } : undefined,
     [selectedSessionShots, selectedSessionStitchJobs, visibleSelectedSession]
@@ -809,9 +794,6 @@ export function App() {
         assets: prev.assets.filter((asset) => asset.ownerSessionId !== deletedId)
       };
     });
-    setOptimisticShots((prev) => prev.filter((shot) => shot.sessionId !== deletedId));
-    setOptimisticAssets((prev) => prev.filter((asset) => asset.ownerSessionId !== deletedId));
-    setOptimisticStitchJobs((prev) => prev.filter((item) => item.sessionId !== deletedId));
     setSelectedSessionId((current) => {
       if (current !== deletedId) return current;
       return stateRef.current.sessions.find((item) => item.id !== deletedId)?.id || "";
@@ -1071,22 +1053,6 @@ export function App() {
     });
   };
 
-  const replaceCreatedAssetReferences = async (sessionId: string, optimisticAssetId: string, createdAssetId: string) => {
-    const live = await api.state();
-    const patches = resolveCreatedAssetFollowupShotPatches({
-      shots: live.shots.filter((shot) => shot.sessionId === sessionId),
-      optimisticAssetId,
-      createdAssetId
-    });
-    if (!patches.length) return;
-    const updatedShots = await Promise.all(patches.map(({ shotId, patch }) => api.updateShot(shotId, patch)));
-    const updatedById = new Map(updatedShots.map((shot) => [shot.id, shot]));
-    setState((prev) => ({
-      ...prev,
-      shots: prev.shots.map((shot) => updatedById.get(shot.id) || shot)
-    }));
-  };
-
   const pushShotCreateUndo = (created: Shot) => {
     let currentShot = created;
     undoStack.push({
@@ -1300,19 +1266,16 @@ export function App() {
   };
 
   const flowSnapshot = useMemo(() => {
-    if (!pendingUploads.length && !optimisticAssets.length && !optimisticShots.length) return state;
+    if (!pendingUploads.length) return state;
     const assetIds = new Set(state.assets.map((asset) => asset.id));
-    const shotIds = new Set(state.shots.map((shot) => shot.id));
     return {
       ...state,
       assets: [
         ...state.assets,
-        ...optimisticAssets.filter((asset) => !assetIds.has(asset.id)),
         ...pendingUploads.filter((asset) => !assetIds.has(asset.id))
-      ],
-      shots: [...state.shots, ...optimisticShots.filter((shot) => !shotIds.has(shot.id))]
+      ]
     };
-  }, [optimisticAssets, optimisticShots, pendingUploads, state]);
+  }, [pendingUploads, state]);
 
   const handleFlowMutated = useStableEvent(() => refresh());
 
@@ -1350,173 +1313,41 @@ export function App() {
       ownerSessionId: sessionForCreate.id,
       tags: ["anchor", kind]
     };
-    const now = new Date().toISOString();
-    const tempId = `asset_pending_${Date.now()}_${optimisticIdRef.current++}`;
-    const tempAsset: Asset = {
-      id: tempId,
-      name: payload.name || seedNames[kind],
-      type: kind as AssetType,
-      mediaKind: "none",
-      description: payload.description || "",
-      prompt: "",
-      ownerSessionId: sessionForCreate.id,
-      tags: ["anchor", kind, "client-pending-create"],
-      createdAt: now,
-      updatedAt: now
-    };
-    setOptimisticAssets((prev) => [...prev, tempAsset]);
-    void (async () => {
-      try {
-        await waitForSessionCreate(sessionForCreate.id);
-        const asset = await api.saveAsset(payload);
-        upsertAssetInState(asset);
-        await replaceCreatedAssetReferences(sessionForCreate.id, tempId, asset.id);
-        setOptimisticAssets((prev) => prev.filter((item) => item.id !== tempId));
-        pushAssetCreateUndo(lang === "en" ? `Create ${kind}` : `新建${seedNames[kind].replace("未命名", "")}`, asset);
-      } catch (err) {
-        setOptimisticAssets((prev) => prev.filter((item) => item.id !== tempId));
-        setError(err instanceof Error ? err.message : t.errors.unknown);
-      }
-    })();
-    return tempAsset;
+    await waitForSessionCreate(sessionForCreate.id);
+    const asset = await api.saveAsset(payload);
+    upsertAssetInState(asset);
+    pushAssetCreateUndo(lang === "en" ? `Create ${kind}` : `新建${seedNames[kind].replace("未命名", "")}`, asset);
+    return asset;
   });
 
   const handleCreateShot = useStableEvent(async () => {
     const sessionForCreate = selectedSessionWithShots || visibleSelectedSession;
     if (!sessionForCreate) return undefined;
-    const now = new Date().toISOString();
     const nextIndex = selectedSessionShots.length + 1;
-    const tempId = clientId("shot");
-    const tempShot: Shot = {
-      id: tempId,
-      sessionId: sessionForCreate.id,
-      index: nextIndex,
+    await waitForSessionCreate(sessionForCreate.id);
+    const result = await api.appendShot(sessionForCreate.id, {
       title: `Shot ${nextIndex}`,
-      script: "",
-      camera: "",
-      durationSec: Math.max(4, Math.round((sessionForCreate.targetDurationSec || 60) / Math.max(1, nextIndex))),
-      assetIds: [],
-      rawPrompt: "",
-      prompt: "",
-      debugNote: "",
-      seedanceVariant: "standard",
-      usePreviousShotClip: false,
-      renders: [],
-      status: "draft",
-      createdAt: now,
-      updatedAt: now
-    };
-    setOptimisticShots((prev) => [...prev, tempShot]);
-    void (async () => {
-      try {
-        await waitForSessionCreate(sessionForCreate.id);
-        const result = await api.appendShot(sessionForCreate.id, { id: tempId });
-        upsertShotAndSessionInState(result.shot, result.session);
-        setOptimisticShots((prev) => prev.filter((item) => item.id !== tempId));
-        pushShotCreateUndo(result.shot);
-      } catch (err) {
-        setOptimisticShots((prev) => prev.filter((item) => item.id !== tempId));
-        setError(err instanceof Error ? err.message : t.errors.unknown);
-      }
-    })();
-    return tempShot;
+      durationSec: Math.max(4, Math.round((sessionForCreate.targetDurationSec || 60) / Math.max(1, nextIndex)))
+    });
+    upsertShotAndSessionInState(result.shot, result.session);
+    pushShotCreateUndo(result.shot);
+    return result.shot;
   });
 
-  const handleCreateStitchJob = useStableEvent(() => {
+  const handleCreateStitchJob = useStableEvent(async () => {
     const sessionForCreate = selectedSessionWithShots || visibleSelectedSession;
     if (!sessionForCreate) return undefined;
-    const now = new Date().toISOString();
-    const existingCount = (sessionForCreate.stitchJobs || []).length
-      + optimisticStitchJobs.filter((item) => item.sessionId === sessionForCreate.id).length;
-    const tempId = `stitch_pending_${Date.now()}_${optimisticIdRef.current++}`;
-    const tempJob: StitchJob = {
-      id: tempId,
-      name: `拼接 ${existingCount + 1}`,
+    const existing = sessionForCreate.stitchJobs || [];
+    await waitForSessionCreate(sessionForCreate.id);
+    const created = await api.createStitchJob(sessionForCreate.id, {
+      name: `拼接 ${existing.length + 1}`,
       shotIds: [],
-      status: "idle",
-      createdAt: now,
-      updatedAt: now
-    };
-    setOptimisticStitchJobs((prev) => [...prev, { sessionId: sessionForCreate.id, job: tempJob }]);
-    void (async () => {
-      try {
-        await waitForSessionCreate(sessionForCreate.id);
-        const latestTempJob = optimisticStitchJobsRef.current.find((item) => item.job.id === tempId)?.job || tempJob;
-        const created = await api.createStitchJob(sessionForCreate.id, {
-          name: latestTempJob.name,
-          shotIds: latestTempJob.shotIds,
-          status: "idle"
-        });
-        const followupPatch = resolveCreatedStitchJobFollowupPatch({
-          createdJobs: created.stitchJobs || [],
-          optimisticJob: latestTempJob
-        });
-        const updated = followupPatch
-          ? await api.updateStitchJob(sessionForCreate.id, followupPatch.jobId, {
-              shotIds: followupPatch.shotIds,
-              status: "idle",
-              error: "",
-              progress: ""
-            })
-          : created;
-        upsertSessionInState(updated);
-        setOptimisticStitchJobs((prev) => prev.filter((item) => item.job.id !== tempId));
-      } catch (err) {
-        setOptimisticStitchJobs((prev) => prev.filter((item) => item.job.id !== tempId));
-        setError(err instanceof Error ? err.message : t.errors.unknown);
-      }
-    })();
-    return tempJob;
-  });
-
-  const handleConnectStitchShot = useStableEvent((shotId: string, jobId: string, legacy?: boolean) => {
-    if (!visibleSelectedSession) return;
-    const sessionId = visibleSelectedSession.id;
-    if (legacy) {
-      setState((prev) => ({
-        ...prev,
-        sessions: prev.sessions.map((session) => session.id === sessionId ? {
-          ...session,
-          stitchShotIds: Array.from(new Set([...(session.stitchShotIds || []), shotId])),
-          stitchStatus: "idle",
-          stitchError: "",
-          stitchProgress: ""
-        } : session)
-      }));
-      return;
-    }
-    if (jobId.startsWith("stitch_pending")) {
-      setOptimisticStitchJobs((prev) => prev.map((item) => {
-        if (item.sessionId !== sessionId || item.job.id !== jobId) return item;
-        return {
-          ...item,
-          job: {
-            ...item.job,
-            shotIds: Array.from(new Set([...(item.job.shotIds || []), shotId])),
-            status: "idle",
-            error: "",
-            progress: ""
-          }
-        };
-      }));
-      return;
-    }
-    setState((prev) => ({
-      ...prev,
-      sessions: prev.sessions.map((session) => {
-        if (session.id !== sessionId) return session;
-        return {
-          ...session,
-          stitchJobs: (session.stitchJobs || []).map((job) => job.id === jobId ? {
-            ...job,
-            shotIds: Array.from(new Set([...(job.shotIds || []), shotId])),
-            status: "idle",
-            error: "",
-            progress: ""
-          } : job)
-        };
-      })
-    }));
+      status: "idle"
+    });
+    upsertSessionInState(created);
+    const existingIds = new Set(existing.map((job) => job.id));
+    return [...(created.stitchJobs || [])].reverse().find((job) => !existingIds.has(job.id))
+      || created.stitchJobs?.[created.stitchJobs.length - 1];
   });
 
   const handleSetStitchOrder = useStableEvent((jobId: string, shotIds: string[], legacy?: boolean) => {
@@ -1533,22 +1364,6 @@ export function App() {
           stitchError: "",
           stitchProgress: ""
         } : session)
-      }));
-      return;
-    }
-    if (jobId.startsWith("stitch_pending")) {
-      setOptimisticStitchJobs((prev) => prev.map((item) => {
-        if (item.sessionId !== sessionId || item.job.id !== jobId) return item;
-        return {
-          ...item,
-          job: {
-            ...item.job,
-            shotIds: nextIds,
-            status: "idle",
-            error: "",
-            progress: ""
-          }
-        };
       }));
       return;
     }
@@ -2059,7 +1874,6 @@ export function App() {
             onCreateAnchorAsset={handleCreateAnchorAsset}
             onCreateShot={handleCreateShot}
             onCreateStitchJob={handleCreateStitchJob}
-            onConnectStitchShot={handleConnectStitchShot}
             onSetStitchOrder={handleSetStitchOrder}
             onDeleteCanvasAsset={handleDeleteCanvasAsset}
             onDeleteCanvasShot={handleDeleteCanvasShot}
