@@ -10,7 +10,7 @@ const FlowView = lazy(() =>
   import("./flow/FlowView").then((module) => ({ default: memo(module.FlowView) }))
 );
 
-const clientBuildStamp = "speed-20260604-asset-refresh";
+const clientBuildStamp = "speed-20260604-optimistic-canvas";
 
 type AnchorKind = Extract<AssetType, "character" | "scene" | "prop" | "style">;
 
@@ -407,6 +407,9 @@ export function App() {
   // carries `tags: ["reference-video", "client-pending-upload"]` so buildGraph routes it to the
   // refvideo pile and ReferenceVideoNode renders an "上传中…" badge instead of "待解析".
   const [pendingUploads, setPendingUploads] = useState<Asset[]>([]);
+  const [optimisticAssets, setOptimisticAssets] = useState<Asset[]>([]);
+  const [optimisticShots, setOptimisticShots] = useState<Shot[]>([]);
+  const optimisticIdRef = useRef(0);
 
   // Vision-review (self-critique + retry) is opt-out: default on, persisted in localStorage so the
   // user only flips it once. Off → server skips review entirely; max 5 retries when on.
@@ -495,8 +498,12 @@ export function App() {
   // /api/state is normalized: session rows do not embed shots. Join the selected session's
   // top-level shots explicitly before handing it to the canvas/inspector components.
   const selectedSessionShots = useMemo(
-    () => state.shots.filter((shot) => shot.sessionId === selectedSessionId).sort((a, b) => a.index - b.index),
-    [state.shots, selectedSessionId]
+    () => {
+      const persisted = state.shots.filter((shot) => shot.sessionId === selectedSessionId);
+      const optimistic = optimisticShots.filter((shot) => shot.sessionId === selectedSessionId && !persisted.some((item) => item.id === shot.id));
+      return [...persisted, ...optimistic].sort((a, b) => a.index - b.index);
+    },
+    [optimisticShots, state.shots, selectedSessionId]
   );
   const selectedSessionWithShots = useMemo(
     () => visibleSelectedSession ? { ...visibleSelectedSession, shots: selectedSessionShots } : undefined,
@@ -1101,10 +1108,20 @@ export function App() {
     return placeholder;
   };
 
-  const flowSnapshot = useMemo(
-    () => (pendingUploads.length ? { ...state, assets: [...state.assets, ...pendingUploads] } : state),
-    [pendingUploads, state]
-  );
+  const flowSnapshot = useMemo(() => {
+    if (!pendingUploads.length && !optimisticAssets.length && !optimisticShots.length) return state;
+    const assetIds = new Set(state.assets.map((asset) => asset.id));
+    const shotIds = new Set(state.shots.map((shot) => shot.id));
+    return {
+      ...state,
+      assets: [
+        ...state.assets,
+        ...optimisticAssets.filter((asset) => !assetIds.has(asset.id)),
+        ...pendingUploads.filter((asset) => !assetIds.has(asset.id))
+      ],
+      shots: [...state.shots, ...optimisticShots.filter((shot) => !shotIds.has(shot.id))]
+    };
+  }, [optimisticAssets, optimisticShots, pendingUploads, state]);
 
   const handleFlowMutated = useStableEvent(() => refresh());
 
@@ -1140,18 +1157,72 @@ export function App() {
       ownerSessionId: selectedSession.id,
       tags: ["anchor", kind]
     };
-    const asset = await api.saveAsset(payload);
-    upsertAssetInState(asset);
-    pushAssetCreateUndo(lang === "en" ? `Create ${kind}` : `新建${seedNames[kind].replace("未命名", "")}`, payload, asset);
-    return asset;
+    const now = new Date().toISOString();
+    const tempId = `asset_pending_${Date.now()}_${optimisticIdRef.current++}`;
+    const tempAsset: Asset = {
+      id: tempId,
+      name: payload.name || seedNames[kind],
+      type: kind as AssetType,
+      mediaKind: "none",
+      description: payload.description || "",
+      prompt: "",
+      ownerSessionId: selectedSession.id,
+      tags: ["anchor", kind, "client-pending-create"],
+      createdAt: now,
+      updatedAt: now
+    };
+    setOptimisticAssets((prev) => [...prev, tempAsset]);
+    void (async () => {
+      try {
+        const asset = await api.saveAsset(payload);
+        upsertAssetInState(asset);
+        setOptimisticAssets((prev) => prev.filter((item) => item.id !== tempId));
+        pushAssetCreateUndo(lang === "en" ? `Create ${kind}` : `新建${seedNames[kind].replace("未命名", "")}`, payload, asset);
+      } catch (err) {
+        setOptimisticAssets((prev) => prev.filter((item) => item.id !== tempId));
+        setError(err instanceof Error ? err.message : t.errors.unknown);
+      }
+    })();
+    return tempAsset;
   });
 
   const handleCreateShot = useStableEvent(async () => {
     if (!selectedSession) return undefined;
-    const result = await api.appendShot(selectedSession.id);
-    upsertShotAndSessionInState(result.shot, result.session);
-    pushShotCreateUndo(result.shot);
-    return result.shot;
+    const now = new Date().toISOString();
+    const nextIndex = selectedSessionShots.length + 1;
+    const tempId = `shot_pending_${Date.now()}_${optimisticIdRef.current++}`;
+    const tempShot: Shot = {
+      id: tempId,
+      sessionId: selectedSession.id,
+      index: nextIndex,
+      title: `Shot ${nextIndex}`,
+      script: "",
+      camera: "",
+      durationSec: Math.max(4, Math.round((selectedSession.targetDurationSec || 60) / Math.max(1, nextIndex))),
+      assetIds: [],
+      rawPrompt: "",
+      prompt: "",
+      debugNote: "",
+      seedanceVariant: "standard",
+      usePreviousShotClip: false,
+      renders: [],
+      status: "draft",
+      createdAt: now,
+      updatedAt: now
+    };
+    setOptimisticShots((prev) => [...prev, tempShot]);
+    void (async () => {
+      try {
+        const result = await api.appendShot(selectedSession.id);
+        upsertShotAndSessionInState(result.shot, result.session);
+        setOptimisticShots((prev) => prev.filter((item) => item.id !== tempId));
+        pushShotCreateUndo(result.shot);
+      } catch (err) {
+        setOptimisticShots((prev) => prev.filter((item) => item.id !== tempId));
+        setError(err instanceof Error ? err.message : t.errors.unknown);
+      }
+    })();
+    return tempShot;
   });
 
   const handleUploadImageAsset = useStableEvent(async (file: File, kind: "character" | "scene") => {

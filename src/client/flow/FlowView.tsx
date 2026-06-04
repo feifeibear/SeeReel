@@ -173,6 +173,10 @@ export function FlowView({ snapshot, session, visionReviewEnabled, defaultImageM
     setCreateMenu(null);
   }, []);
 
+  const addOptimisticEdge = useCallback((edge: Edge) => {
+    setEdges((current) => current.some((item) => item.id === edge.id) ? current : [...current, edge]);
+  }, []);
+
   const onPaneClick = useCallback(() => {
     setSelectedNodeId(undefined);
     setCreateMenu(null);
@@ -273,6 +277,14 @@ export function FlowView({ snapshot, session, visionReviewEnabled, defaultImageM
       if (!shot) return;
       const current = shot.assetIds || [];
       if (current.includes(assetId)) return; // already wired
+      addOptimisticEdge({
+        id: `e-asset-${assetId}-shot-${shotId}`,
+        source: `asset-${assetId}`,
+        target: `shot-${shotId}`,
+        animated: false,
+        data: { canDisconnect: true, assetId, shotId, clientPending: true },
+        style: { stroke: "#fbbf24", strokeWidth: 2 }
+      });
       const apply = async () => {
         const live = await api.state();
         const liveShot = live.shots.find((item) => item.id === shotId);
@@ -558,7 +570,7 @@ export function FlowView({ snapshot, session, visionReviewEnabled, defaultImageM
       await onMutated();
       return;
     }
-  }, [session, onMutated, onPushUndo, snapshot.assets]);
+  }, [addOptimisticEdge, session, onMutated, onPushUndo, snapshot.assets]);
 
   /**
    * Edge-deletion handler: dispatches by `data` shape:
@@ -1290,7 +1302,6 @@ export function FlowView({ snapshot, session, visionReviewEnabled, defaultImageM
             // read the prompt textarea inside a node" (zoom in 2–3× without chained Ctrl+scroll).
             minZoom={0.1}
             maxZoom={4}
-            onlyRenderVisibleElements
             // Enlarge the connection-snap radius so dragging an edge "near" a handle is enough —
             // the user doesn't have to pixel-hunt for the 8-px dot. The CSS below also bumps the
             // invisible hit target around each handle to ~24 px so initiating a drag is forgiving.
