@@ -10,7 +10,7 @@ const FlowView = lazy(() =>
   import("./flow/FlowView").then((module) => ({ default: memo(module.FlowView) }))
 );
 
-const clientBuildStamp = "speed-20260604-optimistic-canvas";
+const clientBuildStamp = "speed-20260604-superpower-canvas";
 
 type AnchorKind = Extract<AssetType, "character" | "scene" | "prop" | "style">;
 
@@ -409,6 +409,7 @@ export function App() {
   const [pendingUploads, setPendingUploads] = useState<Asset[]>([]);
   const [optimisticAssets, setOptimisticAssets] = useState<Asset[]>([]);
   const [optimisticShots, setOptimisticShots] = useState<Shot[]>([]);
+  const [optimisticStitchJobs, setOptimisticStitchJobs] = useState<Array<{ sessionId: string; job: StitchJob }>>([]);
   const optimisticIdRef = useRef(0);
 
   // Vision-review (self-critique + retry) is opt-out: default on, persisted in localStorage so the
@@ -505,9 +506,17 @@ export function App() {
     },
     [optimisticShots, state.shots, selectedSessionId]
   );
+  const selectedSessionStitchJobs = useMemo(() => {
+    const persisted = visibleSelectedSession?.stitchJobs || [];
+    const persistedIds = new Set(persisted.map((job) => job.id));
+    const optimistic = optimisticStitchJobs
+      .filter((item) => item.sessionId === selectedSessionId && !persistedIds.has(item.job.id))
+      .map((item) => item.job);
+    return [...persisted, ...optimistic];
+  }, [optimisticStitchJobs, selectedSessionId, visibleSelectedSession?.stitchJobs]);
   const selectedSessionWithShots = useMemo(
-    () => visibleSelectedSession ? { ...visibleSelectedSession, shots: selectedSessionShots } : undefined,
-    [selectedSessionShots, visibleSelectedSession]
+    () => visibleSelectedSession ? { ...visibleSelectedSession, shots: selectedSessionShots, stitchJobs: selectedSessionStitchJobs } : undefined,
+    [selectedSessionShots, selectedSessionStitchJobs, visibleSelectedSession]
   );
 
   useEffect(() => {
@@ -871,6 +880,22 @@ export function App() {
     }));
   };
 
+  const upsertSessionInState = (session: Session & { shots?: Shot[] }) => {
+    setState((prev) => {
+      const incomingShots = session.shots || [];
+      const incomingShotIds = new Set(incomingShots.map((shot) => shot.id));
+      return {
+        ...prev,
+        sessions: prev.sessions.some((item) => item.id === session.id)
+          ? prev.sessions.map((item) => (item.id === session.id ? stripShots(session) : item))
+          : [stripShots(session), ...prev.sessions],
+        shots: incomingShots.length
+          ? [...prev.shots.filter((shot) => !incomingShotIds.has(shot.id)), ...incomingShots]
+          : prev.shots
+      };
+    });
+  };
+
   const removeShotFromState = (shotId: string) => {
     setState((prev) => ({
       ...prev,
@@ -1223,6 +1248,34 @@ export function App() {
       }
     })();
     return tempShot;
+  });
+
+  const handleCreateStitchJob = useStableEvent(() => {
+    if (!selectedSession) return undefined;
+    const now = new Date().toISOString();
+    const existingCount = (selectedSession.stitchJobs || []).length
+      + optimisticStitchJobs.filter((item) => item.sessionId === selectedSession.id).length;
+    const tempId = `stitch_pending_${Date.now()}_${optimisticIdRef.current++}`;
+    const tempJob: StitchJob = {
+      id: tempId,
+      name: `拼接 ${existingCount + 1}`,
+      shotIds: [],
+      status: "idle",
+      createdAt: now,
+      updatedAt: now
+    };
+    setOptimisticStitchJobs((prev) => [...prev, { sessionId: selectedSession.id, job: tempJob }]);
+    void (async () => {
+      try {
+        const updated = await api.createStitchJob(selectedSession.id);
+        upsertSessionInState(updated);
+        setOptimisticStitchJobs((prev) => prev.filter((item) => item.job.id !== tempId));
+      } catch (err) {
+        setOptimisticStitchJobs((prev) => prev.filter((item) => item.job.id !== tempId));
+        setError(err instanceof Error ? err.message : t.errors.unknown);
+      }
+    })();
+    return tempJob;
   });
 
   const handleUploadImageAsset = useStableEvent(async (file: File, kind: "character" | "scene") => {
@@ -1721,6 +1774,7 @@ export function App() {
             onPushUndo={undoStack.push}
             onCreateAnchorAsset={handleCreateAnchorAsset}
             onCreateShot={handleCreateShot}
+            onCreateStitchJob={handleCreateStitchJob}
             onDeleteCanvasAsset={handleDeleteCanvasAsset}
             onDeleteCanvasShot={handleDeleteCanvasShot}
             onUploadImageAsset={handleUploadImageAsset}

@@ -17,7 +17,7 @@ import {
 import "@xyflow/react/dist/style.css";
 
 import { api } from "../api";
-import type { Asset, AssetImageModel, AssetType, SessionWithShots, Shot, StoreSnapshot, WorkflowShotPlanItem } from "../../shared/types";
+import type { Asset, AssetImageModel, AssetType, SessionWithShots, Shot, StitchJob, StoreSnapshot, WorkflowShotPlanItem } from "../../shared/types";
 import { buildSessionGraph, type FlowNodeData } from "./buildGraph";
 import { AssetNode, ReferenceVideoNode, VideoProcessorNode, StoryboardNode, ShotNode, StitchNode, TailframeNode } from "./nodes";
 import { Inspector } from "./Inspector";
@@ -50,6 +50,7 @@ export interface FlowViewProps {
   onMutated: () => Promise<void> | void;
   onCreateAnchorAsset: (kind: AnchorKind) => Promise<Asset | undefined> | Asset | undefined;
   onCreateShot: () => Promise<{ id: string } | undefined> | { id: string } | undefined;
+  onCreateStitchJob: () => Promise<StitchJob | undefined> | StitchJob | undefined;
   onDeleteCanvasAsset: (asset: Asset) => Promise<boolean> | boolean;
   onDeleteCanvasShot: (shot: Shot) => Promise<boolean> | boolean;
   onUploadImageAsset: (file: File, kind: "character" | "scene") => Promise<Asset | undefined> | Asset | undefined;
@@ -66,7 +67,7 @@ export interface FlowViewProps {
   redoDescription?: string;
 }
 
-export function FlowView({ snapshot, session, visionReviewEnabled, defaultImageModel, onMutated, onCreateAnchorAsset, onCreateShot, onDeleteCanvasAsset, onDeleteCanvasShot, onUploadImageAsset, onUploadReferenceVideo, onPushUndo, onStitch, undo, redo, canUndo, canRedo, undoDescription, redoDescription }: FlowViewProps) {
+export function FlowView({ snapshot, session, visionReviewEnabled, defaultImageModel, onMutated, onCreateAnchorAsset, onCreateShot, onCreateStitchJob, onDeleteCanvasAsset, onDeleteCanvasShot, onUploadImageAsset, onUploadReferenceVideo, onPushUndo, onStitch, undo, redo, canUndo, canRedo, undoDescription, redoDescription }: FlowViewProps) {
   const { lang, t } = useI18n();
   const allAssets = snapshot.assets;
   const { nodes: derivedNodes, edges: derivedEdges } = useMemo(() => {
@@ -85,16 +86,11 @@ export function FlowView({ snapshot, session, visionReviewEnabled, defaultImageM
   const videoInputRef = useRef<HTMLInputElement | null>(null);
   const pendingFileKindRef = useRef<"character" | "scene">("character");
   const pendingFilePositionRef = useRef<XYPosition | undefined>(undefined);
-  // Single in-flight guard for the create-node toolbar + menu. Prevents spam-clicks (which would
-  // each fire an independent api.saveAsset / api.appendShot) from creating duplicate nodes.
-  const [creating, setCreating] = useState<"" | "character" | "scene" | "prop" | "style" | "shot" | "stitch" | "video">("");
   const [workflowBusy, setWorkflowBusy] = useState(false);
   const [workflowStatus, setWorkflowStatus] = useState("");
-  const guardCreate = useCallback(<K extends typeof creating>(kind: Exclude<K, "">, fn: () => unknown | Promise<unknown>) => {
-    if (creating) return;
-    setCreating(kind);
-    void Promise.resolve(fn()).finally(() => setCreating(""));
-  }, [creating]);
+  const guardCreate = useCallback((_kind: string, fn: () => unknown | Promise<unknown>) => {
+    void Promise.resolve(fn());
+  }, []);
 
   // Edge ids that the user has just deleted but the server hasn't yet acknowledged. Held in a
   // ref so a stray re-render of derivedEdges (e.g. from an unrelated snapshot refresh racing with
@@ -187,6 +183,10 @@ export function FlowView({ snapshot, session, visionReviewEnabled, defaultImageM
     evt.preventDefault();
     setCreateMenu({ x: evt.clientX, y: evt.clientY, flowPosition: flowPositionFromClient(evt.clientX, evt.clientY) });
   }, [flowPositionFromClient]);
+
+  const onNodeContextMenu = useCallback((event: React.MouseEvent) => {
+    onPaneContextMenu(event);
+  }, [onPaneContextMenu]);
 
   const onInit = useCallback((instance: ReactFlowInstance<Node<FlowNodeData>, Edge>) => {
     rfInstanceRef.current = instance;
@@ -1086,9 +1086,7 @@ export function FlowView({ snapshot, session, visionReviewEnabled, defaultImageM
     if (option === "stitch") {
       return guardCreate("stitch", async () => {
         if (!session) return;
-        const updated = await api.createStitchJob(session.id);
-        await onMutated();
-        const job = updated.stitchJobs?.[updated.stitchJobs.length - 1];
+        const job = await onCreateStitchJob();
         if (job) centerNodeAt(`stitch-${session.id}-${job.id}`, placement);
       });
     }
@@ -1109,7 +1107,7 @@ export function FlowView({ snapshot, session, visionReviewEnabled, defaultImageM
       videoInputRef.current?.click();
       return;
     }
-  }, [centerNodeAt, createMenu?.flowPosition, guardCreate, onCreateAnchorAsset, onCreateShot, onMutated, session]);
+  }, [centerNodeAt, createMenu?.flowPosition, guardCreate, onCreateAnchorAsset, onCreateShot, onCreateStitchJob, session]);
 
   /** Drop-on-canvas handler: route file by mime type. Image → character anchor; video → reference. */
   const onDrop = useCallback((event: React.DragEvent<HTMLDivElement>) => {
@@ -1282,6 +1280,7 @@ export function FlowView({ snapshot, session, visionReviewEnabled, defaultImageM
             onEdgesChange={onEdgesChange}
             nodeTypes={nodeTypes}
             onNodeClick={onNodeClick}
+            onNodeContextMenu={onNodeContextMenu}
             onPaneClick={onPaneClick}
             onConnect={onConnect}
             onBeforeDelete={onBeforeDelete}
