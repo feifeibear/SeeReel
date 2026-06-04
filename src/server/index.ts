@@ -366,7 +366,9 @@ app.get("/metrics", async (_req, res) => {
 });
 
 app.get("/api/state", async (_req, res) => {
-  await store.ensureExampleSessionForUser(userIdForRequest());
+  if (seedDemoForEachUserEnabled()) {
+    await store.ensureExampleSessionForUser(userIdForRequest());
+  }
   res.json({ ...snapshotForCurrentUser(), runtime: runtimeInfo() });
 });
 
@@ -559,6 +561,10 @@ function legacyPublicSessionsEnabled() {
   return /^(1|true|yes|on)$/i.test(process.env.REELYAI_LEGACY_PUBLIC_DATA || "");
 }
 
+function seedDemoForEachUserEnabled() {
+  return /^(1|true|yes|on)$/i.test(process.env.REELYAI_SEED_DEMO_PER_USER || "");
+}
+
 function userIdForRequest() {
   return currentUserId() || "anonymous";
 }
@@ -593,19 +599,7 @@ function ownsAsset(asset: Asset | undefined, userId = userIdForRequest()) {
 }
 
 function snapshotForCurrentUser(): StoreSnapshot {
-  const userId = userIdForRequest();
-  const snapshot = store.snapshot();
-  const sessions = snapshot.sessions.filter((session) => ownsSession(session, userId));
-  const sessionIds = new Set(sessions.map((session) => session.id));
-  const shots = snapshot.shots.filter((shot) => sessionIds.has(shot.sessionId));
-  const shotIds = new Set(shots.map((shot) => shot.id));
-  const assets = snapshot.assets.filter((asset) => {
-    if (asset.ownerShotId) return shotIds.has(asset.ownerShotId);
-    if (asset.ownerSessionId) return sessionIds.has(asset.ownerSessionId);
-    if (asset.ownerUserId) return asset.ownerUserId === userId;
-    return legacyPublicSessionsEnabled();
-  });
-  return { sessions, shots, assets };
+  return store.snapshotForOwner(userIdForRequest(), legacyPublicSessionsEnabled());
 }
 
 function normalizeLocalMediaUrl(value: unknown) {

@@ -42,6 +42,23 @@ export class CinemaStore {
     return structuredClone(this.data);
   }
 
+  snapshotForOwner(ownerUserId: string, includeLegacyPublic = false): StoreSnapshot {
+    const sessions = this.data.sessions.filter((session) => {
+      if (session.ownerUserId) return session.ownerUserId === ownerUserId;
+      return includeLegacyPublic;
+    });
+    const sessionIds = new Set(sessions.map((session) => session.id));
+    const shots = this.data.shots.filter((shot) => sessionIds.has(shot.sessionId));
+    const shotIds = new Set(shots.map((shot) => shot.id));
+    const assets = this.data.assets.filter((asset) => {
+      if (asset.ownerShotId) return shotIds.has(asset.ownerShotId);
+      if (asset.ownerSessionId) return sessionIds.has(asset.ownerSessionId);
+      if (asset.ownerUserId) return asset.ownerUserId === ownerUserId;
+      return includeLegacyPublic;
+    });
+    return structuredClone({ sessions, shots, assets });
+  }
+
   private async ensureDemoExample() {
     if (isDemoSeedDisabled()) return false;
     await copyDemoMediaIfPresent();
