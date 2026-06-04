@@ -377,6 +377,7 @@ export function App() {
   // it on init means a paste-into-browser of "http://localhost:5173/#/s/ses_abc" boots straight
   // into that session, even before /api/state has loaded.
   const [selectedSessionId, setSelectedSessionId] = useState<string>(() => readSessionFromHash());
+  const [stateLoaded, setStateLoaded] = useState(false);
   const [sessionTitleDraft, setSessionTitleDraft] = useState("");
   const [showArchivedSessions, setShowArchivedSessions] = useState(false);
   const [showTokenUsage, setShowTokenUsage] = useState(false);
@@ -427,19 +428,24 @@ export function App() {
   const refresh = useCallback(async () => {
     const next = await api.state();
     setState((prev) => mergeStateById(prev, next));
+    setStateLoaded(true);
     setSelectedSessionId((current) => {
       // 1) keep current selection if it still exists (most common path)
       if (current && next.sessions.some((s) => s.id === current)) return current;
       // 2) try the URL hash — covers paste-link-into-browser before state loaded
       const fromHash = readSessionFromHash();
       if (fromHash && next.sessions.some((s) => s.id === fromHash)) return fromHash;
+      if (current && current === fromHash) return current;
       // 3) fall back to most recent
       return next.sessions[0]?.id || "";
     });
   }, []);
 
   useEffect(() => {
-    refresh().catch((err: Error) => setError(err.message));
+    refresh().catch((err: Error) => {
+      setStateLoaded(true);
+      setError(err.message);
+    });
   }, []);
 
   // Mirror selectedSessionId ↔ URL hash so every session has a shareable link.
@@ -467,6 +473,23 @@ export function App() {
   const latestSession = sessions[0];
   const archivedSessions = sessions.slice(1);
   const selectedSession = sessions.find((session) => session.id === selectedSessionId);
+  const optimisticSession = useMemo<Session | undefined>(() => {
+    if (selectedSession || !selectedSessionId) return undefined;
+    if (stateLoaded && selectedSessionId !== readSessionFromHash()) return undefined;
+    const ts = new Date(0).toISOString();
+    return {
+      id: selectedSessionId,
+      title: selectedSessionId,
+      logline: "",
+      style: "",
+      language: lang,
+      targetDurationSec: 60,
+      tokenUsageEvents: [],
+      createdAt: ts,
+      updatedAt: ts
+    };
+  }, [lang, selectedSession, selectedSessionId, stateLoaded]);
+  const visibleSelectedSession = selectedSession || optimisticSession;
   // /api/state is normalized: session rows do not embed shots. Join the selected session's
   // top-level shots explicitly before handing it to the canvas/inspector components.
   const selectedSessionShots = useMemo(
@@ -474,8 +497,8 @@ export function App() {
     [state.shots, selectedSessionId]
   );
   const selectedSessionWithShots = useMemo(
-    () => selectedSession ? { ...selectedSession, shots: selectedSessionShots } : undefined,
-    [selectedSession, selectedSessionShots]
+    () => visibleSelectedSession ? { ...visibleSelectedSession, shots: selectedSessionShots } : undefined,
+    [selectedSessionShots, visibleSelectedSession]
   );
 
   useEffect(() => {
