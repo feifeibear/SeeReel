@@ -7,6 +7,12 @@ export default defineConfig({
     middlewareMode: true
   },
   build: {
-    outDir: "dist/client"
+    outDir: "dist/client",
+    cssCodeSplit: false,
+    rollupOptions: {
+      output: {
+        inlineDynamicImports: true
+      }
+    }
   }
 });

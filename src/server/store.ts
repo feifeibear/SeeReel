@@ -44,11 +44,7 @@ export class CinemaStore {
 
   private async ensureDemoExample() {
     if (isDemoSeedDisabled()) return false;
-    await cp(demoMediaSourceDir, demoMediaTargetDir, {
-      recursive: true,
-      force: false,
-      errorOnExist: false
-    });
+    await copyDemoMediaIfPresent();
     if (this.data.sessions.some((session) => session.id === demoExample.session.id)) {
       return false;
     }
@@ -92,11 +88,7 @@ export class CinemaStore {
   }
 
   private async createExampleSessionForUser(ownerUserId: string, sessionId: string) {
-    await cp(demoMediaSourceDir, demoMediaTargetDir, {
-      recursive: true,
-      force: false,
-      errorOnExist: false
-    });
+    await copyDemoMediaIfPresent();
 
     const existing = this.getSession(sessionId);
     if (existing) return existing;
@@ -775,6 +767,18 @@ export class CinemaStore {
     });
     preferSessionAssets(matchedAssets, shot.sessionId).forEach((asset) => wanted.add(asset.id));
     return structuredClone(this.data.assets.filter((asset) => wanted.has(asset.id)));
+  }
+}
+
+async function copyDemoMediaIfPresent() {
+  try {
+    await cp(demoMediaSourceDir, demoMediaTargetDir, {
+      recursive: true,
+      force: false,
+      errorOnExist: false
+    });
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
   }
 }
 
