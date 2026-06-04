@@ -92,7 +92,7 @@ reelyai workflow "一个失眠导演在午夜便利店遇见未来的自己" \
 Return the one-time `handoffUrl` to the user, not the raw `webUrl`. It should look like:
 
 ```text
-https://reelyai.app/handoff/xxxxxxxx
+https://reelyai.app/api/handoff/xxxxxxxx
 ```
 
 Tell the human the handoff link transfers the session from the CLI cookie identity to their current browser identity, then they can edit script, shot prompts, assets, duration, references, and generation choices in the web UI. After a handoff is claimed, keep using the browser/web UI as source of truth unless the human asks you to continue from a CLI-owned session.

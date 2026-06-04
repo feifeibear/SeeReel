@@ -400,11 +400,17 @@ app.post("/api/sessions/:sessionId/handoff", async (req, res) => {
     sessionId: session.id,
     webUrl: `${baseUrl}/#/s/${encodeURIComponent(session.id)}`,
     webUrlVisibleInBrowser: false,
-    handoffUrl: `${baseUrl}/handoff/${encodeURIComponent(token)}`,
+    handoffUrl: `${baseUrl}/api/handoff/${encodeURIComponent(token)}`,
     handoffToken: token,
     handoffExpiresAt: new Date(expiresAtMs).toISOString(),
     handoffCreatedAt: createdAt
   });
+});
+
+app.get("/api/handoff/:token", async (req, res) => {
+  const claimed = await claimHandoffToken(req.params.token, userIdForRequest());
+  if (!claimed) return res.status(404).send("Handoff link is invalid or expired.");
+  res.redirect(302, `/#/s/${encodeURIComponent(claimed.id)}`);
 });
 
 app.get("/handoff/:token", async (req, res) => {
