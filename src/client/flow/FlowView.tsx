@@ -24,6 +24,7 @@ import { Inspector } from "./Inspector";
 import { DownloadToast } from "./DownloadToast";
 import { CreateNodeMenu, type CreateMenuOption } from "./CreateNodeMenu";
 import { resolveCanvasCreatePosition } from "./canvasPosition";
+import { resolveReplacedStitchNodePosition } from "./stitchNodePosition";
 import type { UndoableAction } from "./useUndoStack";
 import { useI18n, type UiLanguage } from "../i18n";
 
@@ -128,6 +129,16 @@ export function FlowView({ snapshot, session, visionReviewEnabled, defaultImageM
   useEffect(() => {
     setNodes((prev) => {
       const prevById = new Map(prev.map((n) => [n.id, n]));
+      const previousStitchNodes = prev.map((node) => {
+        const data = node.data;
+        return {
+          id: node.id,
+          kind: data.kind,
+          jobId: data.kind === "stitch" ? data.job.id : undefined,
+          jobName: data.kind === "stitch" ? data.job.name : undefined,
+          position: node.position
+        };
+      });
       const merged: Node<FlowNodeData>[] = [];
       for (const next of derivedNodes) {
         const old = prevById.get(next.id);
@@ -140,7 +151,18 @@ export function FlowView({ snapshot, session, visionReviewEnabled, defaultImageM
             pendingCreatedPositionsRef.current.delete(next.id);
             merged.push({ ...next, position: pendingPosition });
           } else {
-            merged.push(next);
+            const replacementPosition = next.data.kind === "stitch"
+              ? resolveReplacedStitchNodePosition({
+                  next: {
+                    id: next.id,
+                    kind: next.data.kind,
+                    jobId: next.data.job.id,
+                    jobName: next.data.job.name
+                  },
+                  previous: previousStitchNodes
+                })
+              : undefined;
+            merged.push(replacementPosition ? { ...next, position: replacementPosition } : next);
           }
         }
       }

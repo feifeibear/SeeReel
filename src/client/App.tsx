@@ -7,6 +7,7 @@ import { useUndoKeyboardShortcut, useUndoStack } from "./flow/useUndoStack";
 import { useI18n } from "./i18n";
 import { resolveSessionDockState } from "./sessionDockState";
 import { resolveRefreshSelectedSessionId } from "./sessionSelection";
+import { resolveCreatedStitchJobFollowupPatch } from "./stitchOptimistic";
 
 const FlowView = lazy(() =>
   import("./flow/FlowView").then((module) => ({ default: memo(module.FlowView) }))
@@ -1423,11 +1424,23 @@ export function App() {
       try {
         await waitForSessionCreate(sessionForCreate.id);
         const latestTempJob = optimisticStitchJobsRef.current.find((item) => item.job.id === tempId)?.job || tempJob;
-        const updated = await api.createStitchJob(sessionForCreate.id, {
+        const created = await api.createStitchJob(sessionForCreate.id, {
           name: latestTempJob.name,
           shotIds: latestTempJob.shotIds,
           status: "idle"
         });
+        const followupPatch = resolveCreatedStitchJobFollowupPatch({
+          createdJobs: created.stitchJobs || [],
+          optimisticJob: latestTempJob
+        });
+        const updated = followupPatch
+          ? await api.updateStitchJob(sessionForCreate.id, followupPatch.jobId, {
+              shotIds: followupPatch.shotIds,
+              status: "idle",
+              error: "",
+              progress: ""
+            })
+          : created;
         upsertSessionInState(updated);
         setOptimisticStitchJobs((prev) => prev.filter((item) => item.job.id !== tempId));
       } catch (err) {

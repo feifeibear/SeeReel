@@ -1,5 +1,7 @@
 import { resolveSessionDockState } from "../src/client/sessionDockState";
 import { resolveCanvasCreatePosition } from "../src/client/flow/canvasPosition";
+import { resolveCreatedStitchJobFollowupPatch } from "../src/client/stitchOptimistic";
+import { resolveReplacedStitchNodePosition } from "../src/client/flow/stitchNodePosition";
 
 function assertEqual<T>(actual: T, expected: T, label: string) {
   if (actual !== expected) {
@@ -38,5 +40,31 @@ const fallbackPosition = resolveCanvasCreatePosition({
 });
 assertEqual(fallbackPosition?.x, 320, "fallback canvas x subtracts rect left");
 assertEqual(fallbackPosition?.y, 250, "fallback canvas y subtracts rect top");
+
+const followupPatch = resolveCreatedStitchJobFollowupPatch({
+  createdJobs: [
+    { id: "stitch_real", name: "拼接 1", shotIds: [], status: "idle", createdAt: "2026-06-04T00:00:00.000Z", updatedAt: "2026-06-04T00:00:00.000Z" }
+  ],
+  optimisticJob: { id: "stitch_pending_1", name: "拼接 1", shotIds: ["shot_a"], status: "idle", createdAt: "2026-06-04T00:00:00.000Z", updatedAt: "2026-06-04T00:00:00.000Z" }
+});
+assertEqual(followupPatch?.jobId, "stitch_real", "created stitch job followup targets the real server job");
+assertEqual(followupPatch?.shotIds.join(","), "shot_a", "created stitch job followup preserves pending shot links");
+
+const noFollowupPatch = resolveCreatedStitchJobFollowupPatch({
+  createdJobs: [
+    { id: "stitch_real", name: "拼接 1", shotIds: ["shot_a"], status: "idle", createdAt: "2026-06-04T00:00:00.000Z", updatedAt: "2026-06-04T00:00:00.000Z" }
+  ],
+  optimisticJob: { id: "stitch_pending_1", name: "拼接 1", shotIds: ["shot_a"], status: "idle", createdAt: "2026-06-04T00:00:00.000Z", updatedAt: "2026-06-04T00:00:00.000Z" }
+});
+assertEqual(noFollowupPatch, undefined, "no stitch followup patch when the server job already has the pending links");
+
+const replacementPosition = resolveReplacedStitchNodePosition({
+  next: { id: "stitch-session-stitch_real", kind: "stitch", jobId: "stitch_real", jobName: "拼接 1" },
+  previous: [
+    { id: "stitch-session-stitch_pending_1", kind: "stitch", jobId: "stitch_pending_1", jobName: "拼接 1", position: { x: 120, y: 240 } }
+  ]
+});
+assertEqual(replacementPosition?.x, 120, "real stitch node inherits pending stitch x");
+assertEqual(replacementPosition?.y, 240, "real stitch node inherits pending stitch y");
 
 console.log("ui interaction smoke passed");
