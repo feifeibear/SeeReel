@@ -30,7 +30,7 @@ if systemctl is-active --quiet seereel-agent 2>/dev/null; then
   systemctl stop seereel-agent
 fi
 
-docker compose -f deploy/docker-compose.volcengine.yml up -d --build
+docker compose -f deploy/docker-compose.volcengine.yml up -d --build --remove-orphans
 docker compose -f deploy/docker-compose.volcengine.yml ps
 
 for _ in {1..60}; do
