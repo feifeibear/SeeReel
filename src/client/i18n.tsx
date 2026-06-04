@@ -117,15 +117,7 @@ const zh = {
     stitchByConnections: "按连接顺序拼接",
     stitchAll: "拼接全片",
     zoomControlsAria: "画布缩放控制",
-    minimapTitle: "画布缩略图",
-    legendAssets: "角色/场景",
-    legendStoryboard: "分镜板",
-    legendVideo: "视频",
-    legendFinal: "成片",
-    minimapHint: "= 你看到的范围 · 拖动它移动画布",
-    zoom: "缩放",
-    zoomHint: "＋ 放大 · − 缩小 · ⤢ 全景",
-    canvasHint: "点击节点 = 右侧编辑 · 视频右下角 ▶ 播放 · 双击空白 = 回到全景 · 右键空白 = 新建节点 · 滚轮缩放 0.1–4×"
+    zoom: "缩放"
   },
   menu: {
     aria: "新建节点",
@@ -463,15 +455,7 @@ const en: Dictionary = {
     stitchByConnections: "Stitch connected order",
     stitchAll: "Stitch full film",
     zoomControlsAria: "Canvas zoom controls",
-    minimapTitle: "Canvas minimap",
-    legendAssets: "Characters/scenes",
-    legendStoryboard: "Storyboard",
-    legendVideo: "Video",
-    legendFinal: "Final",
-    minimapHint: "= current viewport · drag it to pan",
-    zoom: "Zoom",
-    zoomHint: "+ zoom in · − zoom out · ⤢ fit view",
-    canvasHint: "Click a node = Inspector on the right · ▶ on video plays · double-click empty = fit view · right-click empty = create node · wheel zoom 0.1–4×"
+    zoom: "Zoom"
   },
   menu: {
     aria: "Create node",

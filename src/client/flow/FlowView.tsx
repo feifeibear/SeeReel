@@ -1,9 +1,8 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ReactFlow,
   Background,
   Controls,
-  MiniMap,
   type Connection,
   type Edge,
   type Node,
@@ -38,6 +37,10 @@ const nodeTypes = {
   videoProcessorNode: VideoProcessorNode,
   tailframeNode: TailframeNode
 };
+
+const MemoInspector = memo(Inspector);
+
+const flowProOptions = { hideAttribution: true };
 
 export interface FlowViewProps {
   snapshot: StoreSnapshot;
@@ -163,6 +166,34 @@ export function FlowView({ snapshot, session, visionReviewEnabled, defaultImageM
   }, []);
   const onEdgesChange = useCallback<OnEdgesChange>((changes) => {
     setEdges((eds) => applyEdgeChanges(changes, eds));
+  }, []);
+
+  const onNodeClick = useCallback((_: unknown, node: Node<FlowNodeData>) => {
+    setSelectedNodeId(node.id);
+    setCreateMenu(null);
+  }, []);
+
+  const onPaneClick = useCallback(() => {
+    setSelectedNodeId(undefined);
+    setCreateMenu(null);
+  }, []);
+
+  const onPaneContextMenu = useCallback((event: React.MouseEvent | MouseEvent) => {
+    const evt = event as MouseEvent;
+    evt.preventDefault();
+    setCreateMenu({ x: evt.clientX, y: evt.clientY, flowPosition: flowPositionFromClient(evt.clientX, evt.clientY) });
+  }, [flowPositionFromClient]);
+
+  const onInit = useCallback((instance: ReactFlowInstance<Node<FlowNodeData>, Edge>) => {
+    rfInstanceRef.current = instance;
+  }, []);
+
+  const onCanvasDragOver = useCallback((e: React.DragEvent<HTMLDivElement>) => {
+    if (e.dataTransfer.types.includes("Files")) e.preventDefault();
+  }, []);
+
+  const closeInspector = useCallback(() => {
+    setSelectedNodeId(undefined);
   }, []);
 
   /**
@@ -1230,10 +1261,7 @@ export function FlowView({ snapshot, session, visionReviewEnabled, defaultImageM
         <div
           className="flow-canvas"
           onDrop={onDrop}
-          onDragOver={(e) => {
-            // Only allow drop when files are involved — otherwise xyflow needs to handle drag.
-            if (e.dataTransfer.types.includes("Files")) e.preventDefault();
-          }}
+          onDragOver={onCanvasDragOver}
         >
           <ReactFlow
             nodes={nodes}
@@ -1241,8 +1269,8 @@ export function FlowView({ snapshot, session, visionReviewEnabled, defaultImageM
             onNodesChange={onNodesChange}
             onEdgesChange={onEdgesChange}
             nodeTypes={nodeTypes}
-            onNodeClick={(_, node) => { setSelectedNodeId(node.id); setCreateMenu(null); }}
-            onPaneClick={() => { setSelectedNodeId(undefined); setCreateMenu(null); }}
+            onNodeClick={onNodeClick}
+            onPaneClick={onPaneClick}
             onConnect={onConnect}
             onBeforeDelete={onBeforeDelete}
             onNodesDelete={onNodesDelete}
@@ -1253,27 +1281,21 @@ export function FlowView({ snapshot, session, visionReviewEnabled, defaultImageM
             // focus, so the user can still backspace inside Inspector textareas without nuking
             // the canvas.
             deleteKeyCode={["Delete", "Backspace"]}
-            onPaneContextMenu={(e) => {
-              const evt = e as unknown as MouseEvent;
-              evt.preventDefault();
-              setCreateMenu({ x: evt.clientX, y: evt.clientY, flowPosition: flowPositionFromClient(evt.clientX, evt.clientY) });
-            }}
-            onInit={(instance) => { rfInstanceRef.current = instance; }}
-            // Disable xyflow's default 2× double-click zoom so the custom dblclick handler below
-            // can own the gesture (fit-view-to-workflow — see flow-canvas-dblclick-trap).
+            onPaneContextMenu={onPaneContextMenu}
+            onInit={onInit}
+            // Speed-first: no automatic fitView on mount and no double-click zoom surprises.
             zoomOnDoubleClick={false}
             // Defaults are 0.5–2; widened to 0.1–4 so the canvas covers both "I'm lost, show me
             // everything" (zoom out far enough that the whole DAG is visible at once) and "let me
             // read the prompt textarea inside a node" (zoom in 2–3× without chained Ctrl+scroll).
             minZoom={0.1}
             maxZoom={4}
+            onlyRenderVisibleElements
             // Enlarge the connection-snap radius so dragging an edge "near" a handle is enough —
             // the user doesn't have to pixel-hunt for the 8-px dot. The CSS below also bumps the
             // invisible hit target around each handle to ~24 px so initiating a drag is forgiving.
             connectionRadius={48}
-            fitView
-            fitViewOptions={{ padding: 0.15 }}
-            proOptions={{ hideAttribution: true }}
+            proOptions={flowProOptions}
           >
             <Background gap={20} size={1} color="#1f2937" />
             <Controls
@@ -1283,82 +1305,10 @@ export function FlowView({ snapshot, session, visionReviewEnabled, defaultImageM
               showFitView
               aria-label={t.flow.zoomControlsAria}
             />
-            {/*
-             * Minimap UX: the default xyflow minimap is tiny and the viewport rectangle is barely
-             * visible, so the user can't tell where they are or which way to pan. We bump the size,
-             * thicken + tint the viewport mask, and color-code nodes by kind. The wrapping div is
-             * non-interactive (pointer-events pass through to the minimap itself) and just hosts a
-             * clear caption + legend so a first-time user knows what they're looking at.
-             *
-             *   • 黄 = 角色/场景 (asset)   • 紫 = 分镜板   • 蓝 = 视频镜头   • 绿 = 拼接成片
-             *   高亮的方框 = 你当前看到的范围 — 拖它移动画布，滚动它缩放
-             */}
-            <MiniMap
-              pannable
-              zoomable
-              position="bottom-left"
-              ariaLabel={t.flow.minimapTitle}
-              maskColor="rgba(15, 23, 42, 0.78)"
-              maskStrokeColor="#fbbf24"
-              maskStrokeWidth={3}
-              bgColor="#0b1220"
-              nodeStrokeColor="#0b1220"
-              nodeStrokeWidth={2}
-              nodeBorderRadius={4}
-              style={{ width: 220, height: 150, borderRadius: 8, border: "1px solid #334155" }}
-              nodeColor={(n) => {
-                const k = (n.data as FlowNodeData)?.kind;
-                if (k === "asset") return "#fbbf24";
-                if (k === "storyboard") return "#a78bfa";
-                if (k === "shot") return "#60a5fa";
-                if (k === "stitch") return "#34d399";
-                if (k === "referenceVideo") return "#f472b6";
-                return "#6b7280";
-              }}
-            />
           </ReactFlow>
-          <div className="flow-minimap-caption" aria-hidden="true">
-            <strong>{t.flow.minimapTitle}</strong>
-            <small>
-              <span className="legend-dot" style={{ background: "#fbbf24" }} />{t.flow.legendAssets}
-              <span className="legend-dot" style={{ background: "#a78bfa" }} />{t.flow.legendStoryboard}
-              <span className="legend-dot" style={{ background: "#60a5fa" }} />{t.flow.legendVideo}
-              <span className="legend-dot" style={{ background: "#34d399" }} />{t.flow.legendFinal}
-            </small>
-            <small className="flow-minimap-hint">
-              <span className="viewport-swatch" />{t.flow.minimapHint}
-            </small>
-          </div>
-          <div className="flow-controls-caption" aria-hidden="true">
-            <strong>{t.flow.zoom}</strong>
-            <small>{t.flow.zoomHint}</small>
-          </div>
-          {/*
-           * Double-click on the empty pane = fit-view to the whole workflow. This is the
-           * "I'm lost, show me everything" gesture. xyflow's default 2× zoom-on-dblclick is
-           * disabled (zoomOnDoubleClick={false} above) so this handler owns the gesture. Right-
-           * click still opens CreateNodeMenu (onPaneContextMenu above), so node creation is not
-           * lost. Double-click on a node card itself bubbles back unhandled — RF can do whatever
-           * it wants there (currently nothing).
-           */}
-          <div
-            className="flow-canvas-dblclick-trap"
-            onDoubleClickCapture={(e) => {
-              const target = e.target as HTMLElement;
-              if (target.closest(".flow-node")) return;
-              if (!target.closest(".react-flow__pane")) return;
-              e.preventDefault();
-              e.stopPropagation();
-              rfInstanceRef.current?.fitView({ padding: 0.15, duration: 350 });
-            }}
-          />
-          {/* Discoverability hint pinned bottom-center, faint, never blocks clicks. */}
-          <div className="flow-canvas-hint" aria-hidden="true">
-            {t.flow.canvasHint}
-          </div>
         </div>
         {selectedData && (
-          <Inspector
+          <MemoInspector
             selected={selectedData as FlowNodeData}
             session={session}
             allAssets={allAssets}
@@ -1367,7 +1317,7 @@ export function FlowView({ snapshot, session, visionReviewEnabled, defaultImageM
             onMutated={onMutated}
             onDeleteCanvasAsset={onDeleteCanvasAsset}
             onDeleteCanvasShot={onDeleteCanvasShot}
-            onClose={() => setSelectedNodeId(undefined)}
+            onClose={closeInspector}
           />
         )}
       </div>

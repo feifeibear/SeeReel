@@ -1,11 +1,14 @@
 import { Archive, BarChart3, CircleHelp, KeyRound, Loader2, Plus, RefreshCw, ShieldCheck, Trash2 } from "lucide-react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { lazy, memo, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api } from "./api";
 import type { AdminAgentPlanStatus, AdminSecurityStatus, AdminUserAgentPlanCredentialList, AgentPlanCredentialStatus, Asset, AssetType, CreateSessionPayload, Session, Shot, StitchJob, StoreSnapshot, TokenUsageEvent, TokenUsageModelFamily } from "../shared/types";
-import { FlowView } from "./flow/FlowView";
 import { PendingGenerationsProvider } from "./flow/PendingGenerations";
 import { useUndoKeyboardShortcut, useUndoStack } from "./flow/useUndoStack";
 import { useI18n } from "./i18n";
+
+const FlowView = lazy(() =>
+  import("./flow/FlowView").then((module) => ({ default: memo(module.FlowView) }))
+);
 
 type AnchorKind = Extract<AssetType, "character" | "scene" | "prop" | "style">;
 
@@ -270,28 +273,26 @@ const stripShots = (session: Session & { shots?: Shot[] }): Session => {
   return rest;
 };
 
+const rowSignatureCache = new WeakMap<object, string>();
+
+function rowSignature(value: object): string {
+  const cached = rowSignatureCache.get(value);
+  if (cached !== undefined) return cached;
+  const signature = JSON.stringify(value);
+  rowSignatureCache.set(value, signature);
+  return signature;
+}
+
 /**
  * Cheap structural-equality check used by `mergeStateById` to decide whether two same-id rows
- * are content-equal. We deep-compare keys but bail early on first miss; for nested arrays we
- * compare by JSON stringify (assets/shots are tiny and rarely have circular refs). This is
- * intentionally NOT a generic deepEqual — it's tuned to the cinema_agent state shape.
+ * are content-equal. `/api/state` returns fresh objects on every poll, so recursive field walks
+ * can get expensive on sessions with large render/review histories. Cache a JSON row signature
+ * per immutable state object instead; unchanged previous rows are compared from the WeakMap.
  */
 function rowEqual(a: unknown, b: unknown): boolean {
   if (a === b) return true;
   if (!a || !b || typeof a !== "object" || typeof b !== "object") return false;
-  if (Array.isArray(a) !== Array.isArray(b)) return false;
-  if (Array.isArray(a) && Array.isArray(b)) {
-    if (a.length !== b.length) return false;
-    for (let i = 0; i < a.length; i += 1) if (!rowEqual(a[i], b[i])) return false;
-    return true;
-  }
-  const ak = Object.keys(a as Record<string, unknown>);
-  const bk = Object.keys(b as Record<string, unknown>);
-  if (ak.length !== bk.length) return false;
-  for (const k of ak) {
-    if (!rowEqual((a as Record<string, unknown>)[k], (b as Record<string, unknown>)[k])) return false;
-  }
-  return true;
+  return rowSignature(a) === rowSignature(b);
 }
 
 /**
@@ -313,11 +314,19 @@ function mergeStateById(prev: StoreSnapshot, next: StoreSnapshot): StoreSnapshot
     });
     return changed ? out : prevArr;
   };
+  const sessions = stableArr(prev.sessions, next.sessions);
+  const shots = stableArr(prev.shots, next.shots);
+  const assets = stableArr(prev.assets, next.assets);
+  const runtime = prev.runtime && next.runtime && rowEqual(prev.runtime, next.runtime) ? prev.runtime : next.runtime;
+  if (sessions === prev.sessions && shots === prev.shots && assets === prev.assets && runtime === prev.runtime) {
+    return prev;
+  }
   return {
     ...next,
-    sessions: stableArr(prev.sessions, next.sessions),
-    shots: stableArr(prev.shots, next.shots),
-    assets: stableArr(prev.assets, next.assets)
+    sessions,
+    shots,
+    assets,
+    runtime
   };
 }
 
@@ -349,6 +358,14 @@ function writeSessionToHash(sessionId: string, replace: boolean) {
   const url = `${window.location.pathname}${window.location.search}${target}`;
   if (replace) window.history.replaceState(null, "", url);
   else window.history.pushState(null, "", url);
+}
+
+function useStableEvent<T extends (...args: any[]) => any>(fn: T): T {
+  const fnRef = useRef(fn);
+  useEffect(() => {
+    fnRef.current = fn;
+  }, [fn]);
+  return useCallback(((...args: Parameters<T>) => fnRef.current(...args)) as T, []);
 }
 
 export function App() {
@@ -407,7 +424,7 @@ export function App() {
   });
   useUndoKeyboardShortcut(undoStack.undo, undoStack.redo);
 
-  const refresh = async () => {
+  const refresh = useCallback(async () => {
     const next = await api.state();
     setState((prev) => mergeStateById(prev, next));
     setSelectedSessionId((current) => {
@@ -419,7 +436,7 @@ export function App() {
       // 3) fall back to most recent
       return next.sessions[0]?.id || "";
     });
-  };
+  }, []);
 
   useEffect(() => {
     refresh().catch((err: Error) => setError(err.message));
@@ -1059,6 +1076,100 @@ export function App() {
     return placeholder;
   };
 
+  const flowSnapshot = useMemo(
+    () => (pendingUploads.length ? { ...state, assets: [...state.assets, ...pendingUploads] } : state),
+    [pendingUploads, state]
+  );
+
+  const handleFlowMutated = useStableEvent(() => refresh());
+
+  const handleCreateAnchorAsset = useStableEvent(async (kind: AnchorKind) => {
+    if (!selectedSession) return undefined;
+    const seedNames: Record<string, string> = lang === "en" ? {
+      character: "Untitled character",
+      scene: "Untitled scene",
+      prop: "Untitled prop",
+      style: "Untitled style"
+    } : {
+      character: "未命名角色",
+      scene: "未命名场景",
+      prop: "未命名道具",
+      style: "未命名风格"
+    };
+    const seedDescriptions: Record<string, string> = lang === "en" ? {
+      character: "Describe the character identity, appearance, and wardrobe in the Inspector; generate a reference image, then drag a canvas edge to the storyboard that should use it.",
+      scene: "Describe the scene elements, lighting, and set dressing in the Inspector; generate a reference image, then drag a canvas edge to the storyboard that should use it.",
+      prop: "Describe the prop shape, material, and key details in the Inspector; generate a baseline prop image, then drag a canvas edge to the storyboard that should use it.",
+      style: "Describe the visual style, color palette, brush/texture keywords in the Inspector; generate a style reference, then drag a canvas edge to the storyboard that should use it."
+    } : {
+      character: "在右侧 Inspector 写清角色身份/外形/服装；先「重新出图」生成参考图，然后从画布拖一根线连到要用它的分镜板。",
+      scene: "在右侧 Inspector 写清场景元素/光线/布景；先「重新出图」生成参考图，然后从画布拖一根线连到要用它的分镜板。",
+      prop: "在右侧 Inspector 写清道具的造型/材质/关键细节；先「重新出图」生成道具基准图，然后从画布拖一根线连到要用它的分镜板。",
+      style: "在右侧 Inspector 写清画面风格/色调/笔触/质感关键词；先「重新出图」生成风格基准图，然后从画布拖一根线连到要用它的分镜板。"
+    };
+    const payload: Partial<Asset> = {
+      name: seedNames[kind],
+      type: kind as AssetType,
+      description: seedDescriptions[kind],
+      prompt: "",
+      ownerSessionId: selectedSession.id,
+      tags: ["anchor", kind]
+    };
+    const asset = await api.saveAsset(payload);
+    upsertAssetInState(asset);
+    pushAssetCreateUndo(lang === "en" ? `Create ${kind}` : `新建${seedNames[kind].replace("未命名", "")}`, payload, asset);
+    return asset;
+  });
+
+  const handleCreateShot = useStableEvent(async () => {
+    if (!selectedSession) return undefined;
+    const result = await api.appendShot(selectedSession.id);
+    upsertShotAndSessionInState(result.shot, result.session);
+    pushShotCreateUndo(result.shot);
+    return result.shot;
+  });
+
+  const handleUploadImageAsset = useStableEvent(async (file: File, kind: "character" | "scene") => {
+    if (!selectedSession) return undefined;
+    const name = file.name.replace(/\.[^/.]+$/, "") || (kind === "character" ? (lang === "en" ? "Uploaded character" : "上传角色") : (lang === "en" ? "Uploaded scene" : "上传场景"));
+    const tags = ["anchor", "uploaded", kind];
+    const asset = await api.uploadImageAsset(file, {
+      ownerSessionId: selectedSession.id,
+      name,
+      tags
+    });
+    const uploadedDescription = lang === "en"
+      ? `Image imported from local disk and used as a ${kind === "character" ? "character" : "scene"} anchor`
+      : `从本地拖入的图片，作为${kind === "character" ? "角色" : "场景"}锚使用`;
+    const patched = await api.saveAsset({
+      id: asset.id,
+      type: kind as AssetType,
+      description: uploadedDescription,
+      tags
+    });
+    upsertAssetInState(patched);
+    pushAssetCreateUndo(kind === "character" ? (lang === "en" ? "Upload character image" : "上传角色图") : (lang === "en" ? "Upload scene image" : "上传场景图"), {
+      name,
+      type: kind as AssetType,
+      description: uploadedDescription,
+      prompt: "",
+      mediaKind: "image",
+      ownerSessionId: selectedSession.id,
+      tags
+    }, patched);
+    return patched;
+  });
+
+  const handleDeleteCanvasAsset = useStableEvent(deleteCanvasAsset);
+  const handleDeleteCanvasShot = useStableEvent(deleteCanvasShot);
+  const handleUploadReferenceVideo = useStableEvent(uploadReferenceVideo);
+
+  const handleStitch = useStableEvent(async (options?: { force?: boolean }) => {
+    if (!selectedSession) return;
+    await api.stitch(selectedSession.id, { force: options?.force === true });
+    await refresh();
+  });
+
   return (
     <PendingGenerationsProvider>
     <main className="app-shell">
@@ -1498,103 +1609,29 @@ export function App() {
           />
         )}
 
-        <FlowView
-          snapshot={pendingUploads.length ? { ...state, assets: [...state.assets, ...pendingUploads] } : state}
-          session={selectedSessionWithShots}
-          visionReviewEnabled={visionReviewEnabled}
-          defaultImageModel={state.runtime?.seedreamDefaultModel}
-          onMutated={() => refresh()}
-          undo={undoStack.undo}
-          redo={undoStack.redo}
-          canUndo={undoStack.canUndo}
-          canRedo={undoStack.canRedo}
-          undoDescription={undoStack.lastDescription}
-          redoDescription={undoStack.nextDescription}
-          onPushUndo={undoStack.push}
-          onCreateAnchorAsset={async (kind: AnchorKind) => {
-            if (!selectedSession) return undefined;
-            const seedNames: Record<string, string> = lang === "en" ? {
-              character: "Untitled character",
-              scene: "Untitled scene",
-              prop: "Untitled prop",
-              style: "Untitled style"
-            } : {
-              character: "未命名角色",
-              scene: "未命名场景",
-              prop: "未命名道具",
-              style: "未命名风格"
-            };
-            const seedDescriptions: Record<string, string> = lang === "en" ? {
-              character: "Describe the character identity, appearance, and wardrobe in the Inspector; generate a reference image, then drag a canvas edge to the storyboard that should use it.",
-              scene: "Describe the scene elements, lighting, and set dressing in the Inspector; generate a reference image, then drag a canvas edge to the storyboard that should use it.",
-              prop: "Describe the prop shape, material, and key details in the Inspector; generate a baseline prop image, then drag a canvas edge to the storyboard that should use it.",
-              style: "Describe the visual style, color palette, brush/texture keywords in the Inspector; generate a style reference, then drag a canvas edge to the storyboard that should use it."
-            } : {
-              character: "在右侧 Inspector 写清角色身份/外形/服装；先「重新出图」生成参考图，然后从画布拖一根线连到要用它的分镜板。",
-              scene: "在右侧 Inspector 写清场景元素/光线/布景；先「重新出图」生成参考图，然后从画布拖一根线连到要用它的分镜板。",
-              prop: "在右侧 Inspector 写清道具的造型/材质/关键细节；先「重新出图」生成道具基准图，然后从画布拖一根线连到要用它的分镜板。",
-              style: "在右侧 Inspector 写清画面风格/色调/笔触/质感关键词；先「重新出图」生成风格基准图，然后从画布拖一根线连到要用它的分镜板。"
-            };
-            const payload: Partial<Asset> = {
-              name: seedNames[kind],
-              type: kind as AssetType,
-              description: seedDescriptions[kind],
-              prompt: "",
-              ownerSessionId: selectedSession.id,
-              tags: ["anchor", kind]
-            };
-            const asset = await api.saveAsset(payload);
-            // No auto-attach: user (or AI) decides which shots reference this asset by dragging.
-            upsertAssetInState(asset);
-            pushAssetCreateUndo(lang === "en" ? `Create ${kind}` : `新建${seedNames[kind].replace("未命名", "")}`, payload, asset);
-            return asset;
-          }}
-          onCreateShot={async () => {
-            if (!selectedSession) return undefined;
-            const result = await api.appendShot(selectedSession.id);
-            upsertShotAndSessionInState(result.shot, result.session);
-            pushShotCreateUndo(result.shot);
-            return result.shot;
-          }}
-          onDeleteCanvasAsset={deleteCanvasAsset}
-          onDeleteCanvasShot={deleteCanvasShot}
-          onUploadImageAsset={async (file, kind) => {
-            if (!selectedSession) return undefined;
-            const name = file.name.replace(/\.[^/.]+$/, "") || (kind === "character" ? (lang === "en" ? "Uploaded character" : "上传角色") : (lang === "en" ? "Uploaded scene" : "上传场景"));
-            const tags = ["anchor", "uploaded", kind];
-            const asset = await api.uploadImageAsset(file, {
-              ownerSessionId: selectedSession.id,
-              name,
-              tags
-            });
-            const uploadedDescription = lang === "en"
-              ? `Image imported from local disk and used as a ${kind === "character" ? "character" : "scene"} anchor`
-              : `从本地拖入的图片，作为${kind === "character" ? "角色" : "场景"}锚使用`;
-            const patched = await api.saveAsset({
-              id: asset.id,
-              type: kind as AssetType,
-              description: uploadedDescription,
-              tags
-            });
-            upsertAssetInState(patched);
-            pushAssetCreateUndo(kind === "character" ? (lang === "en" ? "Upload character image" : "上传角色图") : (lang === "en" ? "Upload scene image" : "上传场景图"), {
-              name,
-              type: kind as AssetType,
-              description: uploadedDescription,
-              prompt: "",
-              mediaKind: "image",
-              ownerSessionId: selectedSession.id,
-              tags
-            }, patched);
-            return patched;
-          }}
-          onUploadReferenceVideo={uploadReferenceVideo}
-          onStitch={async (options) => {
-            if (!selectedSession) return;
-            await api.stitch(selectedSession.id, { force: options?.force === true });
-            await refresh();
-          }}
-        />
+        <Suspense fallback={<div className="flow-loading" role="status">{lang === "en" ? "Loading canvas..." : "正在加载画布..."}</div>}>
+          <FlowView
+            snapshot={flowSnapshot}
+            session={selectedSessionWithShots}
+            visionReviewEnabled={visionReviewEnabled}
+            defaultImageModel={state.runtime?.seedreamDefaultModel}
+            onMutated={handleFlowMutated}
+            undo={undoStack.undo}
+            redo={undoStack.redo}
+            canUndo={undoStack.canUndo}
+            canRedo={undoStack.canRedo}
+            undoDescription={undoStack.lastDescription}
+            redoDescription={undoStack.nextDescription}
+            onPushUndo={undoStack.push}
+            onCreateAnchorAsset={handleCreateAnchorAsset}
+            onCreateShot={handleCreateShot}
+            onDeleteCanvasAsset={handleDeleteCanvasAsset}
+            onDeleteCanvasShot={handleDeleteCanvasShot}
+            onUploadImageAsset={handleUploadImageAsset}
+            onUploadReferenceVideo={handleUploadReferenceVideo}
+            onStitch={handleStitch}
+          />
+        </Suspense>
       </section>
     </main>
     </PendingGenerationsProvider>

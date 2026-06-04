@@ -95,6 +95,7 @@ export function buildSessionGraph(snapshot: StoreSnapshot, session: SessionWithS
   const nodes: Node<FlowNodeData>[] = [];
   const edges: Edge[] = [];
   const defaultImageModel = snapshot.runtime?.seedreamDefaultModel;
+  const assetById = new Map(snapshot.assets.map((asset) => [asset.id, asset]));
 
   const sessionAssets = snapshot.assets.filter((asset) => {
     if (asset.ownerShotId) return false; // shot-scoped (sketches / sub-storyboards) handled separately
@@ -122,6 +123,7 @@ export function buildSessionGraph(snapshot: StoreSnapshot, session: SessionWithS
   const tailframeAssets = sessionAssets.filter(isTailframe);
   const referenceVideoAssets = sessionAssets.filter((a) => isReferenceVideo(a) && !isDerivedClip(a));
   const derivedClipAssets = sessionAssets.filter((a) => isReferenceVideo(a) && isDerivedClip(a));
+  const anchorAssetIds = new Set(anchorAssets.map((asset) => asset.id));
   anchorAssets.sort((a, b) => {
     const order = { character: 0, scene: 1, prop: 2, style: 3, other: 4 } as Record<string, number>;
     const oa = order[a.type] ?? 9;
@@ -244,7 +246,7 @@ export function buildSessionGraph(snapshot: StoreSnapshot, session: SessionWithS
   // Per-shot Storyboard + Video nodes.
   orderedShots.forEach((shot, index) => {
     const storyboardAsset = shot.subShotStoryboardAssetId
-      ? snapshot.assets.find((asset) => asset.id === shot.subShotStoryboardAssetId)
+      ? assetById.get(shot.subShotStoryboardAssetId)
       : undefined;
     // Only emit a Storyboard node when the user has actually opted into sub-storyboard mode for
     // this shot — meaning either a storyboard asset has been generated, or the shot is consuming
@@ -378,15 +380,14 @@ export function buildSessionGraph(snapshot: StoreSnapshot, session: SessionWithS
     // Storyboard-baked historical references are still shown below as dashed audit-only edges.
     const assetEdgeTargetId = shotNodeId;
     const intentIds = (shot.assetIds || []).filter((id) => {
-      const a = snapshot.assets.find((item) => item.id === id);
+      const a = assetById.get(id);
       return a && a.type !== "other" && !a.ownerShotId;
     });
     const auditIds = storyboardAsset?.referenceAssetIds || [];
     const intentSet = new Set(intentIds);
     const auditOnly = auditIds.filter((id) => !intentSet.has(id));
     intentIds.forEach((assetId) => {
-      const exists = anchorAssets.some((asset) => asset.id === assetId);
-      if (!exists) return;
+      if (!anchorAssetIds.has(assetId)) return;
       edges.push({
         id: `e-asset-${assetId}-${assetEdgeTargetId}`,
         source: `asset-${assetId}`,
@@ -403,8 +404,7 @@ export function buildSessionGraph(snapshot: StoreSnapshot, session: SessionWithS
     // "+ 启用分镜板" but never clicked "出图" yet).
     if (showStoryboardNode && storyboardAsset) {
       auditOnly.forEach((assetId) => {
-        const exists = anchorAssets.some((asset) => asset.id === assetId);
-        if (!exists) return;
+        if (!anchorAssetIds.has(assetId)) return;
         edges.push({
           id: `e-asset-${assetId}-${storyboardNodeId}-audit`,
           source: `asset-${assetId}`,

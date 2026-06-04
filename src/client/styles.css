@@ -300,6 +300,17 @@ label {
   padding: 20px;
 }
 
+.flow-loading {
+  height: calc(100vh - 116px);
+  display: grid;
+  place-items: center;
+  border: 1px solid rgba(148, 163, 184, 0.18);
+  border-radius: 8px;
+  background: rgba(13, 18, 25, 0.66);
+  color: #94a3b8;
+  font-size: 13px;
+}
+
 .topbar {
   height: 76px;
   display: flex;
@@ -2331,79 +2342,6 @@ label {
 }
 .react-flow__node { font-family: inherit; }
 
-.react-flow__minimap {
-  background: #0b1220 !important;
-  border: 1px solid #334155 !important;
-  border-radius: 8px !important;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.45) !important;
-}
-.react-flow__minimap svg {
-  background: #0b1220 !important;
-  border-radius: 8px !important;
-}
-/* Viewport mask: bright amber outline so the user can see "you are here" at a glance. */
-.react-flow__minimap-mask {
-  fill: rgba(15, 23, 42, 0.78) !important;
-  stroke: #fbbf24 !important;
-  stroke-width: 3px !important;
-}
-
-/* Caption block sitting above the minimap. Pure presentational; pointer-events disabled so it
-   never steals minimap drag/pan/scroll. */
-.flow-minimap-caption {
-  position: absolute;
-  left: 12px;
-  bottom: 168px; /* sits just above the 150px-tall minimap */
-  width: 220px;
-  padding: 6px 8px;
-  background: rgba(11, 18, 32, 0.92);
-  border: 1px solid #334155;
-  border-radius: 6px;
-  color: #e5e7eb;
-  font-size: 11px;
-  line-height: 1.5;
-  pointer-events: none;
-  user-select: none;
-  z-index: 5;
-  display: grid;
-  gap: 2px;
-}
-.flow-minimap-caption strong {
-  color: #fcd34d;
-  font-size: 11px;
-  font-weight: 700;
-}
-.flow-minimap-caption small {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 4px;
-  color: #94a3b8;
-  font-size: 10px;
-}
-.flow-minimap-caption .legend-dot {
-  display: inline-block;
-  width: 8px;
-  height: 8px;
-  border-radius: 2px;
-  margin-right: 2px;
-  margin-left: 4px;
-}
-.flow-minimap-caption .legend-dot:first-child { margin-left: 0; }
-.flow-minimap-caption .viewport-swatch {
-  display: inline-block;
-  width: 16px;
-  height: 10px;
-  border: 2px solid #fbbf24;
-  background: rgba(15, 23, 42, 0.6);
-  border-radius: 2px;
-  margin-right: 4px;
-  vertical-align: middle;
-}
-.flow-minimap-hint { color: #cbd5e1 !important; }
-
-/* Controls (zoom +/-, fit) — bigger hit area and Chinese-friendly tooltips via title attrs are
-   set in JSX. We add a caption that floats above the cluster pointing out what each button does. */
 .react-flow__controls {
   background: rgba(11, 18, 32, 0.92) !important;
   border: 1px solid #334155 !important;
@@ -2426,35 +2364,6 @@ label {
 }
 .react-flow__controls-button:last-child { border-bottom: none !important; }
 .react-flow__controls-button svg { fill: currentColor !important; }
-
-/* Caption above the bottom-right Controls cluster — same visual treatment as the minimap caption
-   so the two read as a pair. */
-.flow-controls-caption {
-  position: absolute;
-  right: 12px;
-  bottom: 132px; /* sits just above the (3 × 32px) controls cluster */
-  padding: 6px 10px;
-  background: rgba(11, 18, 32, 0.92);
-  border: 1px solid #334155;
-  border-radius: 6px;
-  color: #e5e7eb;
-  font-size: 11px;
-  line-height: 1.5;
-  pointer-events: none;
-  user-select: none;
-  z-index: 5;
-  display: grid;
-  gap: 1px;
-  text-align: right;
-}
-.flow-controls-caption strong {
-  color: #fcd34d;
-  font-weight: 700;
-}
-.flow-controls-caption small {
-  color: #94a3b8;
-  font-size: 10px;
-}
 
 /* node card */
 .flow-node {
@@ -3318,43 +3227,9 @@ label {
   to   { opacity: 1; transform: translateY(0); }
 }
 
-/* ============================================================================
-   Create-node floating menu (CreateNodeMenu.tsx)
-   ============================================================================ */
 .flow-canvas {
-  position: relative;  /* anchor for the dblclick trap */
+  position: relative;
 }
-.flow-canvas-dblclick-trap {
-  position: absolute;
-  inset: 0;
-  pointer-events: none;
-}
-
-/* Discoverability hint pinned to bottom-center of the canvas. Does not block clicks; fades after
-   first user interaction so it doesn't permanently steal screen real-estate. */
-.flow-canvas-hint {
-  position: absolute;
-  left: 50%;
-  bottom: 12px;
-  transform: translateX(-50%);
-  padding: 4px 10px;
-  border-radius: 999px;
-  background: rgba(17, 24, 39, 0.65);
-  color: #cbd5e1;
-  font-size: 11px;
-  letter-spacing: 0.2px;
-  pointer-events: none;
-  z-index: 5;
-  backdrop-filter: blur(4px);
-  animation: flow-canvas-hint-fade 18s ease-out forwards;
-}
-@keyframes flow-canvas-hint-fade {
-  0%   { opacity: 0; }
-  6%   { opacity: 0.95; }
-  60%  { opacity: 0.95; }
-  100% { opacity: 0.25; }
-}
-.flow-canvas:hover .flow-canvas-hint { opacity: 0.85; }
 
 .create-node-menu {
   position: fixed;
@@ -4140,23 +4015,10 @@ textarea:focus,
   border-color: #d8fffc;
 }
 
-.react-flow__minimap,
-.react-flow__minimap svg,
-.react-flow__controls,
-.flow-minimap-caption,
-.flow-controls-caption {
+.react-flow__controls {
   border-color: rgba(156, 171, 188, 0.18) !important;
   border-radius: 6px !important;
   background: rgba(10, 14, 19, 0.94) !important;
-}
-
-.react-flow__minimap-mask {
-  stroke: var(--studio-amber) !important;
-}
-
-.flow-minimap-caption strong,
-.flow-controls-caption strong {
-  color: var(--studio-amber);
 }
 
 .react-flow__controls-button:hover {
