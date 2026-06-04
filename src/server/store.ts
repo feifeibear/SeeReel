@@ -1,8 +1,6 @@
-import { createHash } from "node:crypto";
-import { cp, mkdir, readFile, rename, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import path from "node:path";
 import type { Asset, CreateSessionPayload, Session, Shot, ShotRender, StitchJob, StoreSnapshot, TokenUsageEvent } from "../shared/types";
-import demoExample from "../../fixtures/demo-agent-plan/store.json";
 import { observeStoreSave } from "./metrics";
 
 export const DATA_DIR = path.resolve(process.cwd(), "data");
@@ -17,13 +15,9 @@ const emptyStore = (): StoreSnapshot => ({
   shots: []
 });
 
-const demoMediaSourceDir = path.resolve(process.cwd(), "fixtures", "demo-agent-plan", "media");
-const demoMediaTargetDir = path.join(DATA_DIR, "media", demoExample.mediaDir);
-
 export class CinemaStore {
   private data: StoreSnapshot = emptyStore();
   private writeQueue: Promise<void> = Promise.resolve();
-  private exampleSeedByUser = new Map<string, Promise<Session | undefined>>();
 
   async load() {
     await mkdir(DATA_DIR, { recursive: true });
@@ -31,10 +25,6 @@ export class CinemaStore {
       this.data = JSON.parse(await readFile(STORE_FILE, "utf8")) as StoreSnapshot;
     } catch {
       this.data = emptyStore();
-    }
-    const seeded = await this.ensureDemoExample();
-    if (seeded) {
-      await this.save();
     }
   }
 
@@ -57,106 +47,6 @@ export class CinemaStore {
       return includeLegacyPublic;
     });
     return structuredClone({ sessions, shots, assets });
-  }
-
-  private async ensureDemoExample() {
-    if (isDemoSeedDisabled()) return false;
-    await copyDemoMediaIfPresent();
-    if (this.data.sessions.some((session) => session.id === demoExample.session.id)) {
-      return false;
-    }
-
-    const demoSession = structuredClone(demoExample.session) as Session;
-    const demoAssets = structuredClone(demoExample.assets) as Asset[];
-    const demoShots = structuredClone(demoExample.shots) as Shot[];
-    const demoSessionIds = new Set([demoSession.id]);
-    const demoAssetIds = new Set(demoAssets.map((asset) => asset.id));
-    const demoShotIds = new Set(demoShots.map((shot) => shot.id));
-
-    this.data.sessions = [
-      demoSession,
-      ...this.data.sessions.filter((session) => !demoSessionIds.has(session.id))
-    ];
-    this.data.assets = [
-      ...demoAssets,
-      ...this.data.assets.filter((asset) => !demoAssetIds.has(asset.id))
-    ];
-    this.data.shots = [
-      ...this.data.shots.filter((shot) => !demoShotIds.has(shot.id) && !demoSessionIds.has(shot.sessionId)),
-      ...demoShots
-    ];
-    return true;
-  }
-
-  async ensureExampleSessionForUser(ownerUserId: string) {
-    if (isDemoSeedDisabled() || !ownerUserId.trim()) return undefined;
-    const sessionId = demoSessionIdForUser(ownerUserId);
-    const existing = this.getSession(sessionId);
-    if (existing) return existing;
-
-    const pending = this.exampleSeedByUser.get(ownerUserId);
-    if (pending) return pending;
-
-    const seeded = this.createExampleSessionForUser(ownerUserId, sessionId).finally(() => {
-      this.exampleSeedByUser.delete(ownerUserId);
-    });
-    this.exampleSeedByUser.set(ownerUserId, seeded);
-    return seeded;
-  }
-
-  private async createExampleSessionForUser(ownerUserId: string, sessionId: string) {
-    await copyDemoMediaIfPresent();
-
-    const existing = this.getSession(sessionId);
-    if (existing) return existing;
-
-    const suffix = demoUserSuffix(ownerUserId);
-    const demoAssets = structuredClone(demoExample.assets) as Asset[];
-    const demoShots = structuredClone(demoExample.shots) as Shot[];
-    const replacements = new Map<string, string>([
-      [demoExample.session.id, sessionId],
-      ...demoAssets.map((asset) => [asset.id, `${asset.id}_${suffix}`] as const),
-      ...demoShots.map((shot) => [shot.id, `${shot.id}_${suffix}`] as const)
-    ]);
-    const ts = now();
-    const demoSession = remapDemoIds(structuredClone(demoExample.session), replacements) as Session;
-    const assets = remapDemoIds(demoAssets, replacements).map((asset) => ({
-      ...asset,
-      ownerUserId,
-      ownerSessionId: asset.ownerSessionId || sessionId,
-      updatedAt: ts
-    })) as Asset[];
-    const shots = remapDemoIds(demoShots, replacements).map((shot) => ({
-      ...shot,
-      sessionId,
-      updatedAt: ts
-    })) as Shot[];
-
-    const session: Session = {
-      ...demoSession,
-      id: sessionId,
-      ownerUserId,
-      tokenUsageEvents: [],
-      createdAt: ts,
-      updatedAt: ts
-    };
-
-    this.data.sessions = [
-      session,
-      ...this.data.sessions.filter((item) => item.id !== session.id)
-    ];
-    const assetIds = new Set(assets.map((asset) => asset.id));
-    this.data.assets = [
-      ...assets,
-      ...this.data.assets.filter((asset) => !assetIds.has(asset.id))
-    ];
-    const shotIds = new Set(shots.map((shot) => shot.id));
-    this.data.shots = [
-      ...this.data.shots.filter((shot) => !shotIds.has(shot.id) && shot.sessionId !== session.id),
-      ...shots
-    ];
-    await this.save();
-    return this.getSession(session.id);
   }
 
   private ownerUserIdForAssetScope(asset: Partial<Asset>) {
@@ -793,18 +683,6 @@ export class CinemaStore {
   }
 }
 
-async function copyDemoMediaIfPresent() {
-  try {
-    await cp(demoMediaSourceDir, demoMediaTargetDir, {
-      recursive: true,
-      force: false,
-      errorOnExist: false
-    });
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
-  }
-}
-
 function normalizeSessionTitle(title: string | undefined, sessions: Session[]) {
   const trimmed = title?.trim();
   if (trimmed) return trimmed;
@@ -818,33 +696,6 @@ function normalizeSessionTitle(title: string | undefined, sessions: Session[]) {
   let index = 1;
   while (used.has(index)) index += 1;
   return `unnamed session ${index}`;
-}
-
-function isDemoSeedDisabled() {
-  return /^(0|false|no|off)$/i.test(process.env.REELYAI_SEED_DEMO || "");
-}
-
-function demoUserSuffix(ownerUserId: string) {
-  return createHash("sha256").update(ownerUserId).digest("hex").slice(0, 10);
-}
-
-function demoSessionIdForUser(ownerUserId: string) {
-  return `${demoExample.session.id}_${demoUserSuffix(ownerUserId)}`;
-}
-
-function remapDemoIds<T>(value: T, replacements: Map<string, string>): T {
-  if (typeof value === "string") {
-    return (replacements.get(value) || value) as T;
-  }
-  if (Array.isArray(value)) {
-    return value.map((item) => remapDemoIds(item, replacements)) as T;
-  }
-  if (value && typeof value === "object") {
-    return Object.fromEntries(
-      Object.entries(value).map(([key, entry]) => [key, remapDemoIds(entry, replacements)])
-    ) as T;
-  }
-  return value;
 }
 
 function normalizeMentionText(value: string) {

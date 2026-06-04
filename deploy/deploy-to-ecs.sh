@@ -193,7 +193,6 @@ remote_env="$(
   env_line REELYAI_NODE_IMAGE "$(env_value REELYAI_NODE_IMAGE docker.m.daocloud.io/library/node:22-bookworm-slim)"
   env_line REELYAI_CADDY_IMAGE "$(env_value REELYAI_CADDY_IMAGE docker.m.daocloud.io/library/caddy:2-alpine)"
   env_line REELYAI_POSTGRES_IMAGE "$(env_value REELYAI_POSTGRES_IMAGE docker.m.daocloud.io/library/postgres:16-alpine)"
-  env_line REELYAI_SEED_DEMO "$(env_value REELYAI_SEED_DEMO 1)"
   env_line APP_PUBLIC_URL "$PUBLIC_URL"
   env_line CADDY_SITE_ADDRESS "$CADDY_SITE_ADDRESS"
   env_line ACME_EMAIL "$(env_value ACME_EMAIL)"

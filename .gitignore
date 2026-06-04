@@ -15,6 +15,9 @@ secrets/
 # Local runtime state — cinema-store may embed TOS presigned URLs (AK id + signatures)
 data/
 
+# Local demo/test media should not be committed. Configure public examples through admin/runtime data.
+fixtures/
+
 # Local agent runtime state + generated Claude Code skill mirror (source: .agents/skills/)
 .claude/
 

@@ -331,13 +331,14 @@ REELYAI_AGENT_PLAN_KEY_ENCRYPTION_SECRET=$(openssl rand -hex 32)
 The admin panel can then list browser-entered Agent Plan keys after login. TOS remains a
 backend-only server credential, preferably with a private bucket and signed URLs.
 
-Public demo mode uses anonymous browser ownership. Each visitor gets an isolated session list via
+Public site mode uses anonymous browser ownership. Each visitor gets an isolated session list via
 the `reelyai_user_id` cookie, and `/api/state` only returns that visitor's sessions, assets, and
-shots. If a visitor has not entered their own Agent Plan key, the server can use
-`REELYAI_ADMIN_AGENT_PLAN_KEY` for a small free quota:
+shots. Example sessions are runtime/admin content, not source-code fixtures. If a visitor has not
+entered their own Agent Plan key, the server can use `REELYAI_ADMIN_AGENT_PLAN_KEY` for a small
+free quota:
 
 ```bash
-REELYAI_ADMIN_AGENT_PLAN_KEY=<demo-agent-plan-key>
+REELYAI_ADMIN_AGENT_PLAN_KEY=<site-agent-plan-key>
 REELYAI_FREE_TRIAL_LIMIT=10
 REELYAI_FREE_TRIAL_IP_DAILY_CAP=30
 REELYAI_FREE_TRIAL_GLOBAL_DAILY_CAP=300

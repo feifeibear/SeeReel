@@ -374,9 +374,6 @@ app.get("/metrics", async (_req, res) => {
 });
 
 app.get("/api/state", async (_req, res) => {
-  if (seedDemoForEachUserEnabled()) {
-    await store.ensureExampleSessionForUser(userIdForRequest());
-  }
   res.json({ ...snapshotForCurrentUser(), runtime: runtimeInfo() });
 });
 
@@ -567,10 +564,6 @@ function setAdminCookie(res: Response, token: string) {
 
 function legacyPublicSessionsEnabled() {
   return /^(1|true|yes|on)$/i.test(process.env.REELYAI_LEGACY_PUBLIC_DATA || "");
-}
-
-function seedDemoForEachUserEnabled() {
-  return /^(1|true|yes|on)$/i.test(process.env.REELYAI_SEED_DEMO_PER_USER || "");
 }
 
 function userIdForRequest() {
