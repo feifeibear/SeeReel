@@ -22,23 +22,46 @@
 
 ![SeeReel canvas workflow](docs/seereel-workflow-ui.png)
 
-## Demo: FPV Shanghai Route
+## Demo: Vibe Creating Through Chat
 
-This demo was created from one natural-language request plus a route reference image. The agent used the repo-local SeeReel skills and `seereelcli` to create a cloud-visible session, upload the reference, generate two 15-second Seedance shots, extract shot 1's tail frame, use it as shot 2's `firstFrameAssetId`, stitch the final cut, and keep the intermediate workflow visible in the web canvas.
+This 30-second one-shot drone route was created from a single chat request and one reference image. SeeReel generated the final video while keeping the production graph visible: uploaded reference, storyboard nodes, Seedance shots, a tail-frame continuity bridge, and the stitch node.
 
-> Use the current directory's skill and SeeReel. Reference this image, generate a 30sec first-person drone video, fly along the route in the image, one-shot.
+<table>
+  <tr>
+    <td width="50%" valign="top">
+      <h3>User input</h3>
+      <p><strong>User input</strong></p>
+      <pre><code>Use SeeReel.
+Reference this image and generate a 30-second
+first-person drone video that follows the route
+drawn in the image, as a single continuous shot.</code></pre>
+      <p><strong>Reference image</strong></p>
+      <img src="docs/demo/fpv-shanghai-route-reference.png" alt="FPV Shanghai route reference image" />
+    </td>
+    <td width="50%" valign="top">
+      <h3>Codex reply</h3>
+      <p><strong>Done. The SeeReel session is:</strong></p>
+      <p>
+        <a href="https://seereel.studio/">Handoff link</a><br />
+        Session: <code>ses_f65954c9</code><br />
+        Final cloud download:
+        <a href="https://seereel.studio/api/sessions/ses_f65954c9/download">
+          https://seereel.studio/api/sessions/ses_f65954c9/download
+        </a>
+      </p>
+      <p><strong>The final video has been downloaded locally:</strong></p>
+      <video src="https://feifeibear.github.io/seereel_assets/videos/fpv-shanghai-route-one-shot-30s-preview.mp4" controls playsinline muted poster="docs/demo/fpv-shanghai-result-screenshot.png" width="360"></video>
+      <p>
+        <strong>Validation result:</strong> 30.167s, 720x1280, 6.0 MB preview. SeeReel confirms that both shots are ready, stitch is ready, and there are 0 failed shots. The workflow keeps the uploaded reference image, two cloud storyboard segments, two 15s Seedance shots, shot 1's tail-frame asset <code>asset_4166c2e4</code>, and shot 2 is configured with <code>firstFrameAssetId=asset_4166c2e4</code> for first-frame continuity.
+      </p>
+      <p>
+        Apart from uploading the user's local reference image and downloading the final video locally, all intermediate results were generated in the SeeReel cloud and kept in the session. The preview video is hosted in the separate <code>seereel_assets</code> repository, so the main SeeReel repository does not store the MP4.
+      </p>
+    </td>
+  </tr>
+</table>
 
-| User prompt and final result | Route reference |
-| --- | --- |
-| ![SeeReel FPV Shanghai prompt and final result](docs/demo/fpv-shanghai-result-screenshot.png) | ![FPV Shanghai route reference](docs/demo/fpv-shanghai-route-reference.png) |
-
-Validation outcome from the run shown above:
-
-- Final cut: `30.167s`, `720x1280`, 2 generated shots, 0 failed shots.
-- Continuity bridge: shot 2 starts from shot 1's cloud tail-frame asset `asset_4166c2e4`
-- Recreate it by opening [AI use me](https://seereel.studio/ai-use-me.html), giving the agent the prompt above, and uploading the route reference image.
-
-The editable workflow stays inspectable in the SeeReel web app. It shows the uploaded reference, storyboard nodes, generated video nodes, tail-frame bridge node, graph edges, and stitch node:
+The editable workflow stays visible in the SeeReel web app. The user can inspect the intermediate nodes, revise the route reference, prompts, storyboard, generated shots, continuity bridge, or stitch node, and then continue production from that point.
 
 ![SeeReel FPV Shanghai workflow canvas with intermediate nodes](docs/demo/fpv-shanghai-workflow-canvas.png)
 

@@ -22,6 +22,48 @@
 
 ![SeeReel 画布工作流](docs/seereel-workflow-ui.png)
 
+## Demo：通过对话完成 Vibe Creating
+
+这个 30 秒无人机一镜到底 demo，由一次对话和一张路线参考图完成。SeeReel 不只返回最终视频，也把完整生产过程留在画布里：上传参考图、故事板节点、Seedance 分镜、首尾帧连续性桥接和最终拼接节点。
+
+<table>
+  <tr>
+    <td width="50%" valign="top">
+      <h3>用户输入</h3>
+      <p><strong>用户输入</strong></p>
+      <pre><code>使用 SeeReel。
+参考这张图，生成 30 秒无人机第一视角视频，
+按照图中路线飞行，一镜到底。</code></pre>
+      <p><strong>参考图</strong></p>
+      <img src="docs/demo/fpv-shanghai-route-reference.png" alt="上海无人机路线参考图" />
+    </td>
+    <td width="50%" valign="top">
+      <h3>Codex 回复</h3>
+      <p><strong>完成了。SeeReel session 是：</strong></p>
+      <p>
+        <a href="https://seereel.studio/">Handoff link</a><br />
+        Session：<code>ses_f65954c9</code><br />
+        Final cloud download：
+        <a href="https://seereel.studio/api/sessions/ses_f65954c9/download">
+          https://seereel.studio/api/sessions/ses_f65954c9/download
+        </a>
+      </p>
+      <p><strong>本地最终视频已经下载到：</strong></p>
+      <video src="https://feifeibear.github.io/seereel_assets/videos/fpv-shanghai-route-one-shot-30s-preview.mp4" controls playsinline muted poster="docs/demo/fpv-shanghai-result-screenshot.png" width="360"></video>
+      <p>
+        <strong>验证结果：</strong>30.167s，720x1280，预览版 6.0 MB。SeeReel 状态确认 2 个 shot 都 ready，stitch ready，0 failed。工作流里保留了上传参考图、两段云端 storyboard、两个 15s Seedance shot、shot 1 尾帧资产 <code>asset_4166c2e4</code>，并且 shot 2 已设置 <code>firstFrameAssetId=asset_4166c2e4</code> 做首尾帧接力。
+      </p>
+      <p>
+        除了用户参考图从本地上传、最终视频下载到本地，其余中间结果都在 SeeReel 云端生成并保留在 session 里。视频预览托管在独立的 <code>seereel_assets</code> 仓库，主 SeeReel 仓库不保存视频文件。
+      </p>
+    </td>
+  </tr>
+</table>
+
+下面是这次生成在 SeeReel 网页中的 workflow。用户不只是观看最终视频，还可以回到这个画布继续修改参考图、prompt、故事板、分镜视频、首尾帧桥接或拼接节点，然后从修改点继续生产。
+
+![SeeReel 上海无人机路线 workflow](docs/demo/fpv-shanghai-workflow-canvas.png)
+
 ## SeeReel 能做什么
 
 SeeReel 是一个让 AI 真正能“拍短剧”的工作台。它不是把生成过程藏在 agent 的临时目录里，而是把每个关键创作对象都留在可视化画布上：
