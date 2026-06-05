@@ -22,6 +22,26 @@
 
 ![SeeReel canvas workflow](docs/seereel-workflow-ui.png)
 
+## Demo: FPV Shanghai Route
+
+This demo was created from one natural-language request plus a route reference image. The agent used the repo-local SeeReel skills and `seereelcli` to create a cloud-visible session, upload the reference, generate two 15-second Seedance shots, extract shot 1's tail frame, use it as shot 2's `firstFrameAssetId`, stitch the final cut, and keep the intermediate workflow visible in the web canvas.
+
+> Use the current directory's skill and SeeReel. Reference this image, generate a 30sec first-person drone video, fly along the route in the image, one-shot.
+
+| User prompt and final result | Route reference |
+| --- | --- |
+| ![SeeReel FPV Shanghai prompt and final result](docs/demo/fpv-shanghai-result-screenshot.png) | ![FPV Shanghai route reference](docs/demo/fpv-shanghai-route-reference.png) |
+
+Validation outcome from the run shown above:
+
+- Final cut: `30.167s`, `720x1280`, 2 generated shots, 0 failed shots.
+- Continuity bridge: shot 2 starts from shot 1's cloud tail-frame asset `asset_4166c2e4`
+- Recreate it by opening [AI use me](https://seereel.studio/ai-use-me.html), giving the agent the prompt above, and uploading the route reference image.
+
+The editable workflow stays inspectable in the SeeReel web app. It shows the uploaded reference, storyboard nodes, generated video nodes, tail-frame bridge node, graph edges, and stitch node:
+
+![SeeReel FPV Shanghai workflow canvas with intermediate nodes](docs/demo/fpv-shanghai-workflow-canvas.png)
+
 ## What SeeReel Does
 
 SeeReel is a production cockpit for AI-made short dramas. Instead of hiding work in an agent scratch folder, it keeps every important creative object visible on a canvas:
