@@ -17,11 +17,11 @@ npm run install:skill
 
 `install:skill` auto-detects installed runtimes and copies each skill in `.agents/skills/` to that runtime's global dir (`~/.codex|.claude|.cursor|.agents/skills`), plus gitignored in-repo project mirrors for Cursor and Claude Code (`.cursor/skills/`, `.claude/skills/`). Skills shipped:
 
-- `reelyai-shortdrama`: end-to-end short-drama production workflow
-- `reelyai-storyboard-imagegen`: Codex imagegen / `gpt-image-2` cinematic storyboard prompt workflow
-- `reelyai-script-chat`: guided script-development chat flow
-- `reelyai-agent-session`: REST-driven session control
-- `reelyai-cli`: local CLI workflow and fine-grained node control for AI agents
+- `seereel-shortdrama`: end-to-end short-drama production workflow
+- `seereel-storyboard-imagegen`: Codex imagegen / `gpt-image-2` cinematic storyboard prompt workflow
+- `seereel-script-chat`: guided script-development chat flow
+- `seereel-agent-session`: REST-driven session control
+- `seereel-cli`: local CLI workflow and fine-grained node control for AI agents
 
 Target one or more runtimes, or force all of them:
 
@@ -39,7 +39,7 @@ SEEREEL_SKIP_SKILL_INSTALL=1 npm install
 For a single skill:
 
 ```bash
-npm run install:skill -- --skill reelyai-storyboard-imagegen
+npm run install:skill -- --skill seereel-storyboard-imagegen
 ```
 
 Then start the app:
@@ -68,7 +68,7 @@ seereelcli workflow "a short video idea in natural language" --duration 60
 Repo-local fallback:
 
 ```bash
-npm install -g ./packages/reelyai-cli
+npm install -g ./packages/seereel-cli
 npm run cli -- workflow "a short video idea in natural language" --duration 60
 ```
 

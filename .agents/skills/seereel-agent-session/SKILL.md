@@ -1,22 +1,22 @@
 ---
-name: reelyai-agent-session
-description: Drives reelyai-agent short-film sessions through the web app REST API. Use when the user mentions reelyai-agent, cinema agent, 短片制作, session, 分镜, shot, Seedance, 资产库, 自动产片, or 拼接视频, especially when Codex should create a session, plan shots, generate Seedance videos, or stitch a final video visible in the web UI.
+name: seereel-agent-session
+description: Drives SeeReel short-film sessions through the web app REST API. Use when the user mentions SeeReel, cinema agent, 短片制作, session, 分镜, shot, Seedance, 资产库, 自动产片, or 拼接视频, especially when Codex should create a session, plan shots, generate Seedance videos, or stitch a final video visible in the web UI.
 ---
 
-# reelyai-agent Session
+# SeeReel Session
 
 ## Positioning
 
-reelyai-agent is a dual-entry short-film production workspace:
+SeeReel is a dual-entry short-film production workspace:
 
 - Humans use the web app to inspect, edit, and debug sessions, shots, assets, prompts, renders, and final videos.
 - Codex uses this skill to drive the same sessions through the REST API, so all AI-created intermediate results remain visible and editable in the web app.
 
-Use only the reelyai-agent web/API surface and the providers wired into the project, including Seedance, Seedream, and OpenAI. Do not route this workflow through external video-canvas products or third-party automation surfaces.
+Use only the SeeReel web/API surface and the providers wired into the project, including Seedance, Seedream, and OpenAI. Do not route this workflow through external video-canvas products or third-party automation surfaces.
 
 ## Defaults
 
-- Base URL: `process.env.REELYAI_AGENT_BASE_URL || process.env.CINEMA_AGENT_BASE_URL || "http://localhost:5173"`.
+- Base URL: `process.env.SEEREEL_AGENT_BASE_URL || process.env.CINEMA_AGENT_BASE_URL || "http://localhost:5173"`.
 - Default automation mode: staged confirmation.
 - First pass: create session, generate script, then stop and ask the user to review/edit in the web UI.
 - Continue only after the user confirms generation or explicitly asks to continue.
@@ -32,7 +32,7 @@ Use only the reelyai-agent web/API surface and the providers wired into the proj
 
 1. Check service health:
    - `GET /api/state`
-   - If unavailable, tell the user to start the app with `npm run dev`, or set `REELYAI_AGENT_BASE_URL` to the running service.
+   - If unavailable, tell the user to start the app with `npm run dev`, or set `SEEREEL_AGENT_BASE_URL` to the running service.
 
 2. Create or select a session:
    - For new work, `POST /api/sessions` with `title`, `logline`, `style`, `targetDurationSec`, and `shotCount`.

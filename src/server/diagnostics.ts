@@ -84,6 +84,7 @@ export function snapshotCounts(snapshot: StoreSnapshot) {
     sessions: snapshot.sessions.length,
     shots: snapshot.shots.length,
     assets: snapshot.assets.length,
+    gallery: snapshot.gallery?.length || 0,
     renders,
     tokenUsageEvents
   };

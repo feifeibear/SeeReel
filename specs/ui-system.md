@@ -33,6 +33,8 @@ Define the durable visual and interaction rules for the SeeReel workstation so t
 - Button text must fit its container at supported viewport widths.
 - UI hierarchy should be calm and product-focused; avoid decorative effects that reduce readability.
 - SeeReel is an operational creative workstation, so the first screen should be usable product UI rather than a marketing splash.
+- The top action strip should not expose unlabeled utility controls whose behavior is already covered by automatic refresh, node-level controls, or keyboard-driven canvas recovery.
+- Public entry into SeeReel defaults to Chinese unless the user has explicitly chosen a language in the current language-preference version.
 - UI must preserve spatial continuity: content or controls already shown to the user must not disappear and reappear somewhere else unless the movement is caused by an explicit user action such as navigation, tab switching, filtering, expanding, collapsing, or responsive layout transition.
 
 ## Acceptance Criteria
@@ -41,13 +43,15 @@ Define the durable visual and interaction rules for the SeeReel workstation so t
 - [ ] Canvas background, node body, node border, selected node, and inspector panel have visible contrast.
 - [ ] Toolbars wrap, collapse, or scroll intentionally instead of hiding button labels.
 - [ ] No visible text overlaps adjacent controls in the main session workspace.
+- [ ] The top action strip does not show the global VLM checkbox or a standalone manual refresh icon.
+- [ ] A fresh visit with only the legacy `uiLanguage=en` preference still starts in Chinese.
 - [ ] Previously visible content or controls do not unexpectedly vanish and reappear in another area during normal loading, refresh, polling, or background state updates.
 - [ ] Production and local UI use the same committed styles, with no server-only manual patch.
 
 ## Verification
 
 - [ ] `npm run verify:offline`
-- [ ] Open `http://localhost:5173/#/s/ses_demo_agent_plan` or the current demo session.
+- [ ] Open `http://localhost:5173/canvas/ses_demo_agent_plan` or the current demo session.
 - [ ] Check desktop, narrow desktop, and mobile widths.
 - [ ] For release changes, verify `https://seereel.studio` after deployment.
 

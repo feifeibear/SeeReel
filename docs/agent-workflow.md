@@ -34,7 +34,7 @@ npm run install:skill
 ```
 
 `.agents/skills/` is the single, framework-neutral source for every project skill
-(`reelyai-shortdrama`, `reelyai-storyboard-imagegen`, `reelyai-script-chat`, `reelyai-agent-session`).
+(`seereel-shortdrama`, `seereel-storyboard-imagegen`, `seereel-script-chat`, `SeeReel-session`).
 It is the cross-platform standard location, so Codex / Gemini / OpenCode pick it up as a
 project skill directly.
 

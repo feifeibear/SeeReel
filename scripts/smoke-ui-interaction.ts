@@ -1,4 +1,5 @@
 import { readFileSync } from "node:fs";
+import { resolveInitialLanguage } from "../src/client/i18n";
 import { resolveSessionDockState } from "../src/client/sessionDockState";
 import { resolveCanvasCreatePosition } from "../src/client/flow/canvasPosition";
 import { buildPendingConnectEdge, mergePendingEdges } from "../src/client/flow/pendingConnection";
@@ -73,6 +74,10 @@ const mergedPendingEdges = mergePendingEdges(
 assertEqual(mergedPendingEdges.length, 2, "pending edge appears immediately before server refresh");
 assertEqual(mergePendingEdges([pendingStitchEdge!], [pendingStitchEdge!]).length, 1, "server-confirmed edge replaces pending duplicate");
 
+assertEqual(resolveInitialLanguage(null), "zh", "fresh public entry defaults to Chinese");
+assertEqual(resolveInitialLanguage("en", "zh"), "en", "current-version explicit English preference is respected");
+assertEqual(resolveInitialLanguage(null, "en"), "zh", "legacy English preference does not override Chinese default");
+
 const appSource = readFileSync(new URL("../src/client/App.tsx", import.meta.url), "utf8");
 const flowSource = readFileSync(new URL("../src/client/flow/FlowView.tsx", import.meta.url), "utf8");
 
@@ -84,6 +89,13 @@ const flowSource = readFileSync(new URL("../src/client/flow/FlowView.tsx", impor
   "stitch_pending_"
 ].forEach((pattern) => {
   assertEqual(appSource.includes(pattern), false, `App does not keep structural optimistic canvas state: ${pattern}`);
+});
+
+[
+  'className="vision-review-toggle"',
+  "title={t.app.refresh}"
+].forEach((pattern) => {
+  assertEqual(appSource.includes(pattern), false, `App top actions do not expose utility control: ${pattern}`);
 });
 
 [

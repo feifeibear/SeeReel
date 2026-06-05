@@ -45,11 +45,10 @@ Define how new users discover a working SeeReel example immediately after openin
 ## Verification
 
 - [ ] `npm run verify:offline`
-- [ ] Open `http://localhost:5173/#/s/ses_demo_agent_plan`.
+- [ ] Open `http://localhost:5173/canvas/ses_demo_agent_plan`.
 - [ ] Open the app with no explicit session and confirm the default example is visible.
 - [ ] For release work, verify the same path on `https://seereel.studio`.
 
 ## Change Policy
 
 Update this spec before changing default session selection, demo content storage, checked-in demo assets, or first-run behavior.
-

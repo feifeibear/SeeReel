@@ -1,5 +1,5 @@
 ---
-name: reelyai-script-chat
+name: seereel-script-chat
 description: Chat with the user to shape a ReelyAI short-drama script, cast session-scoped characters, decide dialogue and shot count, generate Seedance prompts, and prepare 3x3 storyboard prompts/references. Use when the user wants to 聊剧本, 理清创意, 选角, 剧情, 台词, 分镜数, storyboard, or a guided script-development flow before video generation.
 ---
 
@@ -183,7 +183,7 @@ Each shot prompt should include:
 
 ### 5. 3x3 Storyboard Prompts
 
-For each shot, produce a 3x3 storyboard image prompt using the `reelyai-storyboard-imagegen` skill format.
+For each shot, produce a 3x3 storyboard image prompt using the `seereel-storyboard-imagegen` skill format.
 
 The output should be one prompt per shot:
 

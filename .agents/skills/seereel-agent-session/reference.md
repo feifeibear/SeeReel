@@ -1,11 +1,11 @@
-# reelyai-agent API Reference
+# SeeReel API Reference
 
 ## Base URL
 
 Use:
 
 ```bash
-BASE_URL="${REELYAI_AGENT_BASE_URL:-${CINEMA_AGENT_BASE_URL:-http://localhost:5173}}"
+BASE_URL="${SEEREEL_AGENT_BASE_URL:-${CINEMA_AGENT_BASE_URL:-http://localhost:5173}}"
 ```
 
 ## Core Endpoints

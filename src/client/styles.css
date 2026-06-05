@@ -376,11 +376,18 @@ label {
   background: rgba(8, 47, 73, 0.4);
 }
 
-.agent-plan-control {
+.agent-plan-control,
+.gallery-publish-control {
   position: relative;
   display: flex;
   align-items: center;
   gap: 8px;
+}
+
+.gallery-publish-button {
+  color: #f8e5b8;
+  border-color: rgba(216, 170, 84, 0.44);
+  background: rgba(216, 170, 84, 0.12);
 }
 
 .agent-plan-button.configured {
@@ -427,6 +434,30 @@ label {
   border-radius: 8px;
   background: rgba(11, 15, 22, 0.98);
   box-shadow: 0 18px 60px rgba(0, 0, 0, 0.38);
+}
+
+.gallery-publish-popover {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 8px);
+  z-index: 32;
+  width: min(360px, calc(100vw - 40px));
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid rgba(216, 170, 84, 0.34);
+  border-radius: 8px;
+  background: rgba(11, 15, 22, 0.98);
+  box-shadow: 0 18px 60px rgba(0, 0, 0, 0.38);
+}
+
+.gallery-publish-popover textarea {
+  resize: vertical;
+  min-height: 78px;
+}
+
+.gallery-publish-actions {
+  justify-content: flex-end;
 }
 
 .admin-control {
@@ -3629,8 +3660,7 @@ label {
   padding-top: 2px;
 }
 
-/* Per-session shareable link button. Sits next to the session title input; clicking it copies
-   the URL hash form (#/s/<id>) of this session to clipboard. */
+/* Per-session shareable link button. Sits next to the session title input. */
 .session-share {
   margin-left: 8px;
   height: 32px;
@@ -4496,6 +4526,22 @@ body {
   height: 18px;
 }
 
+.gallery-nav-button {
+  width: 100%;
+  min-height: 38px;
+  justify-content: flex-start;
+  padding: 0 12px;
+  border-radius: 8px;
+  border-color: rgba(165, 181, 196, 0.1);
+  background: rgba(255, 255, 255, 0.03);
+  color: var(--focus-text);
+}
+
+.gallery-nav-button.active {
+  border-color: rgba(76, 199, 191, 0.44);
+  background: rgba(76, 199, 191, 0.12);
+}
+
 .session-dock,
 .session-list {
   width: 100%;
@@ -4676,30 +4722,165 @@ body {
   opacity: 1;
 }
 
-.vision-review-toggle {
-  min-height: 30px;
-  padding: 0 9px;
-  border-radius: 8px;
-  border-color: transparent;
-  background: transparent;
-}
-
-.vision-review-toggle span {
-  display: none;
-}
-
-.vision-review-toggle input {
-  width: 16px;
-  height: 16px;
-  accent-color: var(--focus-teal);
-}
-
 .flow-view {
   height: calc(100vh - 78px);
   border: 0;
   border-radius: 0;
   background: var(--focus-bg);
   box-shadow: none;
+}
+
+.gallery-page {
+  min-height: calc(100vh - 78px);
+  overflow: auto;
+  background: var(--focus-bg);
+}
+
+.gallery-hero {
+  min-height: 128px;
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 24px;
+  border-bottom: 1px solid rgba(165, 181, 196, 0.1);
+  background:
+    linear-gradient(135deg, rgba(76, 199, 191, 0.14), rgba(216, 170, 84, 0.08)),
+    rgba(255, 255, 255, 0.025);
+}
+
+.gallery-hero button {
+  flex: 0 0 auto;
+  min-height: 36px;
+  border-color: rgba(76, 199, 191, 0.36);
+  background: rgba(76, 199, 191, 0.12);
+  color: var(--focus-text);
+}
+
+@media (max-width: 720px) {
+  .gallery-hero {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+}
+
+.gallery-hero p {
+  margin: 0 0 6px;
+  color: var(--focus-teal);
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.gallery-hero h2 {
+  margin: 0;
+  font-size: 30px;
+  letter-spacing: 0;
+}
+
+.gallery-hero span {
+  display: block;
+  max-width: 720px;
+  margin-top: 8px;
+  color: var(--focus-muted);
+}
+
+.gallery-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 16px;
+  padding: 18px 0 40px;
+}
+
+.gallery-card {
+  overflow: hidden;
+  border: 1px solid rgba(165, 181, 196, 0.12);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.035);
+}
+
+.gallery-preview {
+  aspect-ratio: 16 / 9;
+  background: #070a0f;
+}
+
+.gallery-preview video,
+.gallery-preview img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.gallery-preview-empty {
+  display: grid;
+  place-items: center;
+  gap: 8px;
+  height: 100%;
+  color: var(--focus-muted);
+}
+
+.gallery-card-body {
+  display: grid;
+  gap: 12px;
+  padding: 14px;
+}
+
+.gallery-card-heading {
+  display: grid;
+  gap: 4px;
+}
+
+.gallery-card h3 {
+  margin: 0;
+  font-size: 17px;
+  line-height: 1.25;
+}
+
+.gallery-card small,
+.gallery-card p,
+.gallery-card-footer span {
+  color: var(--focus-muted);
+}
+
+.gallery-card p {
+  min-height: 42px;
+  margin: 0;
+}
+
+.gallery-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.gallery-tags span {
+  padding: 3px 8px;
+  border: 1px solid rgba(165, 181, 196, 0.12);
+  border-radius: 999px;
+  color: var(--focus-muted);
+  font-size: 12px;
+}
+
+.gallery-card-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.gallery-card-footer button {
+  flex-shrink: 0;
+}
+
+.gallery-empty {
+  min-height: 280px;
+  display: grid;
+  place-items: center;
+  gap: 8px;
+  color: var(--focus-muted);
+  text-align: center;
 }
 
 .flow-toolbar {

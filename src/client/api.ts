@@ -7,6 +7,8 @@ import type {
   AgentPlanCredentialStatus,
   CreateSessionPayload,
   ExpandAssetPromptResult,
+  GalleryItem,
+  GalleryPublishPayload,
   NarrationStrategy,
   PromptComposition,
   SessionWithShots,
@@ -121,6 +123,12 @@ async function request<T>(url: string, options?: RequestInit): Promise<T> {
 
 export const api = {
   state: () => request<StoreSnapshot>("/api/state"),
+  gallery: () => request<{ items: GalleryItem[] }>("/api/gallery"),
+  galleryItem: (galleryId: string) => request<GalleryItem>(`/api/gallery/${galleryId}`),
+  publishSessionToGallery: (sessionId: string, payload: GalleryPublishPayload) =>
+    request<GalleryItem>("/api/gallery", { method: "POST", body: JSON.stringify({ sessionId, ...payload }) }),
+  copyGalleryItemToSession: (galleryId: string) =>
+    request<SessionWithShots>(`/api/gallery/${galleryId}/copy`, { method: "POST" }),
   agentPlanCredential: () => request<AgentPlanCredentialStatus>("/api/credentials/agent-plan"),
   saveAgentPlanCredential: (apiKey: string) =>
     request<AgentPlanCredentialStatus>("/api/credentials/agent-plan", {

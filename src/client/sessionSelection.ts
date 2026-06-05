@@ -1,11 +1,11 @@
 export function resolveRefreshSelectedSessionId({
   current,
-  fromHash,
+  fromRoute,
   availableSessionIds,
   deletedSessionIds
 }: {
   current: string;
-  fromHash: string;
+  fromRoute: string;
   availableSessionIds: string[];
   deletedSessionIds: string[];
 }) {
@@ -13,6 +13,6 @@ export function resolveRefreshSelectedSessionId({
   const deleted = new Set(deletedSessionIds);
 
   if (current && !deleted.has(current)) return current;
-  if (fromHash && available.has(fromHash) && !deleted.has(fromHash)) return fromHash;
+  if (fromRoute && available.has(fromRoute) && !deleted.has(fromRoute)) return fromRoute;
   return availableSessionIds.find((id) => !deleted.has(id)) || "";
 }

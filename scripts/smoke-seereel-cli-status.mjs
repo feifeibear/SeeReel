@@ -3,14 +3,14 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 
 const execFileAsync = promisify(execFile);
-const cli = "packages/reelyai-cli/bin/reelyai.js";
-const baseUrl = process.env.SEEREEL_SMOKE_BASE_URL || process.env.REELYAI_SMOKE_BASE_URL || "http://localhost:5174";
+const cli = "packages/seereel-cli/bin/seereelcli.js";
+const baseUrl = process.env.SEEREEL_SMOKE_BASE_URL || "http://localhost:5174";
 
 async function runCli(args) {
   const { stdout, stderr } = await execFileAsync(process.execPath, [cli, ...args], {
     env: {
       ...process.env,
-      SEEREEL_CLI_HOME: process.env.SEEREEL_CLI_HOME || process.env.REELYAI_CLI_HOME || "/tmp/seereel-cli-smoke"
+      SEEREEL_CLI_HOME: process.env.SEEREEL_CLI_HOME || "/tmp/seereel-cli-smoke"
     },
     maxBuffer: 5 * 1024 * 1024
   });
@@ -22,6 +22,9 @@ async function main() {
   assert.match(help.stdout, /--progress/);
   assert.match(help.stdout, /--jsonl/);
   assert.match(help.stdout, /--stitch-partial/);
+  assert.match(help.stdout, /--cloud-only/);
+  assert.match(help.stdout, /--reference-image <path\|url>/);
+  assert.match(help.stdout, /--output <path>/);
   assert.match(help.stdout, /--repair-policy <none\|safe-retry>/);
   assert.match(help.stdout, /--max-attempts <n>/);
   assert.match(help.stdout, /seereelcli download --session <sessionId\|latest> --output \.\/final\.mp4/);

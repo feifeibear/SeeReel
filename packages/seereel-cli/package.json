@@ -1,11 +1,11 @@
 {
   "name": "seereelcli",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Local agent CLI for creating and driving SeeReel web workflows.",
   "license": "MIT",
   "type": "module",
   "bin": {
-    "seereelcli": "bin/reelyai.js"
+    "seereelcli": "bin/seereelcli.js"
   },
   "files": [
     "bin",
@@ -16,6 +16,6 @@
     "node": ">=18.17"
   },
   "scripts": {
-    "smoke": "node bin/reelyai.js --help"
+    "smoke": "node bin/seereelcli.js --help"
   }
 }

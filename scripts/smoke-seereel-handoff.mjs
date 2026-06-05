@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-const baseUrl = (process.env.SEEREEL_SMOKE_BASE_URL || process.env.REELYAI_SMOKE_BASE_URL || "http://localhost:5174").replace(/\/+$/, "");
+const baseUrl = (process.env.SEEREEL_SMOKE_BASE_URL || "http://localhost:5174").replace(/\/+$/, "");
 
 class CookieJar {
   cookies = new Map();
@@ -97,7 +97,7 @@ try {
     expectOk: false
   });
   assert(claim.res.status === 302, `expected handoff redirect, got ${claim.res.status}`);
-  assert(claim.res.headers.get("location") === `/#/s/${encodeURIComponent(sessionId)}`, "handoff redirect target mismatch");
+  assert(claim.res.headers.get("location") === `/canvas/${encodeURIComponent(sessionId)}`, "handoff redirect target mismatch");
 
   const secondClaim = await request(agent, `/api/handoff/${encodeURIComponent(token)}`, {
     redirect: "manual",

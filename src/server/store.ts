@@ -1,6 +1,6 @@
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import path from "node:path";
-import type { Asset, CreateSessionPayload, Session, Shot, ShotRender, StitchJob, StoreSnapshot, TokenUsageEvent } from "../shared/types";
+import type { Asset, CreateSessionPayload, GalleryItem, GalleryPublishPayload, Session, Shot, ShotRender, StitchJob, StoreSnapshot, TokenUsageEvent } from "../shared/types";
 import { observeStoreSave } from "./metrics";
 
 export const DATA_DIR = path.resolve(process.cwd(), "data");
@@ -12,7 +12,8 @@ const id = (prefix: string) => `${prefix}_${crypto.randomUUID().slice(0, 8)}`;
 const emptyStore = (): StoreSnapshot => ({
   assets: [],
   sessions: [],
-  shots: []
+  shots: [],
+  gallery: []
 });
 
 export class CinemaStore {
@@ -22,7 +23,15 @@ export class CinemaStore {
   async load() {
     await mkdir(DATA_DIR, { recursive: true });
     try {
-      this.data = JSON.parse(await readFile(STORE_FILE, "utf8")) as StoreSnapshot;
+      const parsed = JSON.parse(await readFile(STORE_FILE, "utf8")) as StoreSnapshot;
+      this.data = {
+        ...emptyStore(),
+        ...parsed,
+        assets: parsed.assets || [],
+        sessions: parsed.sessions || [],
+        shots: parsed.shots || [],
+        gallery: parsed.gallery || []
+      };
     } catch {
       this.data = emptyStore();
     }
@@ -46,7 +55,7 @@ export class CinemaStore {
       if (asset.ownerUserId) return asset.ownerUserId === ownerUserId;
       return includeLegacyPublic;
     });
-    return structuredClone({ sessions, shots, assets });
+    return structuredClone({ sessions, shots, assets, gallery: this.data.gallery || [] });
   }
 
   private ownerUserIdForAssetScope(asset: Partial<Asset>) {
@@ -288,6 +297,187 @@ export class CinemaStore {
     this.data.shots = this.data.shots.filter((shot) => shot.sessionId !== sessionId);
     await this.save();
     return true;
+  }
+
+  listGalleryItems() {
+    return structuredClone(this.data.gallery || []);
+  }
+
+  getGalleryItem(galleryId: string) {
+    return structuredClone((this.data.gallery || []).find((item) => item.id === galleryId));
+  }
+
+  async publishSessionToGallery(sessionId: string, payload: GalleryPublishPayload = {}) {
+    const session = this.data.sessions.find((item) => item.id === sessionId);
+    if (!session) return undefined;
+    const shots = this.data.shots
+      .filter((shot) => shot.sessionId === sessionId)
+      .sort((a, b) => a.index - b.index);
+    const assets = this.collectGalleryAssets(sessionId, shots);
+    const ts = now();
+    const existing = (this.data.gallery || []).find((item) => item.sourceSessionId === sessionId);
+    const title = payload.title?.trim() || session.title || "Untitled SeeReel";
+    const item: GalleryItem = {
+      id: existing?.id || id("gal"),
+      sourceSessionId: session.id,
+      title,
+      description: payload.description?.trim() || session.logline || "",
+      creatorName: payload.creatorName?.trim() || undefined,
+      tags: normalizeTags(payload.tags),
+      previewVideoUrl: resolveGalleryPreviewVideo(session, shots),
+      thumbnailUrl: resolveGalleryThumbnail(assets),
+      shotCount: shots.length,
+      targetDurationSec: session.targetDurationSec,
+      language: session.language,
+      createdAt: existing?.createdAt || ts,
+      updatedAt: ts,
+      session: sanitizeGallerySession(session),
+      shots: structuredClone(shots),
+      assets: structuredClone(assets)
+    };
+    this.data.gallery = [item, ...(this.data.gallery || []).filter((row) => row.id !== item.id)];
+    await this.save();
+    return structuredClone(item);
+  }
+
+  async copyGalleryItemToSession(galleryId: string, ownerUserId?: string) {
+    const item = (this.data.gallery || []).find((row) => row.id === galleryId);
+    if (!item) return undefined;
+    const ts = now();
+    const sourceSession = item.session;
+    const newSessionId = id("ses");
+    const shotIdMap = new Map(item.shots.map((shot) => [shot.id, id("shot")]));
+    const assetIdMap = new Map(item.assets.map((asset) => [asset.id, id("asset")]));
+
+    const mapAssetId = (assetId: string | undefined) => assetId ? assetIdMap.get(assetId) || assetId : undefined;
+    const mapShotId = (shotId: string | undefined) => shotId ? shotIdMap.get(shotId) || shotId : undefined;
+    const mapAssetIds = (assetIds: string[] | undefined) => (assetIds || []).map((assetId) => assetIdMap.get(assetId) || assetId);
+
+    const session: Session = {
+      ...structuredClone(sourceSession),
+      id: newSessionId,
+      ownerUserId,
+      title: `Remix · ${item.title}`,
+      tokenUsageEvents: [],
+      stitchShotIds: (sourceSession.stitchShotIds || []).map((shotId) => shotIdMap.get(shotId)).filter(Boolean) as string[],
+      stitchJobs: (sourceSession.stitchJobs || []).map((job) => ({
+        ...job,
+        id: id("stitch"),
+        shotIds: (job.shotIds || []).map((shotId) => shotIdMap.get(shotId)).filter(Boolean) as string[],
+        status: job.status === "running" ? "idle" : job.status,
+        startedAt: undefined,
+        updatedAt: ts,
+        error: undefined,
+        progress: "",
+        runningSignature: undefined,
+        finalVideoReviewRepairPlan: undefined
+      })),
+      stitchStatus: sourceSession.stitchStatus === "running" ? "idle" : sourceSession.stitchStatus,
+      stitchStartedAt: undefined,
+      stitchUpdatedAt: sourceSession.stitchStatus ? ts : sourceSession.stitchUpdatedAt,
+      stitchError: undefined,
+      stitchProgress: "",
+      stitchRunningSignature: undefined,
+      narrationStatus: sourceSession.narrationStatus === "running" ? "idle" : sourceSession.narrationStatus,
+      narrationStartedAt: undefined,
+      narrationUpdatedAt: sourceSession.narrationStatus ? ts : sourceSession.narrationUpdatedAt,
+      narrationError: undefined,
+      narrationProgress: "",
+      narrationRunningSignature: undefined,
+      finalVideoReviewRepairPlan: undefined,
+      createdAt: ts,
+      updatedAt: ts
+    };
+    if (session.story) {
+      session.story = {
+        ...session.story,
+        characters: (session.story.characters || []).map((character) => ({
+          ...character,
+          assetId: mapAssetId(character.assetId)
+        }))
+      };
+    }
+
+    const assets: Asset[] = item.assets.map((asset) => ({
+      ...structuredClone(asset),
+      id: assetIdMap.get(asset.id)!,
+      ownerUserId,
+      ownerSessionId: asset.ownerSessionId === sourceSession.id ? newSessionId : mapSessionScope(asset.ownerSessionId, sourceSession.id, newSessionId),
+      ownerShotId: mapShotId(asset.ownerShotId),
+      parentAssetId: mapAssetId(asset.parentAssetId),
+      referenceAssetIds: asset.referenceAssetIds?.map((assetId) => assetIdMap.get(assetId) || assetId),
+      videoReviewRepairPlan: undefined,
+      createdAt: ts,
+      updatedAt: ts
+    }));
+
+    const shots: Shot[] = item.shots.map((shot) => {
+      const copied: Shot = {
+        ...structuredClone(shot),
+        id: shotIdMap.get(shot.id)!,
+        sessionId: newSessionId,
+        assetIds: mapAssetIds(shot.assetIds),
+        firstFrameAssetId: mapAssetId(shot.firstFrameAssetId),
+        lastFrameAssetId: mapAssetId(shot.lastFrameAssetId),
+        subShotStoryboardAssetId: mapAssetId(shot.subShotStoryboardAssetId),
+        subShotStoryboardAssetIds: shot.subShotStoryboardAssetIds?.map((assetId) => assetIdMap.get(assetId) || assetId),
+        referenceVideoAssetId: mapAssetId(shot.referenceVideoAssetId),
+        referenceVideoFromShotId: mapShotId(shot.referenceVideoFromShotId),
+        generationTaskId: undefined,
+        generationStartedAt: undefined,
+        seedancePhase: undefined,
+        status: shot.status === "generating" ? (shot.videoUrl ? "ready" : shot.prompt ? "scripted" : "draft") : shot.status,
+        videoReviewRepairPlan: undefined,
+        renders: (shot.renders || []).map((render) => ({
+          ...render,
+          id: id("render"),
+          assetIds: mapAssetIds(render.assetIds),
+          firstFrameAssetId: mapAssetId(render.firstFrameAssetId),
+          lastFrameAssetId: mapAssetId(render.lastFrameAssetId),
+          subShotStoryboardAssetId: mapAssetId(render.subShotStoryboardAssetId),
+          subShotStoryboardAssetIds: render.subShotStoryboardAssetIds?.map((assetId) => assetIdMap.get(assetId) || assetId),
+          referenceVideoAssetId: mapAssetId(render.referenceVideoAssetId),
+          referenceVideoFromShotId: mapShotId(render.referenceVideoFromShotId),
+          generationTaskId: undefined,
+          generationStartedAt: undefined,
+          seedancePhase: undefined,
+          status: render.status === "generating" ? (render.videoUrl ? "ready" : "draft") : render.status
+        })),
+        createdAt: ts,
+        updatedAt: ts
+      };
+      return copied;
+    });
+
+    this.data.sessions.unshift(session);
+    this.data.assets.unshift(...assets);
+    this.data.shots.push(...shots);
+    await this.save();
+    return this.getSession(session.id);
+  }
+
+  private collectGalleryAssets(sessionId: string, shots: Shot[]) {
+    const shotIds = new Set(shots.map((shot) => shot.id));
+    const wanted = new Set<string>();
+    this.data.assets.forEach((asset) => {
+      if (asset.ownerSessionId === sessionId) wanted.add(asset.id);
+      if (asset.ownerShotId && shotIds.has(asset.ownerShotId)) wanted.add(asset.id);
+    });
+    shots.forEach((shot) => collectShotAssetIds(shot).forEach((assetId) => wanted.add(assetId)));
+    let changed = true;
+    while (changed) {
+      changed = false;
+      this.data.assets.forEach((asset) => {
+        if (!wanted.has(asset.id)) return;
+        for (const relatedId of [asset.parentAssetId, ...(asset.referenceAssetIds || [])]) {
+          if (relatedId && !wanted.has(relatedId)) {
+            wanted.add(relatedId);
+            changed = true;
+          }
+        }
+      });
+    }
+    return this.data.assets.filter((asset) => wanted.has(asset.id));
   }
 
   getSession(sessionId: string) {
@@ -696,6 +886,60 @@ function normalizeSessionTitle(title: string | undefined, sessions: Session[]) {
   let index = 1;
   while (used.has(index)) index += 1;
   return `unnamed session ${index}`;
+}
+
+function normalizeTags(tags: string[] | undefined) {
+  return Array.from(new Set((tags || []).map((tag) => tag.trim()).filter(Boolean))).slice(0, 8);
+}
+
+function sanitizeGallerySession(session: Session): Session {
+  const clone = structuredClone(session);
+  clone.ownerUserId = undefined;
+  clone.tokenUsageEvents = [];
+  clone.stitchStartedAt = undefined;
+  clone.stitchRunningSignature = undefined;
+  clone.narrationStartedAt = undefined;
+  clone.narrationRunningSignature = undefined;
+  return clone;
+}
+
+function resolveGalleryPreviewVideo(session: Session, shots: Shot[]) {
+  const readyJob = (session.stitchJobs || []).find((job) => job.finalVideoUrl && job.status === "ready");
+  return session.narrationVideoUrl
+    || session.finalVideoUrl
+    || readyJob?.finalVideoUrl
+    || shots.find((shot) => shot.videoUrl)?.videoUrl
+    || shots.flatMap((shot) => shot.renders || []).find((render) => render.videoUrl)?.videoUrl;
+}
+
+function resolveGalleryThumbnail(assets: Asset[]) {
+  return assets.find((asset) => asset.mediaKind === "image" && (asset.imageUrl || asset.mediaUrl))?.imageUrl
+    || assets.find((asset) => asset.mediaKind === "image" && (asset.imageUrl || asset.mediaUrl))?.mediaUrl;
+}
+
+function mapSessionScope(ownerSessionId: string | undefined, sourceSessionId: string, newSessionId: string) {
+  if (!ownerSessionId) return undefined;
+  return ownerSessionId === sourceSessionId ? newSessionId : ownerSessionId;
+}
+
+function collectShotAssetIds(shot: Shot) {
+  const ids = new Set<string>();
+  const add = (assetId: string | undefined) => { if (assetId) ids.add(assetId); };
+  (shot.assetIds || []).forEach(add);
+  add(shot.firstFrameAssetId);
+  add(shot.lastFrameAssetId);
+  add(shot.subShotStoryboardAssetId);
+  (shot.subShotStoryboardAssetIds || []).forEach(add);
+  add(shot.referenceVideoAssetId);
+  (shot.renders || []).forEach((render) => {
+    (render.assetIds || []).forEach(add);
+    add(render.firstFrameAssetId);
+    add(render.lastFrameAssetId);
+    add(render.subShotStoryboardAssetId);
+    (render.subShotStoryboardAssetIds || []).forEach(add);
+    add(render.referenceVideoAssetId);
+  });
+  return ids;
 }
 
 function normalizeMentionText(value: string) {

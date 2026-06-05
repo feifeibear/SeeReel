@@ -282,13 +282,13 @@ seereelcli --help</code></pre>
         <pre><code>seereelcli skill install --agent all
 seereelcli skill print</code></pre>
         <p>
-          The npm package includes the <code>reelyai-cli</code> skill. Installing it gives Codex, Claude Code,
+          The npm package includes the <code>seereel-cli</code> skill. Installing it gives Codex, Claude Code,
           Cursor Agent, and other local agent runtimes the operating procedure for using the CLI safely.
         </p>
         <details>
           <summary>Bundled skill source for AI agents that cannot install immediately</summary>
           <pre><code>---
-name: reelyai-cli
+name: seereel-cli
 description: Use the local SeeReel CLI to create, inspect, edit, render, review, repair, and stitch web-visible SeeReel video workflows from natural language. Trigger when the user asks an AI agent to use SeeReel, seereel.studio, the SeeReel CLI, generate a web workflow, operate a shot/node prompt, generate a tailframe, run VLM review, repair prompts, publish storyboards to TOS, or produce a complete video through the site.
 ---
 
@@ -337,7 +337,7 @@ Current repo-local install:
 git clone https://github.com/feifeibear/seereel-agent.git
 cd seereel-agent
 npm install
-npm install -g ./packages/reelyai-cli
+npm install -g ./packages/seereel-cli
 seereelcli --help
 ```
 
@@ -483,7 +483,7 @@ seereelcli publish-storyboards --session latest --json
         <pre><code>git clone https://github.com/feifeibear/seereel-agent.git
 cd seereel-agent
 npm install
-npm install -g ./packages/reelyai-cli
+npm install -g ./packages/seereel-cli
 seereelcli skill install --agent all</code></pre>
       </section>
 

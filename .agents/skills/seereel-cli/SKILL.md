@@ -1,5 +1,5 @@
 ---
-name: reelyai-cli
+name: seereel-cli
 description: Use the local SeeReel CLI to create, inspect, edit, render, review, repair, and stitch web-visible SeeReel video workflows from natural language. Trigger when the user asks an AI agent to use SeeReel, seereel.studio, the SeeReel CLI, generate a web workflow, operate a shot/node prompt, generate a tailframe, run VLM review, repair prompts, publish storyboards to TOS, or produce a complete video through the site.
 ---
 
@@ -48,7 +48,7 @@ Current repo-local install:
 git clone https://github.com/feifeibear/seereel-agent.git
 cd seereel-agent
 npm install
-npm install -g ./packages/reelyai-cli
+npm install -g ./packages/seereel-cli
 seereelcli --help
 ```
 
@@ -111,6 +111,26 @@ If the human explicitly asks for full automation:
 ```bash
 seereelcli workflow "用户的视频创意" --duration 60 --render --stitch --jsonl
 ```
+
+For cloud-only production runs where local files are only user-provided inputs
+and all generated intermediates must live in the SeeReel session:
+
+```bash
+seereelcli workflow "用户的视频创意" \
+  --cloud-only \
+  --reference-image ./route.png \
+  --duration 30 \
+  --render \
+  --stitch \
+  --output ./final.mp4 \
+  --jsonl
+```
+
+`--cloud-only` uploads `--reference-image` as an input asset, generates
+server-side storyboard assets before Seedance render, stitches through SeeReel,
+returns a handoff URL, and downloads only the final cloud artifact to `--output`.
+Do not use local ffmpeg splitting or local recovered MP4 imports for cloud-only
+intermediates.
 
 Report the final `downloadUrl`. If a shot fails, report the shot id and failure; do not silently skip it.
 Use `--stitch-partial` only when the human accepts a shorter cut made from ready shots:

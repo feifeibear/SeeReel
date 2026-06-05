@@ -7,14 +7,13 @@ import { fileURLToPath } from "node:url";
 
 const DEFAULT_BASE_URL =
   process.env.SEEREEL_AGENT_BASE_URL ||
-  process.env.REELYAI_AGENT_BASE_URL ||
   process.env.CINEMA_AGENT_BASE_URL ||
   "https://seereel.studio";
 
-const CONFIG_DIR = process.env.SEEREEL_CLI_HOME || process.env.REELYAI_CLI_HOME || path.join(os.homedir(), ".seereel");
+const CONFIG_DIR = process.env.SEEREEL_CLI_HOME || path.join(os.homedir(), ".seereel");
 const CONFIG_FILE = path.join(CONFIG_DIR, "config.json");
 const PACKAGE_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-const REELYAI_CLI_SKILL = path.join(PACKAGE_ROOT, "skills", "reelyai-cli", "SKILL.md");
+const SEEREEL_CLI_SKILL = path.join(PACKAGE_ROOT, "skills", "seereel-cli", "SKILL.md");
 const DEFAULT_POLL_INTERVAL_MS = 3000;
 const DEFAULT_TIMEOUT_MS = 30 * 60 * 1000;
 
@@ -55,11 +54,16 @@ workflow options:
   --shots <count>               Shot count. Default: ceil(duration / 15)
   --style <text>                Visual style
   --language <zh|en>            Session UI/script language. Default: zh
+  --cloud-only                  Treat local files as user input only; generate intermediates through SeeReel server APIs
+  --reference-image <path|url>  Upload a user reference image into the session before planning/rendering
+  --reference-name <text>       Display name for --reference-image
+  --generate-storyboards        Generate server-side sub-storyboard assets before rendering
   --no-script                   Skip /script/generate
   --no-storyboard               Skip /storyboard
   --render                      Continue into shot generation after storyboard
   --stitch                      Stitch after render, or after storyboard if shots are ready
   --stitch-partial              Stitch ready shots even when some shots failed or were skipped
+  --output <path>               After --stitch, download the final cloud video to this local path
   --open                        Open the created session in the browser
 
 render options:
@@ -97,13 +101,14 @@ node options:
 
 skill options:
   --agent <all|codex,claude,cursor,agents>
-                                Install bundled reelyai-cli skill. Default: all
+                                Install bundled seereel-cli skill. Default: all
 
 Examples:
   npm install -g seereelcli
   seereelcli skill install --agent all
   seereelcli configure --base-url https://seereel.studio --access-token "$SEEREEL_ACCESS_TOKEN"
   seereelcli workflow "一个失眠导演在午夜便利店遇见未来的自己" --duration 60 --style "neo-noir, rain"
+  seereelcli workflow "上海航拍" --cloud-only --reference-image ./route.png --duration 30 --render --stitch --output ./final.mp4
   seereelcli node update-prompt --id shot_xxx --prompt "new Seedance prompt"
   seereelcli node tailframe --id shot_xxx --publish-tos --canvas-node
   seereelcli node review --id shot_xxx --frame-count 8
@@ -146,7 +151,7 @@ function formatProgressLine(event) {
   if (event.taskId) parts.push(`task=${event.taskId}`);
   if (event.attempt !== undefined) parts.push(`attempt=${event.attempt}`);
   if (event.reason) parts.push(`reason=${event.reason}`);
-  return `[reelyai] ${parts.join(" ")}`;
+  return `[seereelcli] ${parts.join(" ")}`;
 }
 
 function parseArgs(argv) {
@@ -206,22 +211,19 @@ async function writeConfig(config) {
 
 function resolveRuntime(config, options) {
   const baseUrl = normalizeBaseUrl(
-    String(options.baseUrl || process.env.SEEREEL_AGENT_BASE_URL || process.env.REELYAI_AGENT_BASE_URL || process.env.CINEMA_AGENT_BASE_URL || config.baseUrl || DEFAULT_BASE_URL)
+    String(options.baseUrl || process.env.SEEREEL_AGENT_BASE_URL || process.env.CINEMA_AGENT_BASE_URL || config.baseUrl || DEFAULT_BASE_URL)
   );
   return {
     baseUrl,
     accessToken:
       stringOption(options.accessToken) ||
       process.env.SEEREEL_ACCESS_TOKEN ||
-      process.env.REELYAI_ACCESS_TOKEN ||
       process.env.SEEREEL_CLI_ACCESS_TOKEN ||
-      process.env.REELYAI_CLI_ACCESS_TOKEN ||
       config.accessToken ||
       "",
     agentPlanToken:
       stringOption(options.agentPlanToken) ||
       process.env.SEEREEL_AGENT_PLAN_TOKEN ||
-      process.env.REELYAI_AGENT_PLAN_TOKEN ||
       process.env.ARK_AGENT_PLAN_KEY ||
       config.agentPlanToken ||
       "",
@@ -281,7 +283,7 @@ async function api(runtime, route, init = {}) {
   const headers = {
     Accept: "application/json",
     ...(init.body ? { "Content-Type": "application/json" } : {}),
-    ...(runtime.accessToken ? { "x-seereel-access": runtime.accessToken, "x-reelyai-access": runtime.accessToken } : {}),
+    ...(runtime.accessToken ? { "x-seereel-access": runtime.accessToken } : {}),
     ...(cookieHeader(runtime) ? { Cookie: cookieHeader(runtime) } : {}),
     ...(init.headers || {})
   };
@@ -310,9 +312,38 @@ async function api(runtime, route, init = {}) {
   return body;
 }
 
+async function rawApi(runtime, route, body, init = {}) {
+  const headers = {
+    Accept: "application/json",
+    ...(runtime.accessToken ? { "x-seereel-access": runtime.accessToken } : {}),
+    ...(cookieHeader(runtime) ? { Cookie: cookieHeader(runtime) } : {}),
+    ...(init.headers || {})
+  };
+  const res = await fetch(`${runtime.baseUrl}${route}`, { ...init, body, headers });
+  const changedCookies = rememberCookies(runtime, res.headers);
+  if (changedCookies) {
+    const config = await readConfig();
+    config.cookies = runtime.cookies;
+    await writeConfig(config);
+  }
+
+  const text = await res.text();
+  let parsed = text;
+  try {
+    parsed = text ? JSON.parse(text) : undefined;
+  } catch {
+    // Keep plain text.
+  }
+  if (!res.ok) {
+    const message = parsed?.error || parsed?.message || text || `${res.status} ${res.statusText}`;
+    throw new CliError(`${route} failed: ${message}`);
+  }
+  return parsed;
+}
+
 async function downloadToFile(runtime, route, outputPath) {
   const headers = {
-    ...(runtime.accessToken ? { "x-seereel-access": runtime.accessToken, "x-reelyai-access": runtime.accessToken } : {}),
+    ...(runtime.accessToken ? { "x-seereel-access": runtime.accessToken } : {}),
     ...(cookieHeader(runtime) ? { Cookie: cookieHeader(runtime) } : {})
   };
   const res = await fetch(`${runtime.baseUrl}${route}`, { headers });
@@ -352,7 +383,7 @@ async function ensureAgentPlan(runtime, options = {}) {
 }
 
 function sessionUrl(baseUrl, sessionId) {
-  return `${baseUrl}/#/s/${encodeURIComponent(sessionId)}`;
+  return `${baseUrl}/canvas/${encodeURIComponent(sessionId)}`;
 }
 
 function downloadUrl(baseUrl, sessionId) {
@@ -420,6 +451,18 @@ function summarizeAsset(asset) {
     ownerSessionId: asset.ownerSessionId,
     ownerShotId: asset.ownerShotId,
     imageReviewStatus: asset.imageReviewStatus
+  };
+}
+
+function summarizeCloudOnlyArtifact(artifact) {
+  if (!artifact) return undefined;
+  return {
+    id: artifact.id,
+    name: artifact.name,
+    mediaKind: artifact.mediaKind,
+    mediaUrl: artifact.mediaUrl,
+    ownerSessionId: artifact.ownerSessionId,
+    ownerShotId: artifact.ownerShotId
   };
 }
 
@@ -511,13 +554,20 @@ function ageSec(value) {
 
 async function commandWorkflow(runtime, positionals, options) {
   await api(runtime, "/api/healthz");
-  const agentPlan = await ensureAgentPlan(runtime, { required: Boolean(options.render), reporter: options.reporter });
+  const agentPlan = await ensureAgentPlan(runtime, { required: Boolean(options.render || options.generateStoryboards), reporter: options.reporter });
   const prompt = await readPrompt(positionals);
   const duration = clampInt(options.duration, 60, { min: 1, max: 3600 });
   const shotCount = clampInt(options.shots, Math.ceil(duration / 15), { min: 1, max: 120 });
   const title = inferTitle(prompt, stringOption(options.title));
   const style = stringOption(options.style) || "cinematic short drama, coherent multi-shot continuity";
   const language = options.language === "en" ? "en" : "zh";
+  const cloudOnly = Boolean(options.cloudOnly);
+  if (cloudOnly && options.storyboard === false) {
+    throw new CliError("--cloud-only requires the server storyboard planning step; remove --no-storyboard.");
+  }
+  if (stringOption(options.output) && !options.stitch) {
+    throw new CliError("--output requires --stitch so the final cloud video exists before download.");
+  }
 
   const session = await api(runtime, "/api/sessions", {
     method: "POST",
@@ -533,6 +583,14 @@ async function commandWorkflow(runtime, positionals, options) {
   options.reporter?.event("session_created", { sessionId: session.id, title });
 
   let currentSession = session;
+  const referenceAssets = [];
+  if (options.referenceImage) {
+    const asset = await uploadReferenceImage(runtime, session.id, options.referenceImage, {
+      name: stringOption(options.referenceName)
+    });
+    referenceAssets.push(asset);
+    options.reporter?.event("reference_uploaded", { sessionId: session.id, assetId: asset.id, source: cloudOnly ? "user-input" : "reference-image" });
+  }
   let storyboard;
   if (options.script !== false) {
     options.reporter?.event("script_generating", { sessionId: session.id });
@@ -544,6 +602,21 @@ async function commandWorkflow(runtime, positionals, options) {
     storyboard = await api(runtime, `/api/sessions/${session.id}/storyboard`, { method: "POST" });
     currentSession = storyboard.session || currentSession;
     options.reporter?.event("storyboard_ready", { sessionId: session.id, shotCount: (storyboard?.shots || currentSession.shots || []).length });
+  }
+  if (referenceAssets.length) {
+    currentSession = await attachReferenceAssetsToSessionShots(runtime, session.id, referenceAssets.map((asset) => asset.id));
+    options.reporter?.event("reference_attached", { sessionId: session.id, assetIds: referenceAssets.map((asset) => asset.id) });
+  }
+
+  const shouldGenerateStoryboards = Boolean(options.generateStoryboards) || (cloudOnly && Boolean(options.render));
+  let storyboardAssets = [];
+  if (shouldGenerateStoryboards) {
+    storyboardAssets = await generateServerStoryboards(runtime, session.id, {
+      panelCount: options.storyboardPanels,
+      model: stringOption(options.storyboardModel),
+      reporter: options.reporter
+    });
+    options.reporter?.event("server_storyboards_ready", { sessionId: session.id, assetCount: storyboardAssets.length });
   }
 
   let renderResult;
@@ -562,6 +635,19 @@ async function commandWorkflow(runtime, positionals, options) {
   } else if (options.stitch) {
     renderResult = { stitched: await stitchSession(runtime, session.id, options) };
   }
+  let downloadResult;
+  if (stringOption(options.output)) {
+    const output = path.resolve(stringOption(options.output));
+    const result = await downloadToFile(runtime, `/api/sessions/${session.id}/download`, output);
+    downloadResult = {
+      action: "download",
+      sessionId: session.id,
+      output,
+      bytes: result.bytes,
+      webUrl: sessionUrl(runtime.baseUrl, session.id)
+    };
+    options.reporter?.event("final_downloaded", { sessionId: session.id, output, bytes: result.bytes });
+  }
 
   const handoff = await createSessionHandoff(runtime, session.id);
   const result = {
@@ -572,14 +658,123 @@ async function commandWorkflow(runtime, positionals, options) {
     webUrlVisibleInBrowser: false,
     handoffUrl: handoff.handoffUrl,
     handoffExpiresAt: handoff.handoffExpiresAt,
+    cloudOnly,
     agentPlan,
+    referenceAssets: referenceAssets.map(summarizeCloudOnlyArtifact),
+    storyboardAssets: storyboardAssets.map(summarizeCloudOnlyArtifact),
     story: currentSession.story,
     shots: summarizeShots(storyboard?.shots || currentSession.shots || session.shots || []),
-    render: renderResult
+    render: renderResult,
+    download: downloadResult
   };
 
   if (options.open) openUrl(result.handoffUrl || result.webUrl);
   return result;
+}
+
+async function uploadReferenceImage(runtime, sessionId, source, options = {}) {
+  const value = String(source || "").trim();
+  if (!value) throw new CliError("--reference-image requires a local path or http(s) URL.");
+  const name = stringOption(options.name) || inferReferenceName(value);
+  if (/^https?:\/\//i.test(value)) {
+    return api(runtime, "/api/assets", {
+      method: "POST",
+      body: JSON.stringify({
+        ownerSessionId: sessionId,
+        type: "scene",
+        mediaKind: "image",
+        name,
+        description: "User-provided cloud reference image for this SeeReel workflow.",
+        prompt: "",
+        mediaUrl: value,
+        imageUrl: value,
+        referenceImageUrl: value,
+        tags: ["reference-image", "user-input", "cloud-only"]
+      })
+    });
+  }
+
+  const filePath = path.resolve(value);
+  const bytes = await readFile(filePath);
+  const params = new URLSearchParams({
+    ownerSessionId: sessionId,
+    filename: path.basename(filePath),
+    name,
+    tags: "reference-image,user-input,cloud-only"
+  });
+  return rawApi(runtime, `/api/assets/upload-image?${params.toString()}`, bytes, {
+    method: "POST",
+    headers: { "Content-Type": contentTypeForImage(filePath) }
+  });
+}
+
+function inferReferenceName(value) {
+  try {
+    const parsed = new URL(value);
+    const tail = path.basename(parsed.pathname || "reference-image");
+    return tail.replace(/\.[^.]+$/, "") || "Reference image";
+  } catch {
+    return path.basename(value).replace(/\.[^.]+$/, "") || "Reference image";
+  }
+}
+
+function contentTypeForImage(filePath) {
+  const ext = path.extname(filePath).toLowerCase();
+  if (ext === ".png") return "image/png";
+  if (ext === ".webp") return "image/webp";
+  if (ext === ".gif") return "image/gif";
+  return "image/jpeg";
+}
+
+async function attachReferenceAssetsToSessionShots(runtime, sessionId, assetIds) {
+  const state = await api(runtime, "/api/state");
+  const shots = (state.shots || []).filter((shot) => shot.sessionId === sessionId);
+  let latestSession = (state.sessions || []).find((session) => session.id === sessionId);
+  for (const shot of shots) {
+    const nextAssetIds = Array.from(new Set([...(shot.assetIds || []), ...assetIds]));
+    await api(runtime, `/api/shots/${shot.id}`, {
+      method: "PATCH",
+      body: JSON.stringify({ assetIds: nextAssetIds })
+    });
+  }
+  const refreshed = await api(runtime, "/api/state");
+  latestSession = (refreshed.sessions || []).find((session) => session.id === sessionId) || latestSession;
+  return latestSession;
+}
+
+async function generateServerStoryboards(runtime, sessionId, options = {}) {
+  const state = await api(runtime, "/api/state");
+  const shots = (state.shots || [])
+    .filter((shot) => shot.sessionId === sessionId)
+    .sort((a, b) => (a.index || 0) - (b.index || 0));
+  const assets = [];
+  for (const shot of shots) {
+    const scenePrompt = buildSubStoryboardScenePrompt(shot);
+    if (!scenePrompt) continue;
+    options.reporter?.event("server_storyboard_started", { sessionId, shotId: shot.id, index: shot.index });
+    const body = {
+      scenePrompt,
+      panelCount: clampInt(options.panelCount, 4, { min: 2, max: 16 }),
+      referenceAssetIds: shot.assetIds || []
+    };
+    if (options.model) body.model = options.model;
+    const result = await api(runtime, `/api/shots/${shot.id}/sub-storyboard`, {
+      method: "POST",
+      body: JSON.stringify(body)
+    });
+    if (result?.asset) assets.push(result.asset);
+    options.reporter?.event("server_storyboard_ready", { sessionId, shotId: shot.id, index: shot.index, assetId: result?.asset?.id });
+  }
+  return assets;
+}
+
+function buildSubStoryboardScenePrompt(shot) {
+  return [
+    shot.title ? `Shot title: ${shot.title}` : "",
+    shot.script ? `Story action: ${shot.script}` : "",
+    shot.camera ? `Camera: ${shot.camera}` : "",
+    shot.rawPrompt || shot.prompt ? `Video prompt: ${shot.rawPrompt || shot.prompt}` : ""
+  ].filter(Boolean).join("\n").trim();
 }
 
 async function commandRender(runtime, options) {
@@ -1119,25 +1314,25 @@ async function commandConfigure(config, options) {
 
 async function commandSkill(positionals, options) {
   const action = positionals[0] || "install";
-  const skillText = await readFile(REELYAI_CLI_SKILL, "utf8");
+  const skillText = await readFile(SEEREEL_CLI_SKILL, "utf8");
   if (action === "print" || action === "show") {
-    return { action: "skill-print", rawText: skillText, skillPath: REELYAI_CLI_SKILL };
+    return { action: "skill-print", rawText: skillText, skillPath: SEEREEL_CLI_SKILL };
   }
   if (action === "path") {
-    return { action: "skill-path", skillPath: REELYAI_CLI_SKILL };
+    return { action: "skill-path", skillPath: SEEREEL_CLI_SKILL };
   }
   if (action !== "install") throw new CliError(`Unknown skill action: ${action}`);
 
   const targets = resolveSkillTargets(options.agent);
   const installed = [];
   for (const target of targets) {
-    const dir = path.join(os.homedir(), target.root, "skills", "reelyai-cli");
+    const dir = path.join(os.homedir(), target.root, "skills", "seereel-cli");
     await mkdir(dir, { recursive: true });
     const file = path.join(dir, "SKILL.md");
     await writeFile(file, skillText);
     installed.push({ agent: target.name, file });
   }
-  return { action: "skill-install", skillPath: REELYAI_CLI_SKILL, installed };
+  return { action: "skill-install", skillPath: SEEREEL_CLI_SKILL, installed };
 }
 
 function resolveSkillTargets(value) {
@@ -1280,6 +1475,7 @@ function printHuman(result, command) {
   }
   if (result.stitched?.downloadUrl) console.log(`Download: ${result.stitched.downloadUrl}`);
   if (result.render?.stitched?.downloadUrl) console.log(`Download: ${result.render.stitched.downloadUrl}`);
+  if (result.download?.output) console.log(`Saved: ${result.download.output}${result.download.bytes ? ` (${result.download.bytes} bytes)` : ""}`);
   if (result.failed?.length) console.log(`Failed shots: ${result.failed.map((shot) => shot.id).join(", ")}`);
 }
 
@@ -1337,6 +1533,6 @@ async function main() {
 
 main().catch((error) => {
   const message = error instanceof Error ? error.message : String(error);
-  console.error(`reelyai: ${message}`);
+  console.error(`seereelcli: ${message}`);
   process.exit(error instanceof CliError ? error.code : 1);
 });

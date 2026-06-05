@@ -24,7 +24,6 @@ import {
   generateStoryboardDetailed,
   MEDIA_DIR,
   pollSeedanceVideoTask,
-  probeMediaDurationSec,
   resolveSeedanceCredential,
   resolveSeedanceModel,
   runFfmpegCommand,
@@ -80,6 +79,7 @@ import {
 } from "./visionReview";
 import type {
   Asset,
+  GalleryPublishPayload,
   NarrationStrategy,
   SeedancePhase,
   Session,
@@ -301,6 +301,7 @@ async function collectServiceMetrics() {
   setGauge("reelyai_store_sessions", "Current number of sessions in the JSON store.", undefined, counts.sessions);
   setGauge("reelyai_store_shots", "Current number of shots in the JSON store.", undefined, counts.shots);
   setGauge("reelyai_store_assets", "Current number of assets in the JSON store.", undefined, counts.assets);
+  setGauge("reelyai_store_gallery_items", "Current number of public Gallery items in the JSON store.", undefined, counts.gallery);
   setGauge("reelyai_store_renders", "Current number of shot render rows in the JSON store.", undefined, counts.renders);
   setGauge("reelyai_store_token_usage_events", "Current number of token usage events in the JSON store.", undefined, counts.tokenUsageEvents);
   setGauge("reelyai_inflight_shot_generate_submissions", "In-process shot generation submissions currently in flight.", undefined, shotGenerateSubmissions.size);
@@ -379,6 +380,25 @@ app.get("/api/state", async (_req, res) => {
   res.json({ ...snapshotForCurrentUser(), runtime: runtimeInfo() });
 });
 
+app.get("/api/gallery", async (_req, res) => {
+  res.json({ items: store.listGalleryItems() });
+});
+
+app.post("/api/gallery", async (req, res) => {
+  const sessionId = typeof req.body?.sessionId === "string" ? req.body.sessionId : "";
+  const source = sessionById(sessionId);
+  if (!ownsSession(source)) return res.status(404).json({ error: "Session not found" });
+  const item = await store.publishSessionToGallery(sessionId, req.body as GalleryPublishPayload);
+  if (!item) return res.status(404).json({ error: "Session not found" });
+  res.json(item);
+});
+
+app.get("/api/gallery/:galleryId", async (req, res) => {
+  const item = store.getGalleryItem(req.params.galleryId);
+  if (!item) return res.status(404).json({ error: "Gallery item not found" });
+  res.json(item);
+});
+
 app.post("/api/sessions/:sessionId/handoff", async (req, res) => {
   const session = sessionById(req.params.sessionId);
   const ownerUserId = userIdForRequest();
@@ -398,7 +418,7 @@ app.post("/api/sessions/:sessionId/handoff", async (req, res) => {
   const baseUrl = requestPublicBaseUrl(req);
   res.json({
     sessionId: session.id,
-    webUrl: `${baseUrl}/#/s/${encodeURIComponent(session.id)}`,
+    webUrl: `${baseUrl}/canvas/${encodeURIComponent(session.id)}`,
     webUrlVisibleInBrowser: false,
     handoffUrl: `${baseUrl}/api/handoff/${encodeURIComponent(token)}`,
     handoffToken: token,
@@ -411,7 +431,7 @@ async function claimHandoffAndRedirect(req: Request, res: Response) {
   const token = Array.isArray(req.params.token) ? req.params.token[0] : req.params.token;
   const claimed = await claimHandoffToken(token, userIdForRequest());
   if (!claimed) return res.status(404).send("Handoff link is invalid or expired.");
-  res.redirect(302, `/#/s/${encodeURIComponent(claimed.id)}`);
+  res.redirect(302, `/canvas/${encodeURIComponent(claimed.id)}`);
 }
 
 app.get("/api/handoff/:token", claimHandoffAndRedirect);
@@ -498,6 +518,20 @@ app.put("/api/admin/settings/security", (req, res) => {
   } catch (error) {
     res.status(400).json({ error: error instanceof Error ? error.message : "保存失败" });
   }
+});
+
+app.post("/api/sessions/:sessionId/gallery", async (req, res) => {
+  const source = sessionById(req.params.sessionId);
+  if (!ownsSession(source)) return res.status(404).json({ error: "Session not found" });
+  const item = await store.publishSessionToGallery(req.params.sessionId, req.body as GalleryPublishPayload);
+  if (!item) return res.status(404).json({ error: "Session not found" });
+  res.json(item);
+});
+
+app.post("/api/gallery/:galleryId/copy", async (req, res) => {
+  const session = await store.copyGalleryItemToSession(req.params.galleryId, userIdForRequest());
+  if (!session) return res.status(404).json({ error: "Gallery item not found" });
+  res.json(session);
 });
 
 app.use(ownedResourceGuard);
@@ -696,12 +730,12 @@ function visibleLocalMediaUrls() {
     const normalized = normalizeLocalMediaUrl(value);
     if (normalized) urls.add(normalized);
   };
-  for (const asset of snapshot.assets) {
+  const addAssetMedia = (asset: Asset) => {
     add(asset.mediaUrl);
     add(asset.imageUrl);
     add(asset.referenceImageUrl);
-  }
-  for (const shot of snapshot.shots) {
+  };
+  const addShotMedia = (shot: Shot) => {
     add(shot.videoUrl);
     add(shot.referenceClipUrl);
     add(shot.referenceAudioUrl);
@@ -710,12 +744,32 @@ function visibleLocalMediaUrls() {
       add(render.referenceClipUrl);
       add(render.referenceAudioUrl);
     }
-  }
-  for (const session of snapshot.sessions) {
+  };
+  const addSessionMedia = (session: Session) => {
     add(session.finalVideoUrl);
     add(session.narrationVideoUrl);
     for (const job of session.stitchJobs || []) {
       add(job.finalVideoUrl);
+    }
+  };
+  for (const asset of snapshot.assets) {
+    addAssetMedia(asset);
+  }
+  for (const shot of snapshot.shots) {
+    addShotMedia(shot);
+  }
+  for (const session of snapshot.sessions) {
+    addSessionMedia(session);
+  }
+  for (const item of store.listGalleryItems()) {
+    add(item.previewVideoUrl);
+    add(item.thumbnailUrl);
+    addSessionMedia(item.session);
+    for (const shot of item.shots) {
+      addShotMedia(shot);
+    }
+    for (const asset of item.assets) {
+      addAssetMedia(asset);
     }
   }
   return urls;
@@ -2485,21 +2539,18 @@ async function extractTailFrameAsAsset(opts: {
 
   const outName = `tailframe-${sanitizeFilePart(ownerShotId || sessionId)}-${Date.now()}.jpg`;
   const outPath = path.join(MEDIA_DIR, outName);
-  // The bundled @ffmpeg-installer/ffmpeg (v4.x) does not support negative `-sseof` on remote
-  // HTTP(S) inputs — it silently produces a 0-byte output. Probe the duration with ffprobe and
-  // use a positive `-ss` near-end seek instead (ffmpeg HTTP supports forward Range requests
-  // reliably). For local /media/* inputs we can keep `-sseof` (it's cheaper) but the duration-
-  // based path also works there, so we use a single code path for simplicity.
-  const probedDuration = await probeMediaDurationSec(inputPath).catch(() => undefined);
-  const seekSec = Math.max(0, (Number(probedDuration) || 0) - 0.1);
+  // Decode the video stream to the actual end and keep overwriting the same image. The previous
+  // duration-0.1s seek was fast, but it could extract a near-tail frame instead of the strict final
+  // decoded frame, causing visible discontinuity when this asset anchors the next shot's first frame.
   await runFfmpegCommand([
     "-y",
-    "-ss",
-    seekSec.toFixed(3),
     "-i",
     inputPath,
-    "-frames:v",
-    "1",
+    "-map",
+    "0:v:0",
+    "-an",
+    "-vsync",
+    "0",
     "-q:v",
     "2",
     "-update",

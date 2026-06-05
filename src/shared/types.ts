@@ -665,6 +665,8 @@ export interface StoreSnapshot {
   assets: Asset[];
   /** Top-level shot rows keyed by `sessionId`; sessions do not embed these in StoreSnapshot. */
   shots: Shot[];
+  /** Public remixable creations shared by users. Visible across anonymous user scopes. */
+  gallery?: GalleryItem[];
   runtime?: {
     seedreamCredentialSource?: "standard" | "agent-plan" | "missing";
     seedreamDefaultModel?: AssetImageModel;
@@ -725,6 +727,32 @@ export interface FreeTrialStatus {
   ipDailyCap: number;
   globalDailyCap: number;
   globalUsed: number;
+}
+
+export interface GalleryPublishPayload {
+  title?: string;
+  description?: string;
+  creatorName?: string;
+  tags?: string[];
+}
+
+export interface GalleryItem {
+  id: string;
+  sourceSessionId: string;
+  title: string;
+  description: string;
+  creatorName?: string;
+  tags: string[];
+  previewVideoUrl?: string;
+  thumbnailUrl?: string;
+  shotCount: number;
+  targetDurationSec: number;
+  language?: SessionLanguage;
+  createdAt: string;
+  updatedAt: string;
+  session: Session;
+  shots: Shot[];
+  assets: Asset[];
 }
 
 /** Joined session shape returned by session-specific mutation/poll endpoints and built client-side for the canvas. */

@@ -3,172 +3,131 @@
 </p>
 
 <p align="center">
-  <strong>Agent-native short-film production workstation.</strong>
+  <strong>Agent-native short-drama production workstation.</strong>
 </p>
 
 <p align="center">
-  Create reviewable video workflows with Codex, Claude Code, Cursor Agent, and the SeeReel canvas — powered by <a href="https://www.volcengine.com/docs/82379/2366394?lang=zh">Volcengine Agent Plan</a>.
+  Turn one story idea into a visible video workflow: script, characters, scenes, storyboard, Seedance shots, VLM review, stitch, and a downloadable final cut.
 </p>
 
 <p align="center">
-  <strong>English</strong> · <a href="README.zh-CN.md">中文文档</a> · <a href="LICENSE">MIT License</a>
+  <a href="README.zh-CN.md"><strong>中文文档</strong></a>
+  ·
+  <a href="https://seereel.studio/"><strong>Free web trial</strong></a>
+  ·
+  <a href="https://seereel.studio/ai-use-me.html"><strong>AI use me</strong></a>
+  ·
+  <a href="LICENSE">MIT License</a>
 </p>
 
-<p align="center">
-  <a href="https://seereel.studio/"><strong>🎬 Live demo → seereel.studio</strong></a>
-</p>
+![SeeReel canvas workflow](docs/seereel-workflow-ui.png)
 
-<p align="center">
-  <sub>Public canvas — bring your own <a href="https://www.volcengine.com/activity/agentplan">Agent Plan</a> key in the top bar</sub>
-</p>
+## What SeeReel Does
 
-SeeReel lets you create a short video by talking to an agent in **Codex, Claude Code, Cursor Agent, or any AGENTS.md-compatible runtime**. The agent turns your creative instruction into a visible canvas workflow: character and scene assets, storyboard boards, Seedance video nodes, review nodes, stitch jobs, and the final downloadable cut.
+SeeReel is a production cockpit for AI-made short dramas. Instead of hiding work in an agent scratch folder, it keeps every important creative object visible on a canvas:
 
-**SeeReel is built to showcase [Volcengine Agent Plan](https://www.volcengine.com/docs/82379/2366394?lang=zh).** One Agent Plan subscription can fuel the core short-film generation loop — **Seedream** reference images and **Seedance 2.0** shot videos — through a single API key and the dedicated `/api/plan/v3` route, with session-level token usage visible in the canvas.
+- **Story**: logline, beat plan, script, shot list, and duration targets.
+- **References**: character, scene, prop, storyboard, first-frame, and previous-shot continuity assets.
+- **Generation**: Seedream images and Seedance 2.0 video shots, one node at a time.
+- **Review**: VLM checks for assets, shots, and the stitched final video.
+- **Repair**: prompt fixes, regeneration, polling, and partial recovery without losing graph state.
+- **Delivery**: stitched MP4, browser playback, and download links.
 
-The canvas is not just a progress screen. It is the human takeover surface. You can pause in the middle, edit prompts, reconnect references, regenerate weak nodes, inspect VLM feedback, and change the final result before the agent continues.
+The intended user experience is simple: **tell an AI agent what video you want, review the visible workflow in the browser, then let the agent continue only when you are happy with the plan.**
 
-![SeeReel canvas workflow](docs/reelyai-workflow-ui.png)
+## Pick Your Path
 
-## Local Agent CLI
+| Path | Best for | What you do | What the AI does |
+| --- | --- | --- | --- |
+| **1. Free web trial** | First-time visitors who just want to see the product effect | Open [seereel.studio](https://seereel.studio/) and try the public canvas. If the free quota is exhausted, continue with Path 2. | Reads [AI use me](https://seereel.studio/ai-use-me.html), creates a reviewable workflow, and returns a one-time handoff link. |
+| **2. Bring your Agent Plan token** | Users who tried it and want to generate their own real videos | Open [Volcengine Agent Plan](https://www.volcengine.com/activity/agentplan), create an Agent Plan API key, then paste it into the SeeReel top-bar Agent Plan control. | Uses the same public site, configures the CLI token when needed, renders approved shots, runs review, and stitches the final video. |
+| **3. Run on localhost** | Builders with deeper customization needs | Clone this repo, install dependencies, configure `.env`, and open `http://localhost:5173`. | Uses the local API/CLI against your own code, keeps state in the web app, and helps you customize models, prompts, UI, storage, and deploys. |
 
-Install the repo CLI when you want local Codex or Claude Code to turn one natural-language request into a visible SeeReel web workflow:
+## If You Are An AI Agent
+
+This repository is written for agents first. Before operating SeeReel for a human, read the live agent guide:
+
+```text
+https://seereel.studio/ai-use-me.html
+```
+
+Then follow this review-first flow:
 
 ```bash
 npm install -g seereelcli
 seereelcli skill install --agent all
-seereelcli configure --base-url https://seereel.studio --access-token "$SEEREEL_ACCESS_TOKEN"
-seereelcli workflow "a sleepless film director meets his future self in a midnight convenience store" --duration 60
+seereelcli skill print
+seereelcli workflow "a one-minute short drama about a courier who discovers tomorrow's memories in a broken phone" \
+  --base-url https://seereel.studio \
+  --duration 60 \
+  --json
 ```
 
-From this repo you can also run it without a global install:
+Return the `handoffUrl` to the human, not only the raw `webUrl`. Browser sessions and CLI sessions are cookie-scoped separately, so the handoff URL lets the human claim the AI-created workflow in their normal browser.
+
+Only continue to paid or quota-consuming video generation after the human confirms that Agent Plan access is configured and the workflow looks acceptable:
 
 ```bash
-npm run cli -- workflow "a sleepless film director meets his future self in a midnight convenience store" --duration 60
+seereelcli status --session latest --deep --json
+seereelcli render --session latest --stitch --progress --json
 ```
 
-By default the CLI creates the session, generates the script, generates the storyboard/workflow, then returns a shareable `https://seereel.studio/#/s/<sessionId>` URL so a human can review or take over in the canvas. Real video generation is opt-in:
+Important boundaries:
 
-```bash
-seereelcli render --session latest --stitch
+- Prefer CLI/API operations over browser automation.
+- Refresh status before continuing after any human web edit.
+- Do not invent, scrape, print, or expose API keys.
+- Do not call paid generation until the human has approved continuing.
+- Keep generated assets, prompts, renders, stitch state, and final videos visible in SeeReel state.
+- Seedance references must be remote `http(s)` URLs. Publish local references to TOS before using them as `reference_image`.
+
+## For A New User: Ask Your AI This
+
+Copy this into Codex, Claude Code, Cursor Agent, or another local coding agent:
+
+```text
+Read https://seereel.studio/ai-use-me.html and help me create my first SeeReel video.
+Start with a reviewable workflow on https://seereel.studio.
+Use this idea: "a tired game designer meets the NPC he abandoned years ago".
+Return the handoffUrl so I can review the story, shots, and prompts in my browser.
+Do not render paid video until I confirm my Agent Plan token is configured.
 ```
 
-Configuration:
+After the workflow looks good, paste your Agent Plan token in the SeeReel top bar or ask the AI to guide you through CLI token configuration, then continue:
 
-- `SEEREEL_AGENT_BASE_URL` / `CINEMA_AGENT_BASE_URL` or `--base-url`: switch between production and local servers.
-- `SEEREEL_ACCESS_TOKEN` or `--access-token`: shared deployment token when the public backend is gated.
-- `SEEREEL_AGENT_PLAN_TOKEN` / `ARK_AGENT_PLAN_KEY` or `--agent-plan-token`: browser-scoped Agent Plan key for Seedream, Seedance, and VLM calls.
-- Local config and cookies live at `~/.seereel/config.json`; SeeReel API/state remains the source of truth for sessions, shots, prompts, renders, stitch jobs, and final videos.
-
-## Recommended: Volcengine Agent Plan
-
-[Agent Plan](https://www.volcengine.com/docs/82379/2366394?lang=zh) is Volcengine Ark’s subscription package for **Agent workloads**. Instead of wiring separate pay-as-you-go keys for every model, Agent Plan bundles the models and harness tools an agent actually needs — text, image, video, web search, and memory — and meters usage with **Agent Fuel Points (AFP)**.
-
-| What you get | Why it matters for SeeReel |
-| --- | --- |
-| **Doubao-Seed** text models | Script planning, prompt expansion, and agent reasoning |
-| **Doubao-Seedream** (`doubao-seedream-5.0-lite`) | Character, scene, prop, and storyboard reference images |
-| **Doubao-Seedance 2.0** / **2.0-fast** | Multi-shot short-film video generation |
-| **Harness tools** | Web search, embeddings, and other agent-side capabilities documented in the [Agent Plan guide](https://www.volcengine.com/docs/82379/2366394?lang=zh) |
-
-**We recommend Agent Plan as the default way to run SeeReel generation in production.** The project routes Seedream, Seedance, and VLM review calls through Plan-compatible model names, tracks usage per canvas node, and keeps the UI aligned with the models your plan actually exposes. Standard Ark VLM credentials remain available as a fallback when no browser Plan key is present.
-
-**Quick path**
-
-1. Read the official [Agent Plan package overview](https://www.volcengine.com/docs/82379/2366394?lang=zh) and subscribe on the [Agent Plan activity page](https://www.volcengine.com/activity/agentplan).
-2. Create an **Agent Plan API Key** in the [Volcengine Ark console](https://console.volcengine.com/ark).
-3. Add the key to `.env` and opt in:
-
-```bash
-ARK_AGENT_PLAN_KEY=<your-agent-plan-key>
-SEEREEL_USE_AGENT_PLAN=1
-ARK_AGENT_PLAN_BASE=https://ark.cn-beijing.volces.com/api/plan/v3
-SEEDREAM_AGENT_PLAN_MODEL=doubao-seedream-5.0-lite
-SEEREEL_VISION_REVIEW_USE_AGENT_PLAN=
-VISION_REVIEW_AGENT_PLAN_MODEL=doubao-seed-2.0-pro
-VIDEO_ANALYZE_AGENT_PLAN_MODEL=doubao-seed-2.0-pro
-SEEDANCE_AGENT_PLAN_MODEL=doubao-seedance-2-0-260128
-SEEDANCE_AGENT_PLAN_FAST_MODEL=doubao-seedance-2-0-fast-260128
+```text
+My Agent Plan token is configured. Inspect the latest SeeReel workflow, render the missing shots, run review, stitch the final video, and give me the download link.
 ```
 
-4. Configure **TOS** separately so local/Codex storyboards become remote `https://` references Seedance can fetch. Agent Plan covers model tokens; it does **not** replace object storage.
+## Why It Is Different
 
-See [Minimum Real-Generation Setup](#minimum-real-generation-setup) for the full credential table and fallback Ark keys.
+Most video-generation tools are a prompt box. SeeReel is an **agent-operable canvas**:
 
-**Official docs**
-
-- [Agent Plan package overview](https://www.volcengine.com/docs/82379/2366394?lang=zh)
-- [Connect multimodal generation models](https://www.volcengine.com/docs/82379/2373738?lang=zh)
-- [Build a short-video site with Agent Plan](https://www.volcengine.com/docs/82379/2366394?lang=zh) — SeeReel is the open-source canvas version of that workflow
-
-## Why SeeReel
-
-Most video-generation tools stop at “submit a prompt and hope.” SeeReel is built around an agent loop where the conversation and the canvas stay synchronized:
-
-- **Plan**: turn an idea into script beats, shots, prompts, and references.
-- **Build the workflow**: create visible graph nodes for assets, storyboards, videos, reviews, and stitching.
-- **Generate**: create Seedream image assets, storyboard grids, and Seedance 2.0 video shots.
-- **Review every node**: use VLM checks to score images, clips, and final videos against the prompt.
-- **Repair**: surface concrete problems and prompt fixes so the next generation improves.
-- **Deliver**: stitch ready shots, add narration/subtitles when configured, and download the final video.
-
-The core idea: every intermediate artifact stays visible and editable. Nothing important is hidden in an agent scratch folder.
-
-## VLM Review Is A First-Class Feature
-
-SeeReel includes review agents for generated media, not just generation buttons. Each important generation node can be checked by a VLM reviewer, and the latest review summary is shown in the Inspector so humans and agents can make better next moves.
-
-| Review surface | What it checks |
-| --- | --- |
-| Asset image review | Whether a generated character, prop, scene, or storyboard follows the prompt and references |
-| Shot video review | Whether a Seedance clip follows the shot intent, continuity, action, composition, and visual constraints |
-| Final video review | Whether the stitched cut is coherent across shots and ready to publish |
-| Node review summary | Inspector cards show the latest score, summary, reasons, and suggested fixes |
-| Token usage | Session-level usage panel tracks Seedream / Seedance / review model cost by node |
-
-When review is enabled, SeeReel can retry image generation with VLM feedback folded back into the prompt. Even when a result is not perfect, the Inspector tells the user what is wrong and how to revise. This makes the product useful for real creative iteration, not only one-shot demos.
-
-## Product Flow
+- The AI can create, inspect, update, render, review, repair, and stitch through stable commands.
+- The human can interrupt at any point and edit the same session in the web app.
+- The canvas remains the source of truth for scripts, shots, prompts, references, renders, reviews, and final videos.
+- VLM review is part of the product loop, not an afterthought.
+- It supports public web trials, bring-your-own-token generation, and local source-level customization.
 
 ```mermaid
 flowchart LR
-  Human[Human director] --> UI[Canvas review UI]
-  Agent[Codex / Claude Code / Cursor Agent] --> API[SeeReel REST API]
-  UI --> Store[(Session state)]
-  API --> Store
-  API --> Seedream[Seedream images]
-  API --> Seedance[Seedance video]
-  API --> VLM[VLM review]
-  API --> Stitch[ffmpeg stitch]
+  Human["Human director"] --> UI["SeeReel canvas"]
+  Agent["Codex / Claude Code / Cursor Agent"] --> CLI["seereelcli"]
+  CLI --> API["SeeReel API"]
+  UI --> API
+  API --> Store[("Session state")]
+  API --> Seedream["Seedream images"]
+  API --> Seedance["Seedance video"]
+  API --> Review["VLM review"]
+  API --> Stitch["Stitch final MP4"]
   Store --> UI
   Seedream --> UI
   Seedance --> UI
-  VLM --> UI
+  Review --> UI
   Stitch --> UI
 ```
 
-## Human-In-The-Loop Canvas
-
-You can ask an agent for a full video, but you are never locked out of the process.
-
-1. Tell Codex or Claude Code what to make.
-2. The agent creates the session and builds the canvas workflow through the REST API.
-3. The web UI shows assets, reference wiring, storyboard panels, video nodes, stitch nodes, and review results.
-4. A human can edit any prompt, add or remove references, reconnect nodes, change duration, trigger review, or regenerate one node.
-5. The agent can resume from the updated state and continue toward the final video.
-
-Manual UI edits are treated as source of truth. The agent refreshes `/api/state` before continuing, so human decisions influence the final generation instead of being overwritten.
-
-## What You Can Build
-
-- Short-drama prototypes with repeatable character and scene references
-- Storyboard-to-video workflows where each shot has inspectable references
-- Reference-video remakes with shot parsing and prompt reuse
-- Multi-shot action sequences with previous-shot continuity
-- Reviewable final cuts with downloadable output
-- Agent-driven production sessions that a human can interrupt and edit at any time
-
-## Quick Start
+## Localhost Setup
 
 Requirements:
 
@@ -183,77 +142,90 @@ cp .env.example .env
 npm run dev
 ```
 
-Open the printed localhost URL, usually:
+Open the printed local URL, usually:
 
 ```text
 http://localhost:5173
 ```
 
-Without provider keys, the app still opens and can be explored in mock mode. For real generation, **start with Agent Plan** (recommended) or fall back to standard Ark keys.
+Production-style local run:
 
-## Minimum Real-Generation Setup
+```bash
+NODE_ENV=production PORT=5174 npm run start
+```
 
-**Recommended:** [Volcengine Agent Plan](https://www.volcengine.com/docs/82379/2366394?lang=zh) — one subscription for Seedream + Seedance + review-model calls.
+Without provider keys, the app still opens and can be explored in mock mode. For real video generation, configure Agent Plan and TOS.
 
-| Capability | Environment |
-| --- | --- |
-| **Recommended** Agent Plan route | `ARK_AGENT_PLAN_KEY` + `SEEREEL_USE_AGENT_PLAN=1` — see [Agent Plan section](#recommended-volcengine-agent-plan) |
-| Fallback Ark model calls | `BP_ARK_API_KEY` / `ARK_API_KEY` / service-specific keys |
-| Seedream images | Agent Plan route (default `doubao-seedream-5.0-lite`) or Ark / `SEEDREAM_API_KEY` |
-| Seedance videos | Agent Plan route (default `doubao-seedance-2-0-260128`) or Ark with Seedance 2.0 access |
-| Local media as remote references | TOS config or a public `PUBLIC_MEDIA_BASE_URL` |
-| Optional script generation | `OPENAI_API_KEY` / `OAI_KEY` |
-| Optional narration | `VOLC_TTS_APPID` / `VOLC_TTS_TOKEN` |
+## Real Generation Setup
 
-Agent Plan example:
+Recommended route: [Volcengine Agent Plan](https://www.volcengine.com/docs/82379/2366394?lang=zh). One Agent Plan key can cover SeeReel's Seedream image generation, Seedance video generation, and Seed/VLM review path through the dedicated `/api/plan/v3` route.
 
 ```bash
 ARK_AGENT_PLAN_KEY=<your-agent-plan-key>
 SEEREEL_USE_AGENT_PLAN=1
 ARK_AGENT_PLAN_BASE=https://ark.cn-beijing.volces.com/api/plan/v3
 SEEDREAM_AGENT_PLAN_MODEL=doubao-seedream-5.0-lite
-SEEREEL_VISION_REVIEW_USE_AGENT_PLAN=
-VISION_REVIEW_AGENT_PLAN_MODEL=doubao-seed-2.0-pro
-VIDEO_ANALYZE_AGENT_PLAN_MODEL=doubao-seed-2.0-pro
 SEEDANCE_AGENT_PLAN_MODEL=doubao-seedance-2-0-260128
 SEEDANCE_AGENT_PLAN_FAST_MODEL=doubao-seedance-2-0-fast-260128
+VISION_REVIEW_AGENT_PLAN_MODEL=doubao-seed-2.0-pro
+VIDEO_ANALYZE_AGENT_PLAN_MODEL=doubao-seed-2.0-pro
 ```
 
-In Agent Plan mode, Seedream defaults to Seedream 5 Lite. VLM review defaults to the Plan model name `doubao-seed-2.0-pro`. The UI shows the same model that is actually used, so users do not see “Seedream 4.5” when the backend is running `doubao-seedream-5.0-lite`. Do not send standard VLM models such as `seed-2-0-pro-260328` to `/api/plan/v3`.
+TOS is separate and still required when local or Codex-generated references must be sent to remote Seedance workers:
 
-## Media Reference Rule
+```bash
+TOS_ACCESS_KEY_ID=<AK>
+TOS_SECRET_ACCESS_KEY=<SK>
+TOS_REGION=cn-beijing
+TOS_ENDPOINT=tos-cn-beijing.volces.com
+TOS_BUCKET=<bucket>
+TOS_KEY_PREFIX=cinema-agent/storyboards
+TOS_PRESIGN_EXPIRES_SEC=604800
+```
 
-Seedance workers need references they can fetch.
+Fallback and optional providers:
 
-Image references can sometimes be sent inline as Base64 when they are small enough. Video references and durable shared media still need public or signed `http(s)` URLs.
+| Capability | Environment |
+| --- | --- |
+| Fallback Ark model calls | `BP_ARK_API_KEY` / `ARK_API_KEY` / service-specific keys |
+| Optional script generation | `OPENAI_API_KEY` / `OAI_KEY` |
+| Optional narration | `VOLC_TTS_APPID` / `VOLC_TTS_TOKEN` |
+| Public media fallback | non-localhost `PUBLIC_MEDIA_BASE_URL` |
 
-Use one of:
+## Public Deployment
 
-- TOS pre-signed URLs
-- `PUBLIC_MEDIA_BASE_URL` pointing to a reachable media host
-- Seedream-generated remote URLs returned by Ark
+The public product currently runs at:
 
-Local `/media/...` and localhost URLs are only reliable for app preview. They are not durable remote references for Seedance workers.
+```text
+https://seereel.studio
+```
+
+For your own deployment, the simplest production shape is one Volcengine ECS instance with Caddy, persistent storage, and either Docker Compose or systemd. See [deploy/volcengine.md](deploy/volcengine.md) for the full runbook.
+
+Do not put a personal Agent Plan key into a public frontend bundle. For a public server:
+
+- Visitors paste their own Agent Plan token in the browser top bar.
+- CLI users configure their own local token with `seereelcli configure --agent-plan-token`.
+- Server-side free-trial keys, if enabled, must be stored as protected runtime configuration.
+- Admin credentials and provider secrets must stay out of README screenshots, logs, frontend code, and GitHub.
 
 ## Agent Skills
 
-This repo ships cross-agent skills in `.agents/skills/`:
-
-| Skill | Use |
-| --- | --- |
-| `reelyai-shortdrama` | End-to-end short-drama production |
-| `reelyai-agent-session` | REST-driven session control |
-| `reelyai-cli` | Local CLI workflow and fine-grained node control |
-| `reelyai-script-chat` | Script and casting chat flow |
-| `reelyai-storyboard-imagegen` | Storyboard contact-sheet prompting |
-
-`npm install` runs a best-effort mirror into detected runtimes. You can refresh manually:
+This repo ships cross-agent skills in `.agents/skills/`. `npm install` runs a best-effort mirror into detected runtimes; refresh manually anytime:
 
 ```bash
 npm run install:skill
 ```
 
-Target a runtime:
+| Skill | Use |
+| --- | --- |
+| `seereel-shortdrama` | End-to-end short-drama production |
+| `seereel-agent-session` | REST-driven session control |
+| `seereel-cli` | Local CLI workflow and fine-grained node control |
+| `seereel-script-chat` | Script and casting chat flow |
+| `seereel-storyboard-imagegen` | Storyboard contact-sheet prompting |
+
+Target one runtime or all detected runtimes:
 
 ```bash
 npm run install:skill -- --agent codex
@@ -262,9 +234,9 @@ npm run install:skill -- --agent cursor
 npm run install:skill -- --agent all
 ```
 
-## REST API Surface
+## API Surface
 
-The web UI and agents share the same API and persisted state.
+The web UI, CLI, and agents share the same API and persisted state.
 
 | Task | Endpoint |
 | --- | --- |
@@ -274,15 +246,15 @@ The web UI and agents share the same API and persisted state.
 | Create / update assets | `POST /api/assets`, `PATCH /api/assets/:assetId` |
 | Generate asset image | `POST /api/assets/:assetId/generate` |
 | Generate storyboard | `POST /api/sessions/:sessionId/storyboard` |
+| Publish storyboard references | `POST /api/sessions/:sessionId/storyboards/publish-tos` |
 | Generate shot video | `POST /api/shots/:shotId/generate` |
 | Poll shot video | `POST /api/shots/:shotId/poll` |
 | Run shot review | `POST /api/shots/:shotId/review` |
 | Stitch final video | `POST /api/sessions/:sessionId/stitch` |
 | Poll stitch | `POST /api/sessions/:sessionId/stitch/poll` |
 | Download final video | `GET /api/sessions/:sessionId/download` |
-| View / clear token usage | `GET /api/state`, `DELETE /api/sessions/:sessionId/token-usage` |
 
-See [AGENTS.md](AGENTS.md) and `.agents/skills/reelyai-agent-session/reference.md` for operating details.
+See [AGENTS.md](AGENTS.md) and [.agents/skills/seereel-agent-session/reference.md](.agents/skills/seereel-agent-session/reference.md) for operating details.
 
 ## Project Layout
 
@@ -296,81 +268,22 @@ docs/              Product docs, canvas model, screenshots, security notes
 data/              Local runtime state and generated media, gitignored
 ```
 
-## Development
+## Verification
 
 ```bash
+npm run smoke:specs
+npm run smoke:secrets
 npm run build
-npm run dev
 ```
 
-Production-style local run:
+Use the full offline check before release:
 
 ```bash
-NODE_ENV=production PORT=5174 npm run start
-```
-
-## Public Volcengine Deployment
-
-For the first public release, use one Volcengine ECS instance with Docker Compose and a persistent
-volume. With an ECS public IP and SSH access, run [deploy/deploy-to-ecs.sh](deploy/deploy-to-ecs.sh);
-see [deploy/volcengine.md](deploy/volcengine.md) for the full runbook.
-
-Do not set your own `ARK_AGENT_PLAN_KEY` on a public server. Visitors enter their own Agent Plan
-token in the top bar; the backend never returns it from `/api/state` or `data/cinema-store.json`.
-By default local dev keeps the key in process memory. The Volcengine Docker Compose deploy creates
-a private Postgres container on the ECS and writes a stable encryption secret into
-`deploy/.env.production` so admin review survives restarts. To use external Volcengine RDS instead,
-set the database URL yourself:
-
-```bash
-SEEREEL_DATABASE_URL=postgres://user:password@host:5432/seereel
-SEEREEL_DATABASE_SSL=1
-SEEREEL_AGENT_PLAN_KEY_ENCRYPTION_SECRET=$(openssl rand -hex 32)
-```
-
-The admin panel can then list browser-entered Agent Plan keys after login. TOS remains a
-backend-only server credential, preferably with a private bucket and signed URLs.
-
-Public site mode uses anonymous browser ownership. Each visitor gets an isolated session list via
-the `seereel_user_id` cookie, and `/api/state` only returns that visitor's sessions, assets, and
-shots. Example sessions are runtime/admin content, not source-code fixtures. If a visitor has not
-entered their own Agent Plan key, the server can use `SEEREEL_ADMIN_AGENT_PLAN_KEY` for a small
-free quota:
-
-```bash
-SEEREEL_ADMIN_AGENT_PLAN_KEY=<site-agent-plan-key>
-SEEREEL_FREE_TRIAL_LIMIT=10
-SEEREEL_FREE_TRIAL_IP_DAILY_CAP=30
-SEEREEL_FREE_TRIAL_GLOBAL_DAILY_CAP=300
-```
-
-Once the free quota is used, generation/review APIs return `free_trial_exceeded` and the UI tells
-the visitor to paste their own Agent Plan key.
-
-Site operators can also set the free-trial key from the web console. The UI-stored key is written to
-`data/admin-settings.json` and takes precedence over `SEEREEL_ADMIN_AGENT_PLAN_KEY`. Set an operator
-login through private environment variables before enabling the console:
-
-```bash
-SEEREEL_ADMIN_USER=<operator-user>
-SEEREEL_ADMIN_PASSWORD=<strong-password>
-```
-
-Health check:
-
-```bash
-curl -sS http://localhost:5173/api/healthz
+npm run verify:offline
 ```
 
 ## Security Notes
 
-Do not commit provider keys, pre-signed URLs, generated private media, or `data/cinema-store.json`.
+Do not commit provider keys, pre-signed URLs, generated private media, `data/cinema-store.json`, admin credentials, or production `.env` files.
 
 Read [docs/security-git.md](docs/security-git.md) before pushing changes.
-
-## Learn More
-
-- [AGENTS.md](AGENTS.md): agent operating guide
-- [docs/canvas-node-model.md](docs/canvas-node-model.md): graph and node model
-- [docs/agent-workflow.md](docs/agent-workflow.md): agent workflow notes
-- [README.zh-CN.md](README.zh-CN.md): Chinese documentation

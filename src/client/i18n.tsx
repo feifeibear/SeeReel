@@ -2,7 +2,8 @@ import { createContext, useContext, useEffect, useMemo, useState, type ReactNode
 
 export type UiLanguage = "zh" | "en";
 
-const STORAGE_KEY = "uiLanguage";
+const STORAGE_KEY = "uiLanguage:v2";
+const LEGACY_STORAGE_KEY = "uiLanguage";
 
 const enPlural = (count: number, one: string, many = `${one}s`) => `${count} ${count === 1 ? one : many}`;
 
@@ -15,6 +16,27 @@ const zh = {
     archiveSessions: "历史 session",
     loadingSessions: "正在加载 session...",
     emptySession: "点上方「新建 Session」开工",
+    galleryNav: "Gallery",
+    galleryEyebrow: "创作者分享平台",
+    galleryTitle: "Gallery 创作广场",
+    gallerySubtitle: "预览别人分享的成片，一键复制 session 到自己的画布继续改。",
+    galleryPublish: "发布到 Gallery",
+    galleryPublishTitle: "发布当前 session 到 Gallery",
+    galleryPublishSubmit: "发布",
+    galleryPublishCancel: "取消",
+    galleryTitlePlaceholder: "Gallery 标题",
+    galleryDescriptionPlaceholder: "介绍这个创作，可选",
+    galleryCreatorPlaceholder: "创作者署名，可选",
+    galleryTagsPlaceholder: "标签，用空格或逗号分隔",
+    galleryPublished: (title: string) => `已发布到 Gallery：${title}`,
+    galleryMeta: (shots: number, duration: number) => `${shots} 镜 · ${duration}s`,
+    galleryCopy: "复制继续创作",
+    galleryBackToCanvas: "回到 Canvas",
+    galleryNoPreview: "暂无视频预览",
+    galleryNoDescription: "创作者没有留下介绍。",
+    galleryAnonymous: "匿名创作者",
+    galleryEmptyTitle: "Gallery 还没有作品",
+    galleryEmptyBody: "在任意 session 生成视频后，点击「发布到 Gallery」分享给其他人 remix。",
     deleteSessionTitle: "删除 session（不可撤销）",
     promoteSessionTitle: "置顶到当前",
     delete: "删除",
@@ -354,6 +376,27 @@ const en: Dictionary = {
     archiveSessions: "Past sessions",
     loadingSessions: "Loading sessions...",
     emptySession: "Click “New Session” above to start",
+    galleryNav: "Gallery",
+    galleryEyebrow: "Creator sharing platform",
+    galleryTitle: "Gallery",
+    gallerySubtitle: "Preview shared cuts, copy a session into your own canvas, and keep creating.",
+    galleryPublish: "Publish to Gallery",
+    galleryPublishTitle: "Publish current session to Gallery",
+    galleryPublishSubmit: "Publish",
+    galleryPublishCancel: "Cancel",
+    galleryTitlePlaceholder: "Gallery title",
+    galleryDescriptionPlaceholder: "Describe this creation, optional",
+    galleryCreatorPlaceholder: "Creator name, optional",
+    galleryTagsPlaceholder: "Tags, separated by spaces or commas",
+    galleryPublished: (title) => `Published to Gallery: ${title}`,
+    galleryMeta: (shots, duration) => `${enPlural(shots, "shot")} · ${duration}s`,
+    galleryCopy: "Copy and remix",
+    galleryBackToCanvas: "Back to Canvas",
+    galleryNoPreview: "No video preview yet",
+    galleryNoDescription: "The creator did not add a description.",
+    galleryAnonymous: "Anonymous creator",
+    galleryEmptyTitle: "No Gallery posts yet",
+    galleryEmptyBody: "Generate a video in any session, then publish it to Gallery so others can remix it.",
     deleteSessionTitle: "Delete session (cannot be undone)",
     promoteSessionTitle: "Pin as current",
     delete: "Delete",
@@ -690,9 +733,16 @@ function normalizeLanguage(value: unknown): UiLanguage | undefined {
   return value === "en" || value === "zh" ? value : undefined;
 }
 
+export function resolveInitialLanguage(storedLanguage: unknown, _legacyLanguage?: unknown): UiLanguage {
+  return normalizeLanguage(storedLanguage) || "zh";
+}
+
 function readStoredLanguage(): UiLanguage {
   if (typeof window === "undefined") return "zh";
-  return normalizeLanguage(window.localStorage.getItem(STORAGE_KEY)) || "zh";
+  return resolveInitialLanguage(
+    window.localStorage.getItem(STORAGE_KEY),
+    window.localStorage.getItem(LEGACY_STORAGE_KEY)
+  );
 }
 
 export function getCurrentUiLanguage() {
@@ -721,7 +771,10 @@ export function I18nProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     currentUiLanguage = lang;
-    if (typeof window !== "undefined") window.localStorage.setItem(STORAGE_KEY, lang);
+    if (typeof window !== "undefined") {
+      window.localStorage.setItem(STORAGE_KEY, lang);
+      window.localStorage.removeItem(LEGACY_STORAGE_KEY);
+    }
     if (typeof document !== "undefined") document.documentElement.lang = lang === "zh" ? "zh-CN" : "en";
   }, [lang]);
 

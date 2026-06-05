@@ -1,12 +1,13 @@
-import { Archive, BarChart3, CircleHelp, KeyRound, Loader2, Plus, RefreshCw, ShieldCheck, Trash2 } from "lucide-react";
+import { Archive, BarChart3, CircleHelp, Copy, Images, KeyRound, Loader2, Plus, RefreshCw, ShieldCheck, Trash2, UploadCloud } from "lucide-react";
 import { lazy, memo, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api } from "./api";
-import type { AdminAgentPlanStatus, AdminSecurityStatus, AdminUserAgentPlanCredentialList, AgentPlanCredentialStatus, Asset, AssetType, CreateSessionPayload, Session, Shot, StitchJob, StoreSnapshot, TokenUsageEvent, TokenUsageModelFamily } from "../shared/types";
+import type { AdminAgentPlanStatus, AdminSecurityStatus, AdminUserAgentPlanCredentialList, AgentPlanCredentialStatus, Asset, AssetType, CreateSessionPayload, GalleryItem, Session, Shot, StitchJob, StoreSnapshot, TokenUsageEvent, TokenUsageModelFamily } from "../shared/types";
 import { PendingGenerationsProvider } from "./flow/PendingGenerations";
 import { useUndoKeyboardShortcut, useUndoStack } from "./flow/useUndoStack";
 import { useI18n } from "./i18n";
 import { resolveSessionDockState } from "./sessionDockState";
 import { resolveRefreshSelectedSessionId } from "./sessionSelection";
+import { buildCanvasPath, buildGalleryPath, parseAppRoute, type AppView } from "./routes";
 
 const FlowView = lazy(() =>
   import("./flow/FlowView").then((module) => ({ default: memo(module.FlowView) }))
@@ -318,11 +319,14 @@ function mergeStateById(prev: StoreSnapshot, next: StoreSnapshot): StoreSnapshot
     });
     return changed ? out : prevArr;
   };
+  const prevGallery = prev.gallery || [];
+  const nextGallery = next.gallery || [];
   const sessions = stableArr(prev.sessions, next.sessions);
   const shots = stableArr(prev.shots, next.shots);
   const assets = stableArr(prev.assets, next.assets);
+  const gallery = stableArr(prevGallery, nextGallery);
   const runtime = prev.runtime && next.runtime && rowEqual(prev.runtime, next.runtime) ? prev.runtime : next.runtime;
-  if (sessions === prev.sessions && shots === prev.shots && assets === prev.assets && runtime === prev.runtime) {
+  if (sessions === prev.sessions && shots === prev.shots && assets === prev.assets && gallery === prevGallery && runtime === prev.runtime) {
     return prev;
   }
   return {
@@ -330,6 +334,7 @@ function mergeStateById(prev: StoreSnapshot, next: StoreSnapshot): StoreSnapshot
     sessions,
     shots,
     assets,
+    gallery,
     runtime
   };
 }
@@ -381,31 +386,25 @@ function mergeStateForDisplay({
 const hasPendingShotRender = (shot: Shot) =>
   shot.status === "generating" || (shot.renders || []).some((r) => r.status === "generating");
 
-/**
- * URL-hash-driven session selection. Format: `#/s/<sessionId>`.
- *
- * Why hash and not path: the dev server runs through Vite middleware which doesn't auto-fallback
- * unknown paths to index.html, and we want zero-risk shareable URLs. Hash routing is also
- * server-agnostic — production static export works the same way.
- *
- * `readSessionFromHash` is safe to call during initial state init (returns "" on SSR / no hash).
- * `writeSessionToHash` uses replaceState during the initial sync (so we don't pollute history
- * with the boot-time auto-select) and pushState afterwards (so back/forward navigates between
- * sessions). Caller decides which mode via the `replace` flag.
- */
-function readSessionFromHash(): string {
-  if (typeof window === "undefined") return "";
-  const m = window.location.hash.match(/^#\/s\/([A-Za-z0-9_-]+)/);
-  return m ? m[1] : "";
+function readRouteFromWindow() {
+  if (typeof window === "undefined") return { view: "studio" as AppView, sessionId: "" };
+  return parseAppRoute(window.location);
 }
-function writeSessionToHash(sessionId: string, replace: boolean) {
+
+function writePathToHistory(pathname: string, replace: boolean) {
   if (typeof window === "undefined") return;
-  const target = sessionId ? `#/s/${sessionId}` : "";
-  // Avoid no-op writes — they trigger a redundant hashchange event we'd then bounce through.
-  if (window.location.hash === target) return;
-  const url = `${window.location.pathname}${window.location.search}${target}`;
+  const url = `${pathname}${window.location.search}`;
+  if (window.location.pathname === pathname && window.location.hash === "") return;
   if (replace) window.history.replaceState(null, "", url);
   else window.history.pushState(null, "", url);
+}
+
+function writeCanvasToPath(sessionId: string, replace: boolean) {
+  writePathToHistory(buildCanvasPath(sessionId), replace);
+}
+
+function writeGalleryToPath(replace = false) {
+  writePathToHistory(buildGalleryPath(), replace);
 }
 
 function clientId(prefix: string) {
@@ -438,23 +437,107 @@ function useStableEvent<T extends (...args: any[]) => any>(fn: T): T {
   return useCallback(((...args: Parameters<T>) => fnRef.current(...args)) as T, []);
 }
 
+function GalleryPage({
+  items,
+  busy,
+  onCopy,
+  onOpenCanvas,
+  t
+}: {
+  items: GalleryItem[];
+  busy: string;
+  onCopy: (item: GalleryItem) => void;
+  onOpenCanvas: () => void;
+  t: ReturnType<typeof useI18n>["t"];
+}) {
+  return (
+    <section className="gallery-page" aria-label={t.app.galleryTitle}>
+      <div className="gallery-hero">
+        <div>
+          <p>{t.app.galleryEyebrow}</p>
+          <h2>{t.app.galleryTitle}</h2>
+          <span>{t.app.gallerySubtitle}</span>
+        </div>
+        <button type="button" onClick={onOpenCanvas}>
+          {t.app.galleryBackToCanvas}
+        </button>
+      </div>
+      {items.length ? (
+        <div className="gallery-grid">
+          {items.map((item) => (
+            <article className="gallery-card" key={item.id}>
+              <div className="gallery-preview">
+                {item.previewVideoUrl ? (
+                  <video src={item.previewVideoUrl} controls playsInline preload="metadata" poster={item.thumbnailUrl} />
+                ) : item.thumbnailUrl ? (
+                  <img src={item.thumbnailUrl} alt="" />
+                ) : (
+                  <div className="gallery-preview-empty">
+                    <Images size={28} />
+                    <span>{t.app.galleryNoPreview}</span>
+                  </div>
+                )}
+              </div>
+              <div className="gallery-card-body">
+                <div className="gallery-card-heading">
+                  <h3>{item.title}</h3>
+                  <small>{t.app.galleryMeta(item.shotCount, item.targetDurationSec)}</small>
+                </div>
+                <p>{item.description || t.app.galleryNoDescription}</p>
+                {item.tags.length > 0 && (
+                  <div className="gallery-tags">
+                    {item.tags.map((tag) => <span key={tag}>{tag}</span>)}
+                  </div>
+                )}
+                <div className="gallery-card-footer">
+                  <span>{item.creatorName || t.app.galleryAnonymous}</span>
+                  <button
+                    type="button"
+                    className="primary"
+                    onClick={() => onCopy(item)}
+                    disabled={busy === `copy-gallery-${item.id}`}
+                  >
+                    {busy === `copy-gallery-${item.id}` ? <Loader2 size={16} className="spin" /> : <Copy size={16} />}
+                    {t.app.galleryCopy}
+                  </button>
+                </div>
+              </div>
+            </article>
+          ))}
+        </div>
+      ) : (
+        <div className="gallery-empty">
+          <Images size={28} />
+          <strong>{t.app.galleryEmptyTitle}</strong>
+          <span>{t.app.galleryEmptyBody}</span>
+        </div>
+      )}
+    </section>
+  );
+}
+
 export function App() {
   const { lang, toggleLang, t } = useI18n();
-  const [state, setState] = useState<StoreSnapshot>({ assets: [], sessions: [], shots: [] });
+  const [state, setState] = useState<StoreSnapshot>({ assets: [], sessions: [], shots: [], gallery: [] });
   const stateRef = useRef(state);
   useEffect(() => { stateRef.current = state; }, [state]);
+  const [activeView, setActiveView] = useState<AppView>(() => readRouteFromWindow().view);
   const pendingSessionCreatesRef = useRef<Set<string>>(new Set());
   const pendingSessionDeletesRef = useRef<Set<string>>(new Set());
-  // Session id is mirrored to URL hash (#/s/ses_xxx) so each session has a shareable link. Reading
-  // it on init means a paste-into-browser of "http://localhost:5173/#/s/ses_abc" boots straight
-  // into that session, even before /api/state has loaded.
-  const [selectedSessionId, setSelectedSessionId] = useState<string>(() => readSessionFromHash());
+  // Session id is mirrored to `/canvas/<sessionId>` so each session has a shareable clean link.
+  // Legacy `#/s/<sessionId>` links are still readable during boot for older handoffs.
+  const [selectedSessionId, setSelectedSessionId] = useState<string>(() => readRouteFromWindow().sessionId);
   const selectedSessionIdRef = useRef(selectedSessionId);
   useEffect(() => { selectedSessionIdRef.current = selectedSessionId; }, [selectedSessionId]);
   const [stateLoaded, setStateLoaded] = useState(false);
   const [sessionTitleDraft, setSessionTitleDraft] = useState("");
   const [showArchivedSessions, setShowArchivedSessions] = useState(false);
   const [showTokenUsage, setShowTokenUsage] = useState(false);
+  const [showGalleryPublish, setShowGalleryPublish] = useState(false);
+  const [galleryTitleDraft, setGalleryTitleDraft] = useState("");
+  const [galleryDescriptionDraft, setGalleryDescriptionDraft] = useState("");
+  const [galleryCreatorDraft, setGalleryCreatorDraft] = useState("");
+  const [galleryTagsDraft, setGalleryTagsDraft] = useState("");
   const [showAgentPlanKey, setShowAgentPlanKey] = useState(false);
   const [agentPlanDraft, setAgentPlanDraft] = useState("");
   const [showAdminPanel, setShowAdminPanel] = useState(false);
@@ -481,16 +564,8 @@ export function App() {
   const [pendingUploads, setPendingUploads] = useState<Asset[]>([]);
   const pendingSessionCreatePromisesRef = useRef<Map<string, Promise<void>>>(new Map());
 
-  // Vision-review (self-critique + retry) is opt-out: default on, persisted in localStorage so the
-  // user only flips it once. Off → server skips review entirely; max 5 retries when on.
-  const [visionReviewEnabled, setVisionReviewEnabled] = useState<boolean>(() => {
-    if (typeof window === "undefined") return true;
-    return window.localStorage.getItem("visionReviewEnabled") !== "false";
-  });
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    window.localStorage.setItem("visionReviewEnabled", visionReviewEnabled ? "true" : "false");
-  }, [visionReviewEnabled]);
+  // Global review stays on; per-node Inspector toggles decide which assets/shots opt out.
+  const visionReviewEnabled = true;
 
   // Canvas-level undo / redo for structural mutations. Cmd+Z / Cmd+Shift+Z are wired below.
   const undoStack = useUndoStack({
@@ -502,7 +577,7 @@ export function App() {
 
   const refresh = useCallback(async () => {
     const next = await api.state();
-    const fromHash = readSessionFromHash();
+    const fromRoute = readRouteFromWindow().sessionId;
     const pendingDeletesSnapshot = new Set(pendingSessionDeletesRef.current);
     setState((prev) => {
       return mergeStateForDisplay({
@@ -518,7 +593,7 @@ export function App() {
       const availableSessionIds = next.sessions.map((session) => session.id);
       return resolveRefreshSelectedSessionId({
         current,
-        fromHash,
+        fromRoute,
         availableSessionIds,
         deletedSessionIds: [...pendingDeletesSnapshot]
       });
@@ -532,23 +607,32 @@ export function App() {
     });
   }, []);
 
-  // Mirror selectedSessionId ↔ URL hash so every session has a shareable link.
-  // - When the user clicks a session in the sidebar, write hash with pushState (back-button works).
-  // - When the user navigates back/forward, hashchange fires and we sync state.
-  // The first write after boot uses replaceState so the boot URL doesn't end up as a back-stack entry.
-  const initialHashSyncedRef = useRef(false);
+  // Mirror selectedSessionId ↔ clean path so every session has a shareable link.
+  // The first write after boot uses replaceState so auto-select does not pollute browser history.
+  const initialPathSyncedRef = useRef(false);
   useEffect(() => {
-    writeSessionToHash(selectedSessionId, !initialHashSyncedRef.current);
-    initialHashSyncedRef.current = true;
-  }, [selectedSessionId]);
+    if (activeView !== "studio") return;
+    writeCanvasToPath(selectedSessionId, !initialPathSyncedRef.current);
+    if (stateLoaded || selectedSessionId) initialPathSyncedRef.current = true;
+  }, [activeView, selectedSessionId, stateLoaded]);
   useEffect(() => {
-    const onHashChange = () => {
-      const fromHash = readSessionFromHash();
-      if (!fromHash) return;
-      setSelectedSessionId((current) => (current === fromHash ? current : fromHash));
+    if (activeView !== "gallery") return;
+    writeGalleryToPath(!initialPathSyncedRef.current);
+    initialPathSyncedRef.current = true;
+  }, [activeView]);
+  useEffect(() => {
+    const onRouteChange = () => {
+      const route = readRouteFromWindow();
+      setActiveView(route.view);
+      if (route.view === "gallery" || !route.sessionId) return;
+      setSelectedSessionId((current) => (current === route.sessionId ? current : route.sessionId));
     };
-    window.addEventListener("hashchange", onHashChange);
-    return () => window.removeEventListener("hashchange", onHashChange);
+    window.addEventListener("popstate", onRouteChange);
+    window.addEventListener("hashchange", onRouteChange);
+    return () => {
+      window.removeEventListener("popstate", onRouteChange);
+      window.removeEventListener("hashchange", onRouteChange);
+    };
   }, []);
 
   const sessions = state.sessions;
@@ -560,7 +644,7 @@ export function App() {
   const selectedSession = sessions.find((session) => session.id === selectedSessionId);
   const optimisticSession = useMemo<Session | undefined>(() => {
     if (selectedSession || !selectedSessionId) return undefined;
-    if (stateLoaded && selectedSessionId !== readSessionFromHash()) return undefined;
+    if (stateLoaded && selectedSessionId !== readRouteFromWindow().sessionId) return undefined;
     const ts = new Date(0).toISOString();
     return {
       id: selectedSessionId,
@@ -736,6 +820,11 @@ export function App() {
     }
   };
 
+  const openStudioSession = (sessionId: string) => {
+    setActiveView("studio");
+    setSelectedSessionId(sessionId);
+  };
+
   const createSession = () => {
     const id = clientId("ses");
     const payload = { ...initialSession, id, language: lang };
@@ -747,7 +836,7 @@ export function App() {
       ...prev,
       sessions: [localSession, ...prev.sessions.filter((session) => session.id !== id)]
     }));
-    setSelectedSessionId(id);
+    openStudioSession(id);
     setShowArchivedSessions(false);
     const createPromise = (async () => {
       try {
@@ -758,7 +847,7 @@ export function App() {
           sessions: [stripShots(session), ...prev.sessions.filter((item) => item.id !== id && item.id !== session.id)],
           shots: [...prev.shots.filter((shot) => shot.sessionId !== id && shot.sessionId !== session.id), ...session.shots]
         }));
-        setSelectedSessionId(session.id);
+        openStudioSession(session.id);
       } catch (err) {
         pendingSessionCreatesRef.current.delete(id);
         setError(err instanceof Error ? err.message : t.errors.operationFailed);
@@ -818,9 +907,69 @@ export function App() {
         ...prev,
         sessions: [stripShots(updated), ...prev.sessions.filter((item) => item.id !== updated.id)]
       }));
-      setSelectedSessionId(updated.id);
+      openStudioSession(updated.id);
       setShowArchivedSessions(false);
     });
+
+  const openGallery = () => {
+    setActiveView("gallery");
+    writeGalleryToPath();
+  };
+
+  const openCanvas = () => {
+    openStudioSession(selectedSessionId || latestSession?.id || "");
+  };
+
+  const openGalleryPublish = () => {
+    if (!selectedSession) return;
+    setGalleryTitleDraft(selectedSession.title || "");
+    setGalleryDescriptionDraft(selectedSession.logline || "");
+    setGalleryCreatorDraft("");
+    setGalleryTagsDraft("");
+    setShowGalleryPublish((value) => !value);
+  };
+
+  const publishSelectedSessionToGallery = () => {
+    if (!selectedSession) return;
+    const title = galleryTitleDraft.trim() || selectedSession.title || t.app.unnamed;
+    const description = galleryDescriptionDraft.trim() || selectedSession.logline || "";
+    const creatorName = galleryCreatorDraft.trim();
+    const tags = galleryTagsDraft
+      .split(/[,，\s]+/)
+      .map((tag) => tag.trim())
+      .filter(Boolean)
+      .slice(0, 8);
+    run(`publish-gallery-${selectedSession.id}`, async () => {
+      const item = await api.publishSessionToGallery(selectedSession.id, { title, description, creatorName, tags });
+      setState((prev) => ({
+        ...prev,
+        gallery: [item, ...(prev.gallery || []).filter((row) => row.id !== item.id)]
+      }));
+      setShowGalleryPublish(false);
+      window.dispatchEvent(new CustomEvent<string>("flow-download", { detail: t.app.galleryPublished(item.title) }));
+    });
+  };
+
+  const copyGalleryItem = (item: GalleryItem) => {
+    run(`copy-gallery-${item.id}`, async () => {
+      const copied = await api.copyGalleryItemToSession(item.id);
+      setState((prev) => ({
+        ...prev,
+        sessions: [stripShots(copied), ...prev.sessions.filter((session) => session.id !== copied.id)],
+        shots: [...prev.shots.filter((shot) => shot.sessionId !== copied.id), ...copied.shots]
+      }));
+      openStudioSession(copied.id);
+      setShowArchivedSessions(false);
+      const next = await api.state();
+      setState((prev) => mergeStateForDisplay({
+        prev,
+        next,
+        selectedSessionId: copied.id,
+        pendingCreates: pendingSessionCreatesRef.current,
+        pendingDeletes: pendingSessionDeletesRef.current
+      }));
+    });
+  };
 
   const saveSessionTitle = () => {
     if (!selectedSession) return;
@@ -1433,13 +1582,21 @@ export function App() {
           {busy === "create-session" ? <Loader2 size={16} className="spin" /> : <Plus size={16} />}
           {t.app.newSession}
         </button>
+        <button
+          className={`gallery-nav-button ${activeView === "gallery" ? "active" : ""}`}
+          type="button"
+          onClick={openGallery}
+        >
+          <Images size={16} />
+          {t.app.galleryNav}
+        </button>
         <div className="session-dock">
           <div className="session-list">
             {latestSession && (
               <div className="session-row">
                 <button
                   className={`session ${latestSession.id === selectedSessionId ? "active" : ""}`}
-                  onClick={() => setSelectedSessionId(latestSession.id)}
+                  onClick={() => openStudioSession(latestSession.id)}
                 >
                   <span>📽</span>
                   <span>{latestSession.title || t.app.unnamed}</span>
@@ -1468,7 +1625,7 @@ export function App() {
               <div key={session.id} className="session-row">
                 <button
                   className={`session ${session.id === selectedSessionId ? "active" : ""}`}
-                  onClick={() => setSelectedSessionId(session.id)}
+                  onClick={() => openStudioSession(session.id)}
                 >
                   <span>📂</span>
                   <span>{session.title || t.app.unnamed}</span>
@@ -1506,7 +1663,9 @@ export function App() {
       <section className="workspace">
         <header className="topbar">
           <div>
-            {selectedSession ? (
+            {activeView === "gallery" ? (
+              <h1>{t.app.galleryTitle}</h1>
+            ) : selectedSession ? (
               <>
                 <input
                   aria-label={t.app.sessionNameAria}
@@ -1522,14 +1681,14 @@ export function App() {
                     }
                   }}
                 />
-                {/* Shareable per-session link. Copies `<origin>/#/s/<id>` to clipboard so the user
+                {/* Shareable per-session link. Copies `<origin>/canvas/<id>` to clipboard so the user
                     can paste it to a teammate / AI agent and they boot directly into this session. */}
                 <button
                   type="button"
                   className="session-share"
                   title={t.app.shareTitle}
                   onClick={async () => {
-                    const url = `${window.location.origin}${window.location.pathname}#/s/${selectedSession.id}`;
+                    const url = `${window.location.origin}${buildCanvasPath(selectedSession.id)}`;
                     try {
                       await navigator.clipboard.writeText(url);
                       setError("");
@@ -1547,6 +1706,62 @@ export function App() {
             )}
           </div>
           <div className="top-actions">
+            {activeView === "studio" && selectedSession && (
+              <div className="gallery-publish-control">
+                <button
+                  type="button"
+                  className="gallery-publish-button"
+                  onClick={openGalleryPublish}
+                  title={t.app.galleryPublishTitle}
+                >
+                  <UploadCloud size={16} />
+                  {t.app.galleryPublish}
+                </button>
+                {showGalleryPublish && (
+                  <form
+                    className="gallery-publish-popover"
+                    onSubmit={(event) => {
+                      event.preventDefault();
+                      publishSelectedSessionToGallery();
+                    }}
+                  >
+                    <strong>{t.app.galleryPublishTitle}</strong>
+                    <input
+                      value={galleryTitleDraft}
+                      onChange={(event) => setGalleryTitleDraft(event.target.value)}
+                      placeholder={t.app.galleryTitlePlaceholder}
+                    />
+                    <textarea
+                      value={galleryDescriptionDraft}
+                      onChange={(event) => setGalleryDescriptionDraft(event.target.value)}
+                      placeholder={t.app.galleryDescriptionPlaceholder}
+                      rows={3}
+                    />
+                    <input
+                      value={galleryCreatorDraft}
+                      onChange={(event) => setGalleryCreatorDraft(event.target.value)}
+                      placeholder={t.app.galleryCreatorPlaceholder}
+                    />
+                    <input
+                      value={galleryTagsDraft}
+                      onChange={(event) => setGalleryTagsDraft(event.target.value)}
+                      placeholder={t.app.galleryTagsPlaceholder}
+                    />
+                    <div className="button-row gallery-publish-actions">
+                      <button
+                        type="submit"
+                        className="primary"
+                        disabled={busy === `publish-gallery-${selectedSession.id}`}
+                      >
+                        {busy === `publish-gallery-${selectedSession.id}` ? <Loader2 size={16} className="spin" /> : <UploadCloud size={16} />}
+                        {t.app.galleryPublishSubmit}
+                      </button>
+                      <button type="button" onClick={() => setShowGalleryPublish(false)}>{t.app.galleryPublishCancel}</button>
+                    </div>
+                  </form>
+                )}
+              </div>
+            )}
             <a
               className="ai-use-me-link"
               href="/ai-use-me.html"
@@ -1820,20 +2035,6 @@ export function App() {
               <span>/</span>
               <span className={lang === "en" ? "active" : "muted"}>{t.app.enLabel}</span>
             </button>
-            <label
-              className="vision-review-toggle"
-              title={t.app.visionReviewTitle}
-            >
-              <input
-                type="checkbox"
-                checked={visionReviewEnabled}
-                onChange={(event) => setVisionReviewEnabled(event.target.checked)}
-              />
-              <span>{t.app.visionReview}</span>
-            </label>
-            <button onClick={() => refresh()} title={t.app.refresh}>
-              <RefreshCw size={16} />
-            </button>
             {selectedSession && (
               <button
                 onClick={() => setShowTokenUsage((value) => !value)}
@@ -1847,7 +2048,7 @@ export function App() {
         </header>
 
         {error && <div className="error">{error}</div>}
-        {selectedSession && showTokenUsage && (
+        {activeView === "studio" && selectedSession && showTokenUsage && (
           <TokenUsagePanel
             events={selectedSession.tokenUsageEvents}
             sessions={sessions}
@@ -1857,30 +2058,40 @@ export function App() {
           />
         )}
 
-        <Suspense fallback={<div className="flow-loading" role="status">{lang === "en" ? "Loading canvas..." : "正在加载画布..."}</div>}>
-          <FlowView
-            snapshot={flowSnapshot}
-            session={selectedSessionWithShots}
-            visionReviewEnabled={visionReviewEnabled}
-            defaultImageModel={state.runtime?.seedreamDefaultModel}
-            onMutated={handleFlowMutated}
-            undo={undoStack.undo}
-            redo={undoStack.redo}
-            canUndo={undoStack.canUndo}
-            canRedo={undoStack.canRedo}
-            undoDescription={undoStack.lastDescription}
-            redoDescription={undoStack.nextDescription}
-            onPushUndo={undoStack.push}
-            onCreateAnchorAsset={handleCreateAnchorAsset}
-            onCreateShot={handleCreateShot}
-            onCreateStitchJob={handleCreateStitchJob}
-            onSetStitchOrder={handleSetStitchOrder}
-            onDeleteCanvasAsset={handleDeleteCanvasAsset}
-            onDeleteCanvasShot={handleDeleteCanvasShot}
-            onUploadImageAsset={handleUploadImageAsset}
-            onUploadReferenceVideo={handleUploadReferenceVideo}
+        {activeView === "gallery" ? (
+          <GalleryPage
+            items={state.gallery || []}
+            busy={busy}
+            onCopy={copyGalleryItem}
+            onOpenCanvas={openCanvas}
+            t={t}
           />
-        </Suspense>
+        ) : (
+          <Suspense fallback={<div className="flow-loading" role="status">{lang === "en" ? "Loading canvas..." : "正在加载画布..."}</div>}>
+            <FlowView
+              snapshot={flowSnapshot}
+              session={selectedSessionWithShots}
+              visionReviewEnabled={visionReviewEnabled}
+              defaultImageModel={state.runtime?.seedreamDefaultModel}
+              onMutated={handleFlowMutated}
+              undo={undoStack.undo}
+              redo={undoStack.redo}
+              canUndo={undoStack.canUndo}
+              canRedo={undoStack.canRedo}
+              undoDescription={undoStack.lastDescription}
+              redoDescription={undoStack.nextDescription}
+              onPushUndo={undoStack.push}
+              onCreateAnchorAsset={handleCreateAnchorAsset}
+              onCreateShot={handleCreateShot}
+              onCreateStitchJob={handleCreateStitchJob}
+              onSetStitchOrder={handleSetStitchOrder}
+              onDeleteCanvasAsset={handleDeleteCanvasAsset}
+              onDeleteCanvasShot={handleDeleteCanvasShot}
+              onUploadImageAsset={handleUploadImageAsset}
+              onUploadReferenceVideo={handleUploadReferenceVideo}
+            />
+          </Suspense>
+        )}
       </section>
     </main>
     </PendingGenerationsProvider>

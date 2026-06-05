@@ -9,7 +9,7 @@ function assertEqual(actual: string, expected: string, label: string) {
 assertEqual(
   resolveRefreshSelectedSessionId({
     current: "ses_editing",
-    fromHash: "ses_editing",
+    fromRoute: "ses_editing",
     availableSessionIds: ["ses_newer"],
     deletedSessionIds: []
   }),
@@ -20,18 +20,18 @@ assertEqual(
 assertEqual(
   resolveRefreshSelectedSessionId({
     current: "",
-    fromHash: "ses_from_hash",
-    availableSessionIds: ["ses_latest", "ses_from_hash"],
+    fromRoute: "ses_from_route",
+    availableSessionIds: ["ses_latest", "ses_from_route"],
     deletedSessionIds: []
   }),
-  "ses_from_hash",
-  "initial load should honor a valid hash session"
+  "ses_from_route",
+  "initial load should honor a valid route session"
 );
 
 assertEqual(
   resolveRefreshSelectedSessionId({
     current: "",
-    fromHash: "",
+    fromRoute: "",
     availableSessionIds: ["ses_latest", "ses_old"],
     deletedSessionIds: []
   }),
@@ -42,7 +42,7 @@ assertEqual(
 assertEqual(
   resolveRefreshSelectedSessionId({
     current: "ses_deleted",
-    fromHash: "ses_deleted",
+    fromRoute: "ses_deleted",
     availableSessionIds: ["ses_survivor"],
     deletedSessionIds: ["ses_deleted"]
   }),

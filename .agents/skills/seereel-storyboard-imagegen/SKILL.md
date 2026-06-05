@@ -1,5 +1,5 @@
 ---
-name: reelyai-storyboard-imagegen
+name: seereel-storyboard-imagegen
 description: Generate cinematic storyboard contact sheets for one Seedance shot using Codex imagegen or gpt-image-2. Use when the user asks for Codex imagegen storyboards, gpt-image-2 storyboard prompts, cinematic 3x3 storyboard sheets, Seedance shot visual summaries, 分镜故事板, 故事板参考图, or storyboard-to-Seedance reference workflows.
 ---
 
