@@ -51,10 +51,17 @@ fi
 ECS_USER="${SEEREEL_ECS_USER:-${REELYAI_ECS_USER:-root}}"
 ECS_PORT="${SEEREEL_ECS_PORT:-${REELYAI_ECS_PORT:-22}}"
 ECS_DIR="${SEEREEL_ECS_DIR:-${REELYAI_ECS_DIR:-~/seereel-agent}}"
-ssh_opts=(-p "$ECS_PORT")
+ssh_opts=(
+  -p "$ECS_PORT"
+  -o BatchMode=yes
+  -o "ConnectTimeout=${SEEREEL_ECS_CONNECT_TIMEOUT:-20}"
+  -o "ServerAliveInterval=${SEEREEL_ECS_SERVER_ALIVE_INTERVAL:-15}"
+  -o "ServerAliveCountMax=${SEEREEL_ECS_SERVER_ALIVE_COUNT_MAX:-4}"
+  -o "StrictHostKeyChecking=${SEEREEL_ECS_STRICT_HOST_KEY_CHECKING:-accept-new}"
+)
 ECS_KEY="${SEEREEL_ECS_KEY:-${REELYAI_ECS_KEY:-}}"
 if [[ -n "$ECS_KEY" ]]; then
-  ssh_opts=(-i "$ECS_KEY" -p "$ECS_PORT")
+  ssh_opts=(-i "$ECS_KEY" "${ssh_opts[@]}")
 fi
 default_public_url="https://${ECS_HOST}"
 if [[ "$ECS_HOST" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then

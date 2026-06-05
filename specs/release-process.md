@@ -39,6 +39,7 @@ Define the release path that keeps local, GitHub, Docker, ECS, and production be
 - Release verification must include local checks, GitHub Actions, deployment to the online site, and online smoke verification when the user asks to publish.
 - If `packages/seereel-cli/`, the CLI bin, CLI docs, or public CLI behavior changes, publish `seereelcli` to npm and verify the published package instead of relying only on the local workspace.
 - The ECS deploy script must accept both current `SEEREEL_*` and legacy `REELYAI_*` environment names for deployment secrets while writing canonical `SEEREEL_*` runtime keys.
+- ECS SSH/rsync operations must be non-interactive and bounded by connection timeout / keepalive settings so a blocked runner or fallback host cannot hang the release indefinitely.
 
 ## Acceptance Criteria
 
@@ -52,6 +53,7 @@ Define the release path that keeps local, GitHub, Docker, ECS, and production be
 - [ ] Release checks include secret scanning and no credential values appear in CI logs.
 - [ ] Online behavior is spot-checked after deploy for the changed feature.
 - [ ] GitHub deploy workflow inputs and secrets can drive `deploy/deploy-to-ecs.sh` without renaming legacy `REELYAI_*` secrets.
+- [ ] ECS deploy SSH calls fail fast on unreachable hosts and do not wait for interactive prompts.
 
 ## Verification
 
