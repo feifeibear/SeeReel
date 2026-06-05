@@ -40,6 +40,7 @@ Define the release path that keeps local, GitHub, Docker, ECS, and production be
 - If `packages/seereel-cli/`, the CLI bin, CLI docs, or public CLI behavior changes, publish `seereelcli` to npm and verify the published package instead of relying only on the local workspace.
 - The ECS deploy script must accept both current `SEEREEL_*` and legacy `REELYAI_*` environment names for deployment secrets while writing canonical `SEEREEL_*` runtime keys.
 - ECS SSH/rsync operations must be non-interactive and bounded by connection timeout / keepalive settings so a blocked runner or fallback host cannot hang the release indefinitely.
+- ECS deploys must inject the current Git SHA into `SEEREEL_COMMIT_SHA` so `/api/healthz` and `/api/diagnostics` can identify the running commit.
 
 ## Acceptance Criteria
 
@@ -54,6 +55,7 @@ Define the release path that keeps local, GitHub, Docker, ECS, and production be
 - [ ] Online behavior is spot-checked after deploy for the changed feature.
 - [ ] GitHub deploy workflow inputs and secrets can drive `deploy/deploy-to-ecs.sh` without renaming legacy `REELYAI_*` secrets.
 - [ ] ECS deploy SSH calls fail fast on unreachable hosts and do not wait for interactive prompts.
+- [ ] `/api/healthz` includes the Git commit served by production after deploy.
 
 ## Verification
 
