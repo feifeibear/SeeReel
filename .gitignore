@@ -1,0 +1,32 @@
+# Dependencies & build
+node_modules
+dist
+
+# Secrets — never commit real keys (only .env.example with empty placeholders)
+.env
+.env.*
+!.env.example
+!deploy/.env.production.example
+*.pem
+*.key
+credentials.json
+secrets/
+
+# Local runtime state — cinema-store may embed TOS presigned URLs (AK id + signatures)
+data/
+
+# Local demo/test media should not be committed. Configure public examples through admin/runtime data.
+fixtures/
+
+# Local agent runtime state + generated Claude Code skill mirror (source: .agents/skills/)
+.claude/
+
+# Generated per-framework project-level skill mirror (source of truth: .agents/skills/).
+# Kept out of git so the repo stays framework-neutral.
+.cursor/skills/
+
+# Local agent runtime locks
+.claude/
+
+.DS_Store
+.vercel

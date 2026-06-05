@@ -1,0 +1,39 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "framework": null,
+  "installCommand": "echo skip install",
+  "buildCommand": "echo static deploy",
+  "outputDirectory": ".",
+  "headers": [
+    {
+      "source": "/assets/(.*)",
+      "headers": [
+        { "key": "Cache-Control", "value": "public, max-age=31536000, immutable" }
+      ]
+    },
+    {
+      "source": "/index.html",
+      "headers": [
+        { "key": "Cache-Control", "value": "public, max-age=60, must-revalidate" }
+      ]
+    }
+  ],
+  "rewrites": [
+    {
+      "source": "/metrics",
+      "destination": "https://complement-arrested-batteries-believed.trycloudflare.com/metrics"
+    },
+    {
+      "source": "/api/:path*",
+      "destination": "https://complement-arrested-batteries-believed.trycloudflare.com/api/:path*"
+    },
+    {
+      "source": "/media/:path*",
+      "destination": "https://complement-arrested-batteries-believed.trycloudflare.com/media/:path*"
+    },
+    {
+      "source": "/:path*",
+      "destination": "/index.html"
+    }
+  ]
+}

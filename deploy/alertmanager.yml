@@ -1,0 +1,26 @@
+route:
+  receiver: feishu
+  group_by: ["alertname", "severity"]
+  group_wait: 30s
+  group_interval: 5m
+  repeat_interval: 4h
+  routes:
+    - matchers:
+        - severity = P0
+      receiver: feishu
+      group_wait: 10s
+      repeat_interval: 1h
+
+receivers:
+  - name: feishu
+    webhook_configs:
+      # Points at the in-stack relay that converts Alertmanager payloads into Feishu card messages.
+      - url: http://feishu-alert-relay:8088/alert
+        send_resolved: true
+
+inhibit_rules:
+  - source_matchers:
+      - severity = P0
+    target_matchers:
+      - severity = P1
+    equal: ["alertname"]

@@ -1,0 +1,21 @@
+{
+  "name": "seereelcli",
+  "version": "0.1.1",
+  "description": "Local agent CLI for creating and driving SeeReel web workflows.",
+  "license": "MIT",
+  "type": "module",
+  "bin": {
+    "seereelcli": "bin/seereelcli.js"
+  },
+  "files": [
+    "bin",
+    "skills",
+    "README.md"
+  ],
+  "engines": {
+    "node": ">=18.17"
+  },
+  "scripts": {
+    "smoke": "node bin/seereelcli.js --help"
+  }
+}

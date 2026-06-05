@@ -1,0 +1,31 @@
+name: Integration
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "17 19 * * *"
+
+jobs:
+  integration:
+    runs-on: ubuntu-latest
+    env:
+      CI: "true"
+      REELYAI_SKIP_SKILL_INSTALL: "1"
+      ARK_API_KEY: ${{ secrets.ARK_API_KEY }}
+      ARK_BASE_URL: ${{ secrets.ARK_BASE_URL }}
+      VISION_REVIEW_MODEL: ${{ secrets.VISION_REVIEW_MODEL }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run integration verification
+        run: npm run verify:integration
