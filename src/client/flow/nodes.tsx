@@ -5,6 +5,7 @@ import { api } from "../api";
 import { Lightbox } from "./Lightbox";
 import { usePendingGeneration } from "./PendingGenerations";
 import { useI18n, type Dictionary } from "../i18n";
+import { assetThumbUrl, tailframeThumbUrl } from "./mediaUrls";
 import type { AssetImageModel, SeedanceVariant, SubStoryboardModel } from "../../shared/types";
 import type {
   AssetNodeData,
@@ -92,10 +93,6 @@ type TailframeFlowNode = Node<TailframeNodeData, "tailframeNode">;
 // Shared visual constants. Each node is roughly the same size so the auto-layout in buildGraph.ts
 // keeps a clean grid.
 const NODE_WIDTH = 320;
-
-function assetThumbUrl(asset: { mediaUrl?: string; imageUrl?: string; referenceImageUrl?: string }) {
-  return asset.mediaUrl || asset.imageUrl || asset.referenceImageUrl;
-}
 
 /**
  * Fire-and-forget toast bridge: nodes call `emitDownloadToast(filename)` from inside the
@@ -345,7 +342,7 @@ function useElapsedLabel(startedAt: string | null | undefined, active: boolean):
 
 function AssetNodeImpl({ data, selected }: NodeProps<AssetFlowNode>) {
   const { asset } = data;
-  const thumb = assetThumbUrl(asset);
+  const thumb = tailframeThumbUrl(asset);
   const { active: isGenerating, elapsed: pendingElapsed } = usePendingGeneration(asset.id);
   const { t } = useI18n();
   const typeLabel = t.nodes.assetTypes as Record<string, string>;
