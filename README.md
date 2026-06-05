@@ -7,7 +7,7 @@
 </p>
 
 <p align="center">
-  Turn one story idea into a visible video workflow: script, characters, scenes, storyboard, sub-15-second shots, AI review, stitch, and a downloadable final cut. Powered by Seedance 2.0 video generation.
+  Turn one story idea into a visible video canvas for minutes-long videos, powered by Seedance 2.0.
 </p>
 
 <p align="center">
@@ -21,7 +21,7 @@
 </p>
 
 <p align="center">
-  For frequent creation, the lowest-cost path is the CNY 200/month <a href="https://www.volcengine.com/docs/82379/2366394?lang=zh">Volcengine Agent Plan</a>.
+  For everyday usage, the most cost-effective option is the CNY 200/month <a href="https://www.volcengine.com/docs/82379/2366394?lang=zh">Volcengine Agent Plan</a>.
 </p>
 
 ## Demo: Vibe Creating Through Chat

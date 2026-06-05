@@ -7,7 +7,7 @@
 </p>
 
 <p align="center">
-  一句话创意，变成可审阅的视频生产画布：剧本、角色、场景、故事板、15 秒以内分镜、AI 审片、拼接和最终下载。由 Seedance 2.0 视频生成驱动。
+  把一句话创意变成可见的视频画布，支持生成数分钟级视频，由 Seedance 2.0 驱动。
 </p>
 
 <p align="center">
@@ -21,7 +21,7 @@
 </p>
 
 <p align="center">
-  如果你想频繁创作，最便宜的方式是使用 200 CNY/月的 <a href="https://www.volcengine.com/docs/82379/2366394?lang=zh">火山 Agent Plan</a>。
+  日常使用时，最实惠的方式是开通 200 元/月的 <a href="https://www.volcengine.com/docs/82379/2366394?lang=zh">火山 Agent Plan</a>。
 </p>
 
 ## Demo：通过对话完成 Vibe Creating
