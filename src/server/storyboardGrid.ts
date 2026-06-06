@@ -1,25 +1,58 @@
 import type { Asset, Shot } from "../shared/types";
 import { fetchWithRetry } from "./fetchWithRetry";
-import { arkMissingKeyMessage, resolveArkCredential } from "./arkCredentials";
+import {
+  arkMissingKeyMessage,
+  BYTEPLUS_ARK_BASE,
+  resolveArkCredential,
+  VOLCENGINE_CN_ARK_BASE,
+  type StandardCredentialRouteConfig
+} from "./arkCredentials";
 import { seedreamWebSearchPayload } from "./seedreamOptions";
 
-const BYTEPLUS_SEEDANCE_BASE = "https://ark.ap-southeast.bytepluses.com/api/v3";
 const SEEDREAM_DEFAULT_MODEL = "seedream-4-5-251128";
 const AGENT_PLAN_SEEDREAM_MODEL = "doubao-seedream-5.0-lite";
 
-const SEEDREAM_KEY_ENVS = ["SEEDREAM_API_KEY", "BP_ARK_API_KEY", "ARK_API_KEY"];
+const SEEDREAM_KEY_ENVS = [
+  "BP_ARK_API_KEY",
+  "BP_SEEDREAM_API_KEY",
+  "CN_ARK_API_KEY",
+  "CN_SEEDREAM_API_KEY",
+  "ARK_AGENT_PLAN_KEY"
+];
+const SEEDREAM_STANDARD_ROUTES: StandardCredentialRouteConfig[] = [
+  {
+    route: "byteplus",
+    keyEnvNames: ["BP_ARK_API_KEY", "BP_SEEDREAM_API_KEY"],
+    baseEnvNames: ["BP_SEEDREAM_API_BASE"],
+    defaultBase: BYTEPLUS_ARK_BASE
+  },
+  {
+    route: "volcengine-cn",
+    keyEnvNames: ["CN_ARK_API_KEY", "CN_SEEDREAM_API_KEY"],
+    baseEnvNames: ["CN_SEEDREAM_API_BASE"],
+    defaultBase: VOLCENGINE_CN_ARK_BASE
+  }
+];
 
 const credential = () =>
   resolveArkCredential({
     keyEnvNames: SEEDREAM_KEY_ENVS,
-    baseEnvNames: ["SEEDREAM_API_BASE", "SEEDANCE_API_BASE"],
-    defaultBase: BYTEPLUS_SEEDANCE_BASE
+    baseEnvNames: ["BP_SEEDREAM_API_BASE"],
+    defaultBase: BYTEPLUS_ARK_BASE,
+    standardRoutes: SEEDREAM_STANDARD_ROUTES
   });
 
-const resolveModel = (usesAgentPlan = false) =>
-  usesAgentPlan
-    ? process.env.SEEDREAM_AGENT_PLAN_MODEL || AGENT_PLAN_SEEDREAM_MODEL
-    : process.env.SEEDREAM_45_MODEL || process.env.SEEDREAM_4_5_MODEL || process.env.SEEDREAM_MODEL || SEEDREAM_DEFAULT_MODEL;
+const modelForRoute = (modelId: string, route?: string) => {
+  if (route === "volcengine-cn" && modelId.startsWith("seedream-")) return `doubao-${modelId}`;
+  if (route === "byteplus" && modelId.startsWith("doubao-seedream-")) return modelId.replace(/^doubao-/, "");
+  return modelId;
+};
+
+const resolveModel = (usesAgentPlan = false, route?: string) => {
+  if (usesAgentPlan) return process.env.SEEDREAM_AGENT_PLAN_MODEL || AGENT_PLAN_SEEDREAM_MODEL;
+  const model = process.env.SEEDREAM_45_MODEL || process.env.SEEDREAM_4_5_MODEL || process.env.SEEDREAM_MODEL || SEEDREAM_DEFAULT_MODEL;
+  return modelForRoute(model, route);
+};
 
 export interface GenerateStoryboardGridOpts {
   prompt: string;
@@ -52,7 +85,7 @@ export async function generateStoryboardGrid(opts: GenerateStoryboardGridOpts): 
   if (!ark.apiKey) throw new Error(arkMissingKeyMessage("Seedream", SEEDREAM_KEY_ENVS));
 
   const panelCount = Math.max(2, Math.min(10, Math.floor(opts.panelCount)));
-  const model = resolveModel(ark.source === "agent-plan");
+  const model = resolveModel(ark.source === "agent-plan", ark.standardRoute);
   const size = opts.size || process.env.SEEDREAM_SIZE || "4K";
 
   const response = await fetchWithRetry(`${ark.apiBase}/images/generations`, {

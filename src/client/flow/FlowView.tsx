@@ -1,4 +1,4 @@
-import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
   ReactFlow,
   Background,
@@ -67,9 +67,10 @@ export interface FlowViewProps {
   canRedo?: boolean;
   undoDescription?: string;
   redoDescription?: string;
+  toolbarPrimaryAction?: ReactNode;
 }
 
-export function FlowView({ snapshot, session, visionReviewEnabled, defaultImageModel, onMutated, onCreateAnchorAsset, onCreateShot, onCreateStitchJob, onSetStitchOrder, onDeleteCanvasAsset, onDeleteCanvasShot, onUploadImageAsset, onUploadReferenceVideo, onPushUndo, undo, redo, canUndo, canRedo, undoDescription, redoDescription }: FlowViewProps) {
+export function FlowView({ snapshot, session, visionReviewEnabled, defaultImageModel, onMutated, onCreateAnchorAsset, onCreateShot, onCreateStitchJob, onSetStitchOrder, onDeleteCanvasAsset, onDeleteCanvasShot, onUploadImageAsset, onUploadReferenceVideo, onPushUndo, undo, redo, canUndo, canRedo, undoDescription, redoDescription, toolbarPrimaryAction }: FlowViewProps) {
   const { lang, t } = useI18n();
   const allAssets = snapshot.assets;
   const { nodes: derivedNodes, edges: derivedEdges } = useMemo(() => {
@@ -1205,6 +1206,7 @@ export function FlowView({ snapshot, session, visionReviewEnabled, defaultImageM
     <div className="flow-view">
       <header className="flow-toolbar">
         <div className="flow-toolbar-section">
+          {toolbarPrimaryAction && <div className="flow-toolbar-primary-action">{toolbarPrimaryAction}</div>}
           <strong>{session.title}</strong>
           <small>
             {t.flow.summary((session.shots || []).length, session.targetDurationSec, (session.language || lang) as UiLanguage)}

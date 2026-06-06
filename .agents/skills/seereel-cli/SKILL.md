@@ -16,18 +16,30 @@ SeeReel has two surfaces:
 
 Do not invent, request from hidden memory, scrape, or expose API keys.
 
-For real generation, the human must:
+For real generation, the human can use the default Agent Plan setup, a BytePlus standard Ark API key, or a Volcengine CN standard Ark API key.
+Prefer the route the human explicitly configured; when all three are configured, Seedance uses `BP > CN > Agent Plan`.
+
+Default Agent Plan setup:
 
 1. Open/pay for Volcengine Agent Plan.
 2. Create an Agent Plan API key in Ark.
-3. Paste it into the SeeReel web top-bar Agent Plan control for browser/manual work.
-4. For CLI automation, either run:
+3. Paste it into the SeeReel web top-bar API Keys control under Agent Plan settings for browser/manual work.
+4. For CLI automation, run:
 
 ```bash
 seereelcli configure --base-url https://seereel.studio --agent-plan-token "<human-pastes-key-here>"
 ```
 
 or set `SEEREEL_AGENT_PLAN_TOKEN` / `ARK_AGENT_PLAN_KEY` in the AI runtime environment.
+
+Standard API key setup:
+
+```bash
+seereelcli configure --base-url https://seereel.studio --api-key "<BP_ARK_API_KEY>" --api-key-route byteplus
+seereelcli configure --base-url https://seereel.studio --api-key "<CN_ARK_API_KEY>" --api-key-route volcengine-cn
+```
+
+or set `BP_ARK_API_KEY` / `BP_SEEDANCE_API_KEY` for BytePlus, `CN_ARK_API_KEY` / `CN_SEEDANCE_API_KEY` for CN, or `ARK_AGENT_PLAN_KEY` for Agent Plan in the AI runtime environment.
 
 Browser credentials and CLI credentials are cookie-scoped separately. Treat that isolation as intentional. A raw `webUrl` belongs to the CLI cookie scope; return `handoffUrl` when a human needs to open and continue editing the AI-created workflow in a normal browser.
 

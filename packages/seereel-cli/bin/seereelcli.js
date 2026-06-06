@@ -15,7 +15,7 @@ const CONFIG_FILE = path.join(CONFIG_DIR, "config.json");
 const PACKAGE_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const SEEREEL_CLI_SKILL = path.join(PACKAGE_ROOT, "skills", "seereel-cli", "SKILL.md");
 const DEFAULT_POLL_INTERVAL_MS = 3000;
-const DEFAULT_TIMEOUT_MS = 30 * 60 * 1000;
+const DEFAULT_TIMEOUT_MS = 45 * 60 * 1000;
 
 const HELP = `
 SeeReel CLI
@@ -43,6 +43,8 @@ Aliases:
 Global options:
   --base-url <url>              SeeReel server. Default: env or https://seereel.studio
   --access-token <token>        Shared deployment token, also read from SEEREEL_ACCESS_TOKEN
+  --api-key <key>               Standard Ark API key, also read from BP_ARK_API_KEY / BP_SEEDANCE_API_KEY / CN_ARK_API_KEY / CN_SEEDANCE_API_KEY
+  --api-key-route <route>       Standard API route: byteplus or volcengine-cn. Default: byteplus
   --agent-plan-token <token>    Browser-scoped Agent Plan key for model generation
   --json                        Print machine-readable JSON
   --jsonl                       Print newline-delimited progress events; final result is a complete event
@@ -213,6 +215,21 @@ function resolveRuntime(config, options) {
   const baseUrl = normalizeBaseUrl(
     String(options.baseUrl || process.env.SEEREEL_AGENT_BASE_URL || process.env.CINEMA_AGENT_BASE_URL || config.baseUrl || DEFAULT_BASE_URL)
   );
+  const bpApiKey = process.env.BP_ARK_API_KEY || process.env.BP_SEEDANCE_API_KEY || "";
+  const cnApiKey = process.env.CN_ARK_API_KEY || process.env.CN_SEEDANCE_API_KEY || "";
+  const apiKey =
+    stringOption(options.apiKey) ||
+    bpApiKey ||
+    cnApiKey ||
+    config.apiKey ||
+    "";
+  const apiKeyRoute = normalizeApiKeyRoute(
+    stringOption(options.apiKeyRoute) ||
+    process.env.SEEREEL_API_KEY_ROUTE ||
+    process.env.SEEDANCE_API_KEY_ROUTE ||
+    config.apiKeyRoute ||
+    (bpApiKey ? "byteplus" : cnApiKey ? "volcengine-cn" : "")
+  );
   return {
     baseUrl,
     accessToken:
@@ -221,6 +238,8 @@ function resolveRuntime(config, options) {
       process.env.SEEREEL_CLI_ACCESS_TOKEN ||
       config.accessToken ||
       "",
+    apiKey,
+    apiKeyRoute,
     agentPlanToken:
       stringOption(options.agentPlanToken) ||
       process.env.SEEREEL_AGENT_PLAN_TOKEN ||
@@ -380,6 +399,28 @@ async function ensureAgentPlan(runtime, options = {}) {
     );
   }
   return status;
+}
+
+async function ensureModelCredential(runtime, options = {}) {
+  const apiKeyStatus = await api(runtime, "/api/credentials/api-key");
+  if (apiKeyStatus?.configured) return { source: "standard", apiKey: apiKeyStatus };
+  if (runtime.apiKey) {
+    const configured = await api(runtime, "/api/credentials/api-key", {
+      method: "POST",
+      body: JSON.stringify({ apiKey: runtime.apiKey, route: runtime.apiKeyRoute })
+    });
+    options.reporter?.event("api_key_configured", { fingerprint: configured?.fingerprint });
+    return { source: "standard", apiKey: configured };
+  }
+
+  const agentPlan = await ensureAgentPlan(runtime, options);
+  if (agentPlan?.configured) return { source: "agent-plan", agentPlan };
+  if (options.required) {
+    throw new CliError(
+      "API Keys are not configured for this CLI/browser scope. Prefer `seereelcli configure --api-key \"<BP_ARK_API_KEY>\"`; or use `--agent-plan-token \"<AGENT_PLAN_API_KEY>\"` / SEEREEL_AGENT_PLAN_TOKEN."
+    );
+  }
+  return { source: "missing", agentPlan };
 }
 
 function sessionUrl(baseUrl, sessionId) {
@@ -554,7 +595,7 @@ function ageSec(value) {
 
 async function commandWorkflow(runtime, positionals, options) {
   await api(runtime, "/api/healthz");
-  const agentPlan = await ensureAgentPlan(runtime, { required: Boolean(options.render || options.generateStoryboards), reporter: options.reporter });
+  const credential = await ensureModelCredential(runtime, { required: Boolean(options.render || options.generateStoryboards), reporter: options.reporter });
   const prompt = await readPrompt(positionals);
   const duration = clampInt(options.duration, 60, { min: 1, max: 3600 });
   const shotCount = clampInt(options.shots, Math.ceil(duration / 15), { min: 1, max: 120 });
@@ -659,7 +700,8 @@ async function commandWorkflow(runtime, positionals, options) {
     handoffUrl: handoff.handoffUrl,
     handoffExpiresAt: handoff.handoffExpiresAt,
     cloudOnly,
-    agentPlan,
+    credential,
+    agentPlan: credential.agentPlan,
     referenceAssets: referenceAssets.map(summarizeCloudOnlyArtifact),
     storyboardAssets: storyboardAssets.map(summarizeCloudOnlyArtifact),
     story: currentSession.story,
@@ -779,7 +821,7 @@ function buildSubStoryboardScenePrompt(shot) {
 
 async function commandRender(runtime, options) {
   await api(runtime, "/api/healthz");
-  await ensureAgentPlan(runtime, { required: true, reporter: options.reporter });
+  await ensureModelCredential(runtime, { required: true, reporter: options.reporter });
   const sessionId = await resolveSessionId(runtime, options.session || "latest");
   return renderSession(runtime, sessionId, {
     mode: options.mode === "all" ? "all" : "missing",
@@ -825,7 +867,7 @@ async function commandNode(runtime, positionals, options, forcedKind) {
   }
 
   if (action === "generate") {
-    await ensureAgentPlan(runtime, { required: true, reporter: options.reporter });
+    await ensureModelCredential(runtime, { required: true, reporter: options.reporter });
     if (node.kind === "shot") {
       options.reporter?.event("shot_submitted", { shotId: node.id, index: node.value.index, attempt: 1 });
       const generated = await api(runtime, `/api/shots/${node.id}/generate`, { method: "POST" });
@@ -877,7 +919,7 @@ async function commandNode(runtime, positionals, options, forcedKind) {
   }
 
   if (action === "review" || action === "vlm") {
-    await ensureAgentPlan(runtime, { required: true, reporter: options.reporter });
+    await ensureModelCredential(runtime, { required: true, reporter: options.reporter });
     if (node.kind === "shot") {
       const reviewed = await api(runtime, `/api/shots/${node.id}/review`, {
         method: "POST",
@@ -896,7 +938,7 @@ async function commandNode(runtime, positionals, options, forcedKind) {
   }
 
   if (action === "repair" || action === "repair-prompts") {
-    await ensureAgentPlan(runtime, { required: true, reporter: options.reporter });
+    await ensureModelCredential(runtime, { required: true, reporter: options.reporter });
     if (node.kind === "shot") {
       const repaired = await api(runtime, `/api/shots/${node.id}/review/repair-prompts`, { method: "POST" });
       return nodeResult(runtime, { kind: "shot", id: repaired.id, value: repaired }, { action: "repair" });
@@ -925,7 +967,7 @@ async function commandPublishStoryboards(runtime, options) {
 
 async function commandFinalReview(runtime, options) {
   await api(runtime, "/api/healthz");
-  await ensureAgentPlan(runtime, { required: true, reporter: options.reporter });
+  await ensureModelCredential(runtime, { required: true, reporter: options.reporter });
   const sessionId = await resolveSessionId(runtime, options.session || "latest");
   const route = options.repair ? `/api/sessions/${sessionId}/final-review/repair-prompts` : `/api/sessions/${sessionId}/final-review`;
   const result = await api(runtime, route, {
@@ -1235,7 +1277,7 @@ async function resolveSessionId(runtime, value) {
 
 async function commandStatus(runtime, options) {
   const health = await api(runtime, "/api/healthz");
-  const agentPlan = await ensureAgentPlan(runtime, { reporter: options.reporter });
+  const credential = await ensureModelCredential(runtime, { reporter: options.reporter });
   const state = await api(runtime, "/api/state");
   const limit = clampInt(options.limit, 10, { min: 1, max: 100 });
   const sessions = (state.sessions || []).slice(0, limit);
@@ -1245,7 +1287,9 @@ async function commandStatus(runtime, options) {
     action: "status",
     baseUrl: runtime.baseUrl,
     health,
-    agentPlan,
+    credential,
+    apiKey: credential.apiKey,
+    agentPlan: credential.agentPlan,
     deep: Boolean(options.deep),
     session: session && options.deep ? summarizeDeepSession(runtime, session, state) : undefined,
     sessions: sessions.map((session) => ({
@@ -1286,19 +1330,27 @@ async function commandConfigure(config, options) {
   const next = { ...config };
   const baseUrl = flagValue(options, "baseUrl");
   const accessToken = flagValue(options, "accessToken");
+  const apiKey = flagValue(options, "apiKey");
+  const apiKeyRoute = flagValue(options, "apiKeyRoute");
   const agentPlanToken = flagValue(options, "agentPlanToken");
   if (baseUrl) next.baseUrl = normalizeBaseUrl(baseUrl);
   if (accessToken) next.accessToken = accessToken;
+  if (apiKey) next.apiKey = apiKey;
+  if (apiKeyRoute) next.apiKeyRoute = normalizeApiKeyRoute(apiKeyRoute);
   if (agentPlanToken) next.agentPlanToken = agentPlanToken;
   if (options.clearAccessToken) delete next.accessToken;
+  if (options.clearApiKey) delete next.apiKey;
   if (options.clearAgentPlanToken) delete next.agentPlanToken;
   if (options.clearCookies) delete next.cookies;
 
   const changed =
     baseUrl ||
     accessToken ||
+    apiKey ||
+    apiKeyRoute ||
     agentPlanToken ||
     options.clearAccessToken ||
+    options.clearApiKey ||
     options.clearAgentPlanToken ||
     options.clearCookies;
   if (changed) await writeConfig(next);
@@ -1307,6 +1359,8 @@ async function commandConfigure(config, options) {
     configFile: CONFIG_FILE,
     baseUrl: next.baseUrl || DEFAULT_BASE_URL,
     accessTokenConfigured: Boolean(next.accessToken),
+    apiKeyConfigured: Boolean(next.apiKey),
+    apiKeyRoute: normalizeApiKeyRoute(next.apiKeyRoute),
     agentPlanTokenConfigured: Boolean(next.agentPlanToken),
     cookieOrigins: Object.keys(next.cookies || {})
   };
@@ -1358,6 +1412,10 @@ function flagValue(options, key) {
   return String(value).trim();
 }
 
+function normalizeApiKeyRoute(value) {
+  return value === "volcengine-cn" || value === "cn" || value === "volcengine" ? "volcengine-cn" : "byteplus";
+}
+
 async function commandOpen(runtime, options) {
   const sessionId = await resolveSessionId(runtime, options.session || "latest");
   const webUrl = sessionUrl(runtime.baseUrl, sessionId);
@@ -1404,6 +1462,7 @@ function printHuman(result, command) {
     console.log(`Config: ${result.configFile}`);
     console.log(`Base URL: ${result.baseUrl}`);
     console.log(`Access token: ${result.accessTokenConfigured ? "configured" : "not configured"}`);
+    console.log(`API key: ${result.apiKeyConfigured ? `configured (${result.apiKeyRoute})` : "not configured"}`);
     console.log(`Agent Plan token: ${result.agentPlanTokenConfigured ? "configured" : "not configured"}`);
     if (result.cookieOrigins.length) console.log(`Cookie origins: ${result.cookieOrigins.join(", ")}`);
     return;
@@ -1411,6 +1470,7 @@ function printHuman(result, command) {
   if (command === "status") {
     console.log(`SeeReel: ${result.baseUrl}`);
     console.log(`Health: ${result.health?.ok ? "ok" : "unknown"}`);
+    console.log(`API key: ${result.apiKey?.configured ? `configured (${result.apiKey.fingerprint})` : "not configured"}`);
     console.log(`Agent Plan: ${result.agentPlan?.configured ? `configured (${result.agentPlan.fingerprint})` : "not configured"}`);
     if (result.session) {
       console.log(`Session: ${result.session.title || result.session.id} [${result.session.id}]`);

@@ -4,38 +4,70 @@ import { fetchWithRetry } from "./fetchWithRetry";
 import { mkdir, writeFile, unlink } from "node:fs/promises";
 import path from "node:path";
 import { MEDIA_DIR, runFfmpegCommand } from "./generators";
-import { arkMissingKeyMessage, resolveArkCredential } from "./arkCredentials";
+import {
+  arkMissingKeyMessage,
+  BYTEPLUS_ARK_BASE,
+  resolveArkCredential,
+  VOLCENGINE_CN_ARK_BASE,
+  type StandardCredentialRouteConfig
+} from "./arkCredentials";
 import { seedreamWebSearchPayload } from "./seedreamOptions";
 
-const BYTEPLUS_SEEDANCE_BASE = "https://ark.ap-southeast.bytepluses.com/api/v3";
 const SEEDREAM_DEFAULT_MODEL = "seedream-4-5-251128";
 const SEEDREAM_4_DEFAULT_MODEL = "seedream-4-0-250828";
 const AGENT_PLAN_SEEDREAM_MODEL = "doubao-seedream-5.0-lite";
 
-const SEEDREAM_KEY_ENVS = ["SEEDREAM_API_KEY", "BP_ARK_API_KEY", "ARK_API_KEY"];
+const SEEDREAM_KEY_ENVS = [
+  "BP_ARK_API_KEY",
+  "BP_SEEDREAM_API_KEY",
+  "CN_ARK_API_KEY",
+  "CN_SEEDREAM_API_KEY",
+  "ARK_AGENT_PLAN_KEY"
+];
+const SEEDREAM_STANDARD_ROUTES: StandardCredentialRouteConfig[] = [
+  {
+    route: "byteplus",
+    keyEnvNames: ["BP_ARK_API_KEY", "BP_SEEDREAM_API_KEY"],
+    baseEnvNames: ["BP_SEEDREAM_API_BASE"],
+    defaultBase: BYTEPLUS_ARK_BASE
+  },
+  {
+    route: "volcengine-cn",
+    keyEnvNames: ["CN_ARK_API_KEY", "CN_SEEDREAM_API_KEY"],
+    baseEnvNames: ["CN_SEEDREAM_API_BASE"],
+    defaultBase: VOLCENGINE_CN_ARK_BASE
+  }
+];
 
 const credential = () =>
   resolveArkCredential({
     keyEnvNames: SEEDREAM_KEY_ENVS,
-    baseEnvNames: ["SEEDREAM_API_BASE", "SEEDANCE_API_BASE"],
-    defaultBase: BYTEPLUS_SEEDANCE_BASE
+    baseEnvNames: ["BP_SEEDREAM_API_BASE"],
+    defaultBase: BYTEPLUS_ARK_BASE,
+    standardRoutes: SEEDREAM_STANDARD_ROUTES
   });
 
 /**
  * Pick the actual model id for the requested variant. Allows ops to override per-variant via env
  * (SEEDREAM_45_MODEL / SEEDREAM_4_MODEL) without touching code.
  */
-const resolveModel = (variant: SubStoryboardModel = "seedream-4-5", usesAgentPlan = false) => {
+const modelForRoute = (modelId: string, route?: string) => {
+  if (route === "volcengine-cn" && modelId.startsWith("seedream-")) return `doubao-${modelId}`;
+  if (route === "byteplus" && modelId.startsWith("doubao-seedream-")) return modelId.replace(/^doubao-/, "");
+  return modelId;
+};
+
+const resolveModel = (variant: SubStoryboardModel = "seedream-4-5", usesAgentPlan = false, route?: string) => {
   if (usesAgentPlan) {
     return process.env.SEEDREAM_AGENT_PLAN_MODEL || AGENT_PLAN_SEEDREAM_MODEL;
   }
   if (variant === "seedream-5-lite") {
     return process.env.SEEDREAM_AGENT_PLAN_MODEL || AGENT_PLAN_SEEDREAM_MODEL;
   }
-  if (variant === "seedream-4") {
-    return process.env.SEEDREAM_4_MODEL || process.env.SEEDREAM_MODEL || SEEDREAM_4_DEFAULT_MODEL;
-  }
-  return process.env.SEEDREAM_45_MODEL || process.env.SEEDREAM_4_5_MODEL || SEEDREAM_DEFAULT_MODEL;
+  const model = variant === "seedream-4"
+    ? process.env.SEEDREAM_4_MODEL || process.env.SEEDREAM_MODEL || SEEDREAM_4_DEFAULT_MODEL
+    : process.env.SEEDREAM_45_MODEL || process.env.SEEDREAM_4_5_MODEL || SEEDREAM_DEFAULT_MODEL;
+  return modelForRoute(model, route);
 };
 
 export interface GenerateSubStoryboardOpts {
@@ -106,7 +138,7 @@ export async function generateSubStoryboardGrid(opts: GenerateSubStoryboardOpts)
 
   const panelCount = Math.max(2, Math.min(16, Math.floor(opts.panelCount)));
   const layout = (opts.layout || pickLayout(panelCount)).trim();
-  const model = resolveModel(opts.modelVariant, ark.source === "agent-plan");
+  const model = resolveModel(opts.modelVariant, ark.source === "agent-plan", ark.standardRoute);
   // Aspect-ratio-aware size: if the user is making vertical shots (9:16) the storyboard grid
   // panels should also be 9:16, so the composite size matches. We sniff a "vertical" signal from
   // the scene prompt; otherwise stick with the env-default 4K. Caller can still
@@ -296,7 +328,7 @@ export async function generateSubStoryboardSequential(
 
   const panelCount = opts.panels.length;
   const layout = (opts.layout || pickLayout(panelCount)).trim();
-  const model = resolveModel(opts.modelVariant, ark.source === "agent-plan");
+  const model = resolveModel(opts.modelVariant, ark.source === "agent-plan", ark.standardRoute);
   // Sequential mode does ffmpeg-tiling, which needs an explicit WxH for each panel. The Seedream
   // size token ("1K"/"2K"/"4K") is fine for the Seedream call itself but ffmpeg can't parse it,
   // so any non-WxH value gets normalized to a vertical 9:16 4K default here.

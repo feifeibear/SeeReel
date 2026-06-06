@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="zh-CN">
+<html lang="zh-CN" data-lang="zh">
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
@@ -43,7 +43,9 @@
 
       .top-actions {
         display: flex;
-        justify-content: flex-start;
+        justify-content: space-between;
+        align-items: center;
+        gap: 12px;
         margin-bottom: 18px;
       }
 
@@ -63,6 +65,39 @@
         border-color: rgba(92, 203, 197, 0.58);
         color: #ffffff;
         text-decoration: none;
+      }
+
+      .language-switch {
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+        border: 1px solid var(--line);
+        border-radius: 999px;
+        padding: 4px;
+        background: rgba(16, 23, 32, 0.72);
+      }
+
+      .language-switch button {
+        min-width: 44px;
+        min-height: 30px;
+        border: 0;
+        border-radius: 999px;
+        background: transparent;
+        color: var(--muted);
+        font: inherit;
+        font-weight: 800;
+        cursor: pointer;
+      }
+
+      html[data-lang="zh"] .language-switch [data-set-lang="zh"],
+      html[data-lang="en"] .language-switch [data-set-lang="en"] {
+        color: #061014;
+        background: var(--cyan);
+      }
+
+      html[data-lang="zh"] .en,
+      html[data-lang="en"] .zh {
+        display: none !important;
       }
 
       .eyebrow {
@@ -209,84 +244,92 @@
     <main>
       <header>
         <nav class="top-actions" aria-label="Page navigation">
-          <a class="back-link" href="/#/" id="back-to-canvas">← 返回画布</a>
+          <a class="back-link" href="/#/" id="back-to-canvas">
+            <span class="zh">← 返回画布</span>
+            <span class="en">← Back to Canvas</span>
+          </a>
+          <div class="language-switch" aria-label="Language">
+            <button type="button" data-set-lang="zh">中文</button>
+            <button type="button" data-set-lang="en">EN</button>
+          </div>
         </nav>
         <p class="eyebrow">SeeReel Agent CLI</p>
         <h1>AI use me</h1>
         <p class="lede">
-          This page is written for Codex, Claude Code, Cursor Agent, and other local AI agents.
-          Use the CLI to turn a human video idea into a visible SeeReel web workflow, then continue
-          generation only after the human has configured Agent Plan access.
+          <span class="zh">这个页面写给 Codex、Claude Code、Cursor Agent 和其他本地 AI Agent。用 CLI 把人类的视频创意变成网页上可见的 SeeReel workflow；只有在人类完成 Agent Plan 配置后，才继续付费生成。</span>
+          <span class="en">This page is written for Codex, Claude Code, Cursor Agent, and other local AI agents. Use the CLI to turn a human video idea into a visible SeeReel web workflow, then continue generation only after the human has configured Agent Plan access.</span>
         </p>
       </header>
 
       <section>
-        <h2>Agent bootstrap</h2>
+        <h2><span class="zh">Agent 启动步骤</span><span class="en">Agent bootstrap</span></h2>
         <p>
-          If you are an AI agent reading this page, run this first. It installs the CLI and the bundled
-          operating skill, then verifies that you can see the SeeReel workflow commands.
+          <span class="zh">如果你是正在读这个页面的 AI Agent，先运行下面几行。它会安装 CLI 和内置操作 skill，并确认你能看到 SeeReel workflow 命令。</span>
+          <span class="en">If you are an AI agent reading this page, run this first. It installs the CLI and the bundled operating skill, then verifies that you can see the SeeReel workflow commands.</span>
         </p>
         <pre><code>npm install -g seereelcli
 seereelcli skill install --agent all
 seereelcli skill print
 seereelcli --help</code></pre>
         <div class="callout">
-          <strong>Current thread note.</strong>
-          Installing a skill helps future Codex / Claude Code / Cursor sessions auto-load the SeeReel procedure.
-          In the same running thread, read <code>seereelcli skill print</code> and follow it directly.
+          <strong><span class="zh">当前会话提示。</span><span class="en">Current thread note.</span></strong>
+          <span class="zh">安装 skill 能让之后的 Codex / Claude Code / Cursor 会话自动加载 SeeReel 流程。在当前已经运行的会话里，请直接阅读 <code>seereelcli skill print</code> 并按它执行。</span>
+          <span class="en">Installing a skill helps future Codex / Claude Code / Cursor sessions auto-load the SeeReel procedure. In the same running thread, read <code>seereelcli skill print</code> and follow it directly.</span>
         </div>
       </section>
 
       <section>
-        <h2>What you are allowed to do</h2>
+        <h2><span class="zh">AI 可以做什么</span><span class="en">What you are allowed to do</span></h2>
         <div class="grid">
           <div class="card">
-            <strong>Create the workflow</strong>
-            <p>Create a session, write the natural-language idea as the logline, generate the script, and generate storyboard shots visible in the web UI.</p>
+            <strong><span class="zh">创建 workflow</span><span class="en">Create the workflow</span></strong>
+            <p><span class="zh">创建 session，把自然语言视频想法写成 logline，生成剧本，并生成网页 UI 里可见的分镜 workflow。</span><span class="en">Create a session, write the natural-language idea as the logline, generate the script, and generate storyboard shots visible in the web UI.</span></p>
           </div>
           <div class="card">
-            <strong>Let the human take over</strong>
-            <p>Return the session URL so the human can edit script, prompts, assets, shot durations, references, and generation choices.</p>
+            <strong><span class="zh">让人类接管</span><span class="en">Let the human take over</span></strong>
+            <p><span class="zh">返回 session URL，让人类在网页里修改剧本、prompt、资产、镜头时长、参考图和生成策略。</span><span class="en">Return the session URL so the human can edit script, prompts, assets, shot durations, references, and generation choices.</span></p>
           </div>
           <div class="card">
-            <strong>Continue to video</strong>
-            <p>After the human confirms credentials and prompt choices, render missing shots and stitch the final video through SeeReel APIs.</p>
+            <strong><span class="zh">继续生成视频</span><span class="en">Continue to video</span></strong>
+            <p><span class="zh">在人类确认 key 和 prompt 选择后，再通过 SeeReel API 生成缺失镜头并拼接最终视频。</span><span class="en">After the human confirms credentials and prompt choices, render missing shots and stitch the final video through SeeReel APIs.</span></p>
           </div>
         </div>
       </section>
 
       <section>
-        <h2>Human checkpoint: Agent Plan</h2>
+        <h2><span class="zh">人类确认点：Agent Plan</span><span class="en">Human checkpoint: Agent Plan</span></h2>
         <div class="callout danger">
-          <strong>Do not invent, scrape, or expose API keys.</strong>
-          The human must open and pay for Agent Plan, then enter the key themselves.
+          <strong><span class="zh">不要编造、抓取或暴露 API Key。</span><span class="en">Do not invent, scrape, or expose API keys.</span></strong>
+          <span class="zh">必须由人类自己开通并支付 Agent Plan，然后自己输入 key。</span>
+          <span class="en">The human must open and pay for Agent Plan, then enter the key themselves.</span>
         </div>
         <ol class="checklist">
-          <li>Ask the human to open <a href="https://www.volcengine.com/activity/agentplan" target="_blank" rel="noreferrer">Volcengine Agent Plan</a> and create an Agent Plan API key in the Ark console.</li>
-          <li>Ask the human to open <a href="https://seereel.studio/" target="_blank" rel="noreferrer">https://seereel.studio/</a>, click the top-bar Agent Plan button, and paste the key for browser/manual generation.</li>
-          <li>For CLI automation, the CLI also needs the key in its own local user scope. Ask the human to run the configure command themselves, or set <code>SEEREEL_AGENT_PLAN_TOKEN</code> in the agent runtime environment.</li>
+          <li><span class="zh">请人类打开 <a href="https://www.volcengine.com/activity/agentplan" target="_blank" rel="noreferrer">Volcengine Agent Plan</a>，并在 Ark 控制台创建 Agent Plan API key。</span><span class="en">Ask the human to open <a href="https://www.volcengine.com/activity/agentplan" target="_blank" rel="noreferrer">Volcengine Agent Plan</a> and create an Agent Plan API key in the Ark console.</span></li>
+          <li><span class="zh">请人类打开 <a href="https://seereel.studio/" target="_blank" rel="noreferrer">https://seereel.studio/</a>，点击顶部 Agent Plan 按钮，把 key 粘贴进去，供浏览器手动生成使用。</span><span class="en">Ask the human to open <a href="https://seereel.studio/" target="_blank" rel="noreferrer">https://seereel.studio/</a>, click the top-bar Agent Plan button, and paste the key for browser/manual generation.</span></li>
+          <li><span class="zh">如果要让 CLI 自动化继续生成，CLI 自己的本地用户作用域也需要 key。请人类亲自运行 configure 命令，或在 agent 运行环境里设置 <code>SEEREEL_AGENT_PLAN_TOKEN</code>。</span><span class="en">For CLI automation, the CLI also needs the key in its own local user scope. Ask the human to run the configure command themselves, or set <code>SEEREEL_AGENT_PLAN_TOKEN</code> in the agent runtime environment.</span></li>
         </ol>
         <pre><code>seereelcli configure --base-url https://seereel.studio --agent-plan-token "&lt;human-pastes-key-here&gt;"</code></pre>
         <p>
-          The browser key and CLI key are separate because SeeReel isolates visitors by cookie. Treat that isolation as a safety feature, and use <code>handoffUrl</code> when a human should claim a CLI-created session for browser editing.
+          <span class="zh">浏览器 key 和 CLI key 是分开的，因为 SeeReel 按 cookie 隔离访问者。把这个隔离当成安全边界；当人类需要在浏览器里接管 CLI 创建的 session 时，返回 <code>handoffUrl</code>。</span>
+          <span class="en">The browser key and CLI key are separate because SeeReel isolates visitors by cookie. Treat that isolation as a safety feature, and use <code>handoffUrl</code> when a human should claim a CLI-created session for browser editing.</span>
         </p>
       </section>
 
       <section>
-        <h2>Install the CLI</h2>
-        <h3>Install from npm</h3>
+        <h2><span class="zh">安装 CLI</span><span class="en">Install the CLI</span></h2>
+        <h3><span class="zh">从 npm 安装</span><span class="en">Install from npm</span></h3>
         <pre><code>npm install -g seereelcli
 seereelcli --help</code></pre>
 
-        <h3>Install the AI skill bundled with the CLI</h3>
+        <h3><span class="zh">安装 CLI 内置 AI skill</span><span class="en">Install the AI skill bundled with the CLI</span></h3>
         <pre><code>seereelcli skill install --agent all
 seereelcli skill print</code></pre>
         <p>
-          The npm package includes the <code>seereel-cli</code> skill. Installing it gives Codex, Claude Code,
-          Cursor Agent, and other local agent runtimes the operating procedure for using the CLI safely.
+          <span class="zh">npm 包包含 <code>seereel-cli</code> skill。安装后，Codex、Claude Code、Cursor Agent 和其他本地 agent runtime 会获得安全使用 CLI 的操作流程。</span>
+          <span class="en">The npm package includes the <code>seereel-cli</code> skill. Installing it gives Codex, Claude Code, Cursor Agent, and other local agent runtimes the operating procedure for using the CLI safely.</span>
         </p>
         <details>
-          <summary>Bundled skill source for AI agents that cannot install immediately</summary>
+          <summary><span class="zh">无法立刻安装时，给 AI Agent 直接阅读的内置 skill 源码</span><span class="en">Bundled skill source for AI agents that cannot install immediately</span></summary>
           <pre><code>---
 name: seereel-cli
 description: Use the local SeeReel CLI to create, inspect, edit, render, review, repair, and stitch web-visible SeeReel video workflows from natural language. Trigger when the user asks an AI agent to use SeeReel, seereel.studio, the SeeReel CLI, generate a web workflow, operate a shot/node prompt, generate a tailframe, run VLM review, repair prompts, publish storyboards to TOS, or produce a complete video through the site.
@@ -479,7 +522,7 @@ seereelcli publish-storyboards --session latest --json
 - For Seedance references, only remote `http(s)` URLs are valid. Publish local references to TOS first.</code></pre>
         </details>
 
-        <h3>Repo-local fallback</h3>
+        <h3><span class="zh">仓库本地兜底安装</span><span class="en">Repo-local fallback</span></h3>
         <pre><code>git clone https://github.com/feifeibear/seereel-agent.git
 cd seereel-agent
 npm install
@@ -488,71 +531,72 @@ seereelcli skill install --agent all</code></pre>
       </section>
 
       <section>
-        <h2>Create a reviewable workflow</h2>
-        <p>Start here. This is low risk because it creates visible planning nodes and stops before paid video rendering.</p>
+        <h2><span class="zh">创建可审阅的 workflow</span><span class="en">Create a reviewable workflow</span></h2>
+        <p><span class="zh">从这里开始。风险较低，因为它只创建网页可见的规划节点，并会在付费视频生成前停下。</span><span class="en">Start here. This is low risk because it creates visible planning nodes and stops before paid video rendering.</span></p>
         <pre><code>seereelcli workflow "一个失眠导演在午夜便利店遇见未来的自己" \
   --base-url https://seereel.studio \
   --duration 60 \
   --style "neo-noir, rain reflections, grounded sci-fi" \
   --json</code></pre>
-        <p>Return the one-time <code>handoffUrl</code> to the human, not the raw <code>webUrl</code>. It should look like:</p>
+        <p><span class="zh">把一次性的 <code>handoffUrl</code> 返回给人类，不要返回原始 <code>webUrl</code>。它看起来像这样：</span><span class="en">Return the one-time <code>handoffUrl</code> to the human, not the raw <code>webUrl</code>. It should look like:</span></p>
         <pre><code>https://seereel.studio/api/handoff/xxxxxxxx</code></pre>
-        <p>The handoff link transfers the CLI-created session to the current browser cookie so the human can continue editing the AI workflow.</p>
+        <p><span class="zh">handoff 链接会把 CLI 创建的 session 转移到当前浏览器 cookie 下，让人类继续编辑 AI 生成的 workflow。</span><span class="en">The handoff link transfers the CLI-created session to the current browser cookie so the human can continue editing the AI workflow.</span></p>
       </section>
 
       <section>
-        <h2>Generate the full video</h2>
-        <p>Only continue after the human confirms Agent Plan is configured and the web workflow looks acceptable.</p>
+        <h2><span class="zh">生成完整视频</span><span class="en">Generate the full video</span></h2>
+        <p><span class="zh">只有在人类确认 Agent Plan 已配置，并且网页 workflow 看起来可接受后，才继续。</span><span class="en">Only continue after the human confirms Agent Plan is configured and the web workflow looks acceptable.</span></p>
         <pre><code>seereelcli status --session latest --deep --json
 seereelcli render --session latest --stitch --progress --json</code></pre>
-        <p>Or create, render, and stitch in one run when the human explicitly asks for full automation:</p>
+        <p><span class="zh">如果人类明确要求全自动，也可以一次性创建、生成并拼接：</span><span class="en">Or create, render, and stitch in one run when the human explicitly asks for full automation:</span></p>
         <pre><code>seereelcli workflow "用户的视频创意" --duration 60 --render --stitch --jsonl</code></pre>
         <p>
-          Poll until the CLI returns a final <code>downloadUrl</code>. If a shot fails, report the failed shot id and let the human edit or ask you to retry.
-          Use <code>--stitch-partial</code> only when the human accepts a shorter cut from ready shots.
+          <span class="zh">持续等待，直到 CLI 返回最终 <code>downloadUrl</code>。如果某个 shot 失败，报告失败 shot id，让人类编辑或要求你重试。只有在人类接受用已完成镜头拼较短版本时，才使用 <code>--stitch-partial</code>。</span>
+          <span class="en">Poll until the CLI returns a final <code>downloadUrl</code>. If a shot fails, report the failed shot id and let the human edit or ask you to retry. Use <code>--stitch-partial</code> only when the human accepts a shorter cut from ready shots.</span>
         </p>
-        <h3>Recovery runbook</h3>
+        <h3><span class="zh">恢复流程</span><span class="en">Recovery runbook</span></h3>
         <pre><code>seereelcli status --session latest --deep --json
 seereelcli node poll --id shot_xxxxxxxx --json
 seereelcli node update-prompt --id shot_xxxxxxxx --prompt "safer Seedance prompt" --duration 8 --json
 seereelcli render --session latest --repair-policy safe-retry --max-attempts 2 --stitch-partial --progress --json</code></pre>
-        <h3>Download locally</h3>
+        <h3><span class="zh">下载到本地</span><span class="en">Download locally</span></h3>
         <pre><code>seereelcli download --session latest --output ./final.mp4</code></pre>
       </section>
 
       <section>
-        <h2>Fine-grained node operations</h2>
-        <p>Use these when the human edits the workflow or asks you to operate one canvas node precisely.</p>
+        <h2><span class="zh">更细粒度的节点操作</span><span class="en">Fine-grained node operations</span></h2>
+        <p><span class="zh">当人类已经在网页编辑 workflow，或要求你精确操作某个画布节点时，用这些命令。</span><span class="en">Use these when the human edits the workflow or asks you to operate one canvas node precisely.</span></p>
 
-        <h3>Inspect one node</h3>
+        <h3><span class="zh">查看一个节点</span><span class="en">Inspect one node</span></h3>
         <pre><code>seereelcli node get --id shot_xxxxxxxx --json
 seereelcli node get --id asset_xxxxxxxx --json
 seereelcli node get --id ses_xxxxxxxx --json</code></pre>
 
-        <h3>Update a video node prompt</h3>
+        <h3><span class="zh">更新视频节点 prompt</span><span class="en">Update a video node prompt</span></h3>
         <pre><code>seereelcli node update-prompt --id shot_xxxxxxxx \
   --prompt "新的 Seedance 视频 prompt，保留角色服装和场景连续性" \
   --title "03 重新追上自己" \
   --duration 15 \
   --json</code></pre>
 
-        <h3>Generate or poll a single video node</h3>
+        <h3><span class="zh">生成或轮询单个视频节点</span><span class="en">Generate or poll a single video node</span></h3>
         <pre><code>seereelcli node generate --id shot_xxxxxxxx --wait --json
 seereelcli node poll --id shot_xxxxxxxx --json</code></pre>
 
-        <h3>Generate a shot tailframe</h3>
+        <h3><span class="zh">生成镜头尾帧</span><span class="en">Generate a shot tailframe</span></h3>
         <pre><code>seereelcli node tailframe --id shot_xxxxxxxx --publish-tos --canvas-node --json</code></pre>
         <p>
-          Use <code>--publish-tos</code> when the tailframe will become a Seedance reference. Remote Seedance cannot fetch local <code>/media/...</code> URLs.
+          <span class="zh">当尾帧要作为 Seedance 参考图使用时，加上 <code>--publish-tos</code>。远端 Seedance 无法读取本地 <code>/media/...</code> URL。</span>
+          <span class="en">Use <code>--publish-tos</code> when the tailframe will become a Seedance reference. Remote Seedance cannot fetch local <code>/media/...</code> URLs.</span>
         </p>
 
-        <h3>Open VLM review and repair prompts</h3>
+        <h3><span class="zh">开启 VLM 审核和修复 prompt</span><span class="en">Open VLM review and repair prompts</span></h3>
         <pre><code>seereelcli node review --id shot_xxxxxxxx --frame-count 8 --json
 seereelcli node repair --id shot_xxxxxxxx --json
 seereelcli final-review --session latest --json
 seereelcli final-review --session latest --repair --json</code></pre>
 
-        <h3>Assets and storyboards</h3>
+        <h3><span class="zh">资产和故事板</span><span class="en">Assets and storyboards</span></h3>
         <pre><code>seereelcli node update-prompt --id asset_xxxxxxxx --prompt "角色参考图 prompt" --json
 seereelcli node generate --id asset_xxxxxxxx --model seedream-5-lite --json
 seereelcli node review --id asset_xxxxxxxx --json
@@ -560,23 +604,38 @@ seereelcli publish-storyboards --session latest --json</code></pre>
       </section>
 
       <section>
-        <h2>Operational rules for AI agents</h2>
+        <h2><span class="zh">AI Agent 操作规则</span><span class="en">Operational rules for AI agents</span></h2>
         <ul class="checklist">
-          <li>Use SeeReel API/CLI state as the source of truth. Do not hide generated media in private scratch folders.</li>
-          <li>Refresh status before continuing after any human web edit.</li>
-          <li>Use <code>--progress</code> or <code>--jsonl</code> for long render runs instead of opening a second shell to guess progress from <code>/api/state</code>.</li>
-          <li>Browser and CLI sessions are cookie-scoped separately; raw <code>webUrl</code> may not be visible in a normal browser, so return <code>handoffUrl</code> for human takeover.</li>
-          <li>Do not call paid video generation until Agent Plan is configured and the human has approved continuing.</li>
-          <li>For local development, replace the base URL with <code>http://localhost:5173</code> or <code>SEEREEL_AGENT_BASE_URL</code>.</li>
-          <li>If the public backend requires a shared access token, use <code>SEEREEL_ACCESS_TOKEN</code> or <code>--access-token</code>.</li>
+          <li><span class="zh">以 SeeReel API/CLI 状态作为事实来源。不要把生成媒体藏在私有临时目录里。</span><span class="en">Use SeeReel API/CLI state as the source of truth. Do not hide generated media in private scratch folders.</span></li>
+          <li><span class="zh">人类在网页做过任何编辑后，继续前必须刷新状态。</span><span class="en">Refresh status before continuing after any human web edit.</span></li>
+          <li><span class="zh">长时间 render 使用 <code>--progress</code> 或 <code>--jsonl</code>，不要再开一个 shell 通过 <code>/api/state</code> 猜进度。</span><span class="en">Use <code>--progress</code> or <code>--jsonl</code> for long render runs instead of opening a second shell to guess progress from <code>/api/state</code>.</span></li>
+          <li><span class="zh">浏览器 session 和 CLI session 按 cookie 分开；普通浏览器可能看不到原始 <code>webUrl</code>，因此人类接管时返回 <code>handoffUrl</code>。</span><span class="en">Browser and CLI sessions are cookie-scoped separately; raw <code>webUrl</code> may not be visible in a normal browser, so return <code>handoffUrl</code> for human takeover.</span></li>
+          <li><span class="zh">Agent Plan 未配置、且人类未批准继续前，不要调用付费视频生成。</span><span class="en">Do not call paid video generation until Agent Plan is configured and the human has approved continuing.</span></li>
+          <li><span class="zh">本地开发时，把 base URL 换成 <code>http://localhost:5173</code> 或设置 <code>SEEREEL_AGENT_BASE_URL</code>。</span><span class="en">For local development, replace the base URL with <code>http://localhost:5173</code> or <code>SEEREEL_AGENT_BASE_URL</code>.</span></li>
+          <li><span class="zh">如果公网后端需要共享访问 token，使用 <code>SEEREEL_ACCESS_TOKEN</code> 或 <code>--access-token</code>。</span><span class="en">If the public backend requires a shared access token, use <code>SEEREEL_ACCESS_TOKEN</code> or <code>--access-token</code>.</span></li>
         </ul>
       </section>
 
       <footer>
-        SeeReel keeps the web canvas human-editable: sessions, scripts, shots, assets, renders, stitch state, and final videos remain visible in the app.
+        <span class="zh">SeeReel 会保持网页画布可被人类编辑：sessions、剧本、shots、assets、renders、拼接状态和最终视频都会留在 app 中可见。</span>
+        <span class="en">SeeReel keeps the web canvas human-editable: sessions, scripts, shots, assets, renders, stitch state, and final videos remain visible in the app.</span>
       </footer>
     </main>
     <script>
+      const languageStorageKey = "seereel-ai-use-me-lang";
+      const initialLanguage = localStorage.getItem(languageStorageKey)
+        || ((navigator.language || "").toLowerCase().startsWith("zh") ? "zh" : "en");
+      function setLanguage(lang) {
+        const safeLang = lang === "en" ? "en" : "zh";
+        document.documentElement.dataset.lang = safeLang;
+        document.documentElement.lang = safeLang === "zh" ? "zh-CN" : "en";
+        localStorage.setItem(languageStorageKey, safeLang);
+      }
+      setLanguage(initialLanguage);
+      document.querySelectorAll("[data-set-lang]").forEach((button) => {
+        button.addEventListener("click", () => setLanguage(button.dataset.setLang));
+      });
+
       document.getElementById("back-to-canvas")?.addEventListener("click", (event) => {
         if (!document.referrer) return;
         try {

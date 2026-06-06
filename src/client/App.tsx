@@ -1,7 +1,7 @@
-import { Archive, BarChart3, CircleHelp, Copy, Images, KeyRound, Loader2, Plus, RefreshCw, ShieldCheck, Trash2, UploadCloud } from "lucide-react";
+import { Archive, BarChart3, CircleHelp, Copy, Download, FileUp, Images, KeyRound, Loader2, Plus, RefreshCw, ShieldCheck, Trash2, UploadCloud } from "lucide-react";
 import { lazy, memo, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api } from "./api";
-import type { AdminAgentPlanStatus, AdminSecurityStatus, AdminUserAgentPlanCredentialList, AgentPlanCredentialStatus, Asset, AssetType, CreateSessionPayload, GalleryItem, Session, Shot, StitchJob, StoreSnapshot, TokenUsageEvent, TokenUsageModelFamily } from "../shared/types";
+import type { AdminAgentPlanStatus, AdminSecurityStatus, AdminUserAgentPlanCredentialList, AgentPlanCredentialStatus, ApiKeyCredentialStatus, Asset, AssetType, CreateSessionPayload, GalleryItem, Session, SessionPackage, Shot, StandardApiKeyRoute, StitchJob, StoreSnapshot, TokenUsageEvent, TokenUsageModelFamily } from "../shared/types";
 import { PendingGenerationsProvider } from "./flow/PendingGenerations";
 import { useUndoKeyboardShortcut, useUndoStack } from "./flow/useUndoStack";
 import { useI18n } from "./i18n";
@@ -28,6 +28,15 @@ type TokenUsageNodeSummary = {
 };
 
 type TrackedTokenUsageModelFamily = Extract<TokenUsageModelFamily, "seedream-4" | "seedream-4-5" | "seedream-5-lite" | "seedance-2-0" | "seedance-2-0-fast">;
+type CredentialTab = StandardApiKeyRoute | "agent-plan";
+
+function activeStandardApiRoute(tab: CredentialTab): StandardApiKeyRoute {
+  return tab === "volcengine-cn" ? "volcengine-cn" : "byteplus";
+}
+
+function standardApiRouteLabel(route: StandardApiKeyRoute, t: ReturnType<typeof useI18n>["t"]) {
+  return route === "volcengine-cn" ? t.app.cnCredentialLabel : t.app.byteplusCredentialLabel;
+}
 
 type TokenUsageFamilyTotal = {
   totalTokens: number;
@@ -529,6 +538,7 @@ export function App() {
   const [selectedSessionId, setSelectedSessionId] = useState<string>(() => readRouteFromWindow().sessionId);
   const selectedSessionIdRef = useRef(selectedSessionId);
   useEffect(() => { selectedSessionIdRef.current = selectedSessionId; }, [selectedSessionId]);
+  const sessionImportInputRef = useRef<HTMLInputElement | null>(null);
   const [stateLoaded, setStateLoaded] = useState(false);
   const [sessionTitleDraft, setSessionTitleDraft] = useState("");
   const [showArchivedSessions, setShowArchivedSessions] = useState(false);
@@ -539,6 +549,8 @@ export function App() {
   const [galleryCreatorDraft, setGalleryCreatorDraft] = useState("");
   const [galleryTagsDraft, setGalleryTagsDraft] = useState("");
   const [showAgentPlanKey, setShowAgentPlanKey] = useState(false);
+  const [credentialTab, setCredentialTab] = useState<CredentialTab>("byteplus");
+  const [apiKeyDraft, setApiKeyDraft] = useState("");
   const [agentPlanDraft, setAgentPlanDraft] = useState("");
   const [showAdminPanel, setShowAdminPanel] = useState(false);
   const [adminUsernameDraft, setAdminUsernameDraft] = useState("");
@@ -638,6 +650,11 @@ export function App() {
   const sessions = state.sessions;
   const sessionDockState = resolveSessionDockState({ stateLoaded, sessionCount: sessions.length, busy });
   const agentPlanCredential = state.runtime?.agentPlanCredential;
+  const apiKeyCredential = state.runtime?.apiKeyCredential;
+  const credentialConfigured = Boolean(apiKeyCredential?.configured || agentPlanCredential?.configured);
+  const apiKeyRoute = apiKeyCredential?.route || "byteplus";
+  const credentialSourceLabel = apiKeyCredential?.configured ? standardApiRouteLabel(apiKeyRoute, t) : "Agent Plan";
+  const credentialFingerprint = apiKeyCredential?.configured ? apiKeyCredential.fingerprint : agentPlanCredential?.fingerprint;
   const freeTrial = state.runtime?.freeTrial;
   const latestSession = sessions[0];
   const archivedSessions = sessions.slice(1);
@@ -911,6 +928,43 @@ export function App() {
       setShowArchivedSessions(false);
     });
 
+  const downloadSelectedSessionPackage = () => {
+    if (!selectedSession) return;
+    run(`export-session-${selectedSession.id}`, async () => {
+      const { blob, filename } = await api.downloadSessionPackage(selectedSession.id);
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = filename || `${selectedSession.id}.seereel-session`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(url);
+      window.dispatchEvent(new CustomEvent<string>("flow-download", { detail: t.app.sessionExportStarted(selectedSession.title || selectedSession.id) }));
+    });
+  };
+
+  const importSessionPackageFile = (file: File | undefined) => {
+    if (!file) return;
+    run("import-session", async () => {
+      const text = await file.text();
+      const parsed = JSON.parse(text) as SessionPackage;
+      if (parsed?.format !== "seereel-session") throw new Error(t.app.importSessionInvalid);
+      const imported = await api.importSessionPackage(parsed);
+      const next = await api.state();
+      setState((prev) => mergeStateForDisplay({
+        prev,
+        next,
+        selectedSessionId: imported.id,
+        pendingCreates: pendingSessionCreatesRef.current,
+        pendingDeletes: pendingSessionDeletesRef.current
+      }));
+      openStudioSession(imported.id);
+      setShowArchivedSessions(false);
+      window.dispatchEvent(new CustomEvent<string>("flow-download", { detail: t.app.importSessionComplete(imported.title || imported.id) }));
+    });
+  };
+
   const openGallery = () => {
     setActiveView("gallery");
     writeGalleryToPath();
@@ -1008,6 +1062,40 @@ export function App() {
         seedreamDefaultModel: status.configured ? "seedream-5-lite" : prev.runtime?.seedreamDefaultModel
       }
     }));
+  };
+
+  const updateApiKeyStatus = (status: ApiKeyCredentialStatus) => {
+    setState((prev) => ({
+      ...prev,
+      runtime: {
+        ...prev.runtime,
+        apiKeyCredential: status,
+        seedreamCredentialSource: status.configured ? "standard" : prev.runtime?.seedreamCredentialSource,
+        seedreamDefaultModel: status.configured ? "seedream-4-5" : prev.runtime?.seedreamDefaultModel
+      }
+    }));
+  };
+
+  const saveApiKey = () => {
+    const apiKeyValue = apiKeyDraft.trim();
+    if (!apiKeyValue) return;
+    const route = activeStandardApiRoute(credentialTab);
+    run("save-api-key", async () => {
+      const status = await api.saveApiKeyCredential(apiKeyValue, route);
+      updateApiKeyStatus(status);
+      setApiKeyDraft("");
+      setShowAgentPlanKey(false);
+      await refresh();
+    });
+  };
+
+  const clearApiKey = () => {
+    run("clear-api-key", async () => {
+      const status = await api.clearApiKeyCredential();
+      updateApiKeyStatus(status);
+      setApiKeyDraft("");
+      await refresh();
+    });
   };
 
   const saveAgentPlanKey = () => {
@@ -1560,6 +1648,62 @@ export function App() {
   const handleDeleteCanvasAsset = useStableEvent(deleteCanvasAsset);
   const handleDeleteCanvasShot = useStableEvent(deleteCanvasShot);
   const handleUploadReferenceVideo = useStableEvent(uploadReferenceVideo);
+  const galleryPublishControl = activeView === "studio" && selectedSession ? (
+    <div className="gallery-publish-control flow-gallery-publish-control">
+      <button
+        type="button"
+        className="gallery-publish-button"
+        onClick={openGalleryPublish}
+        title={t.app.galleryPublishTitle}
+      >
+        <UploadCloud size={16} />
+        {t.app.galleryPublish}
+      </button>
+      {showGalleryPublish && (
+        <form
+          className="gallery-publish-popover"
+          onSubmit={(event) => {
+            event.preventDefault();
+            publishSelectedSessionToGallery();
+          }}
+        >
+          <strong>{t.app.galleryPublishTitle}</strong>
+          <input
+            value={galleryTitleDraft}
+            onChange={(event) => setGalleryTitleDraft(event.target.value)}
+            placeholder={t.app.galleryTitlePlaceholder}
+          />
+          <textarea
+            value={galleryDescriptionDraft}
+            onChange={(event) => setGalleryDescriptionDraft(event.target.value)}
+            placeholder={t.app.galleryDescriptionPlaceholder}
+            rows={3}
+          />
+          <input
+            value={galleryCreatorDraft}
+            onChange={(event) => setGalleryCreatorDraft(event.target.value)}
+            placeholder={t.app.galleryCreatorPlaceholder}
+          />
+          <input
+            value={galleryTagsDraft}
+            onChange={(event) => setGalleryTagsDraft(event.target.value)}
+            placeholder={t.app.galleryTagsPlaceholder}
+          />
+          <div className="button-row gallery-publish-actions">
+            <button
+              type="submit"
+              className="primary"
+              disabled={busy === `publish-gallery-${selectedSession.id}`}
+            >
+              {busy === `publish-gallery-${selectedSession.id}` ? <Loader2 size={16} className="spin" /> : <UploadCloud size={16} />}
+              {t.app.galleryPublishSubmit}
+            </button>
+            <button type="button" onClick={() => setShowGalleryPublish(false)}>{t.app.galleryPublishCancel}</button>
+          </div>
+        </form>
+      )}
+    </div>
+  ) : undefined;
 
   return (
     <PendingGenerationsProvider>
@@ -1582,6 +1726,27 @@ export function App() {
           {busy === "create-session" ? <Loader2 size={16} className="spin" /> : <Plus size={16} />}
           {t.app.newSession}
         </button>
+        <button
+          className="session-import-button"
+          type="button"
+          onClick={() => sessionImportInputRef.current?.click()}
+          disabled={busy === "import-session"}
+          title={t.app.importSessionTitle}
+        >
+          {busy === "import-session" ? <Loader2 size={16} className="spin" /> : <FileUp size={16} />}
+          {t.app.importSession}
+        </button>
+        <input
+          ref={sessionImportInputRef}
+          type="file"
+          accept=".seereel-session,application/json"
+          className="visually-hidden-file"
+          onChange={(event) => {
+            const file = event.currentTarget.files?.[0];
+            event.currentTarget.value = "";
+            importSessionPackageFile(file);
+          }}
+        />
         <button
           className={`gallery-nav-button ${activeView === "gallery" ? "active" : ""}`}
           type="button"
@@ -1706,62 +1871,6 @@ export function App() {
             )}
           </div>
           <div className="top-actions">
-            {activeView === "studio" && selectedSession && (
-              <div className="gallery-publish-control">
-                <button
-                  type="button"
-                  className="gallery-publish-button"
-                  onClick={openGalleryPublish}
-                  title={t.app.galleryPublishTitle}
-                >
-                  <UploadCloud size={16} />
-                  {t.app.galleryPublish}
-                </button>
-                {showGalleryPublish && (
-                  <form
-                    className="gallery-publish-popover"
-                    onSubmit={(event) => {
-                      event.preventDefault();
-                      publishSelectedSessionToGallery();
-                    }}
-                  >
-                    <strong>{t.app.galleryPublishTitle}</strong>
-                    <input
-                      value={galleryTitleDraft}
-                      onChange={(event) => setGalleryTitleDraft(event.target.value)}
-                      placeholder={t.app.galleryTitlePlaceholder}
-                    />
-                    <textarea
-                      value={galleryDescriptionDraft}
-                      onChange={(event) => setGalleryDescriptionDraft(event.target.value)}
-                      placeholder={t.app.galleryDescriptionPlaceholder}
-                      rows={3}
-                    />
-                    <input
-                      value={galleryCreatorDraft}
-                      onChange={(event) => setGalleryCreatorDraft(event.target.value)}
-                      placeholder={t.app.galleryCreatorPlaceholder}
-                    />
-                    <input
-                      value={galleryTagsDraft}
-                      onChange={(event) => setGalleryTagsDraft(event.target.value)}
-                      placeholder={t.app.galleryTagsPlaceholder}
-                    />
-                    <div className="button-row gallery-publish-actions">
-                      <button
-                        type="submit"
-                        className="primary"
-                        disabled={busy === `publish-gallery-${selectedSession.id}`}
-                      >
-                        {busy === `publish-gallery-${selectedSession.id}` ? <Loader2 size={16} className="spin" /> : <UploadCloud size={16} />}
-                        {t.app.galleryPublishSubmit}
-                      </button>
-                      <button type="button" onClick={() => setShowGalleryPublish(false)}>{t.app.galleryPublishCancel}</button>
-                    </div>
-                  </form>
-                )}
-              </div>
-            )}
             <a
               className="ai-use-me-link"
               href="/ai-use-me.html"
@@ -1775,16 +1884,16 @@ export function App() {
             <div className="agent-plan-control">
               <button
                 type="button"
-                className={`agent-plan-button ${agentPlanCredential?.configured ? "configured" : ""}`}
+                className={`agent-plan-button ${credentialConfigured ? "configured" : ""}`}
                 onClick={() => setShowAgentPlanKey((value) => !value)}
-                title={agentPlanCredential?.configured
-                  ? t.app.agentPlanConfiguredTitle(agentPlanCredential.fingerprint || "")
-                  : t.app.agentPlanMissingTitle}
+                title={credentialConfigured
+                  ? t.app.credentialPanelConfiguredTitle(credentialSourceLabel, credentialFingerprint || "")
+                  : t.app.credentialPanelMissingTitle}
               >
                 <KeyRound size={16} />
-                {agentPlanCredential?.configured ? t.app.agentPlanReady : t.app.agentPlanSet}
+                {credentialConfigured ? t.app.credentialPanelReady : t.app.credentialPanelSet}
               </button>
-              {!agentPlanCredential?.configured && freeTrial?.enabled && (
+              {!credentialConfigured && freeTrial?.enabled && (
                 <span className={`free-trial-pill ${freeTrial.remaining <= 0 ? "depleted" : ""}`}>
                   {freeTrial.remaining <= 0
                     ? t.app.freeTrialDepleted
@@ -1796,51 +1905,111 @@ export function App() {
                   className="agent-plan-popover"
                   onSubmit={(event) => {
                     event.preventDefault();
-                    saveAgentPlanKey();
+                    if (credentialTab !== "agent-plan") saveApiKey();
+                    else saveAgentPlanKey();
                   }}
                 >
+                  <div className="credential-mode-tabs" role="tablist" aria-label={t.app.credentialPanelSet}>
+                    <button
+                      type="button"
+                      className={credentialTab === "byteplus" ? "active" : ""}
+                      onClick={() => setCredentialTab("byteplus")}
+                    >
+                      {t.app.byteplusCredentialTab}
+                    </button>
+                    <button
+                      type="button"
+                      className={credentialTab === "volcengine-cn" ? "active" : ""}
+                      onClick={() => setCredentialTab("volcengine-cn")}
+                    >
+                      {t.app.cnCredentialTab}
+                    </button>
+                    <button
+                      type="button"
+                      className={credentialTab === "agent-plan" ? "active" : ""}
+                      onClick={() => setCredentialTab("agent-plan")}
+                    >
+                      {t.app.agentPlanCredentialTab}
+                    </button>
+                  </div>
                   <div className="agent-plan-status">
                     <div>
-                      <strong>{agentPlanCredential?.configured ? t.app.agentPlanReady : t.app.agentPlanSet}</strong>
-                      <small>{t.app.agentPlanHelpText}</small>
+                      {credentialTab !== "agent-plan" ? (
+                        <>
+                          <strong>{apiKeyCredential?.configured && apiKeyRoute === credentialTab ? t.app.standardCredentialReady : t.app.standardCredentialSet}</strong>
+                          <small>{credentialTab === "volcengine-cn" ? t.app.cnCredentialHelpText : t.app.standardCredentialHelpText}</small>
+                        </>
+                      ) : (
+                        <>
+                          <strong>{agentPlanCredential?.configured ? t.app.agentPlanReady : t.app.agentPlanSet}</strong>
+                          <small>{t.app.agentPlanHelpText}</small>
+                        </>
+                      )}
                     </div>
-                    <a
-                      className="agent-plan-help-link"
-                      href="https://www.volcengine.com/activity/agentplan"
-                      target="_blank"
-                      rel="noreferrer"
-                      title={t.app.agentPlanOpenTitle}
-                      aria-label={t.app.agentPlanOpenTitle}
-                    >
-                      <CircleHelp size={16} />
-                    </a>
-                    {agentPlanCredential?.fingerprint && <span>{t.app.agentPlanFingerprint(agentPlanCredential.fingerprint)}</span>}
+                    {credentialTab === "agent-plan" && (
+                      <a
+                        className="agent-plan-help-link"
+                        href="https://www.volcengine.com/activity/agentplan"
+                        target="_blank"
+                        rel="noreferrer"
+                        title={t.app.agentPlanOpenTitle}
+                        aria-label={t.app.agentPlanOpenTitle}
+                      >
+                        <CircleHelp size={16} />
+                      </a>
+                    )}
+                    {credentialTab !== "agent-plan" && apiKeyCredential?.fingerprint && apiKeyRoute === credentialTab && <span>{t.app.agentPlanFingerprint(apiKeyCredential.fingerprint)}</span>}
+                    {credentialTab === "agent-plan" && agentPlanCredential?.fingerprint && <span>{t.app.agentPlanFingerprint(agentPlanCredential.fingerprint)}</span>}
                   </div>
-                  <input
-                    type="password"
-                    autoComplete="off"
-                    value={agentPlanDraft}
-                    onChange={(event) => setAgentPlanDraft(event.target.value)}
-                    placeholder={t.app.agentPlanPlaceholder}
-                    aria-label={t.app.agentPlanPlaceholder}
-                  />
+                  {credentialTab !== "agent-plan" ? (
+                    <input
+                      type="password"
+                      autoComplete="off"
+                      value={apiKeyDraft}
+                      onChange={(event) => setApiKeyDraft(event.target.value)}
+                      placeholder={credentialTab === "volcengine-cn" ? t.app.cnCredentialPlaceholder : t.app.standardCredentialPlaceholder}
+                      aria-label={credentialTab === "volcengine-cn" ? t.app.cnCredentialPlaceholder : t.app.standardCredentialPlaceholder}
+                    />
+                  ) : (
+                    <input
+                      type="password"
+                      autoComplete="off"
+                      value={agentPlanDraft}
+                      onChange={(event) => setAgentPlanDraft(event.target.value)}
+                      placeholder={t.app.agentPlanPlaceholder}
+                      aria-label={t.app.agentPlanPlaceholder}
+                    />
+                  )}
                   <div className="button-row agent-plan-actions">
                     <button
                       type="submit"
                       className="primary"
-                      disabled={busy === "save-agent-plan-key" || !agentPlanDraft.trim()}
+                      disabled={credentialTab !== "agent-plan"
+                        ? busy === "save-api-key" || !apiKeyDraft.trim()
+                        : busy === "save-agent-plan-key" || !agentPlanDraft.trim()}
                     >
-                      {busy === "save-agent-plan-key" ? <Loader2 size={16} className="spin" /> : <KeyRound size={16} />}
+                      {(busy === "save-api-key" || busy === "save-agent-plan-key") ? <Loader2 size={16} className="spin" /> : <KeyRound size={16} />}
                       {t.app.agentPlanSave}
                     </button>
-                    <button
-                      type="button"
-                      className="danger"
-                      onClick={clearAgentPlanKey}
-                      disabled={busy === "clear-agent-plan-key" || !agentPlanCredential?.configured}
-                    >
-                      {t.app.agentPlanClear}
-                    </button>
+                    {credentialTab !== "agent-plan" ? (
+                      <button
+                        type="button"
+                        className="danger"
+                        onClick={clearApiKey}
+                        disabled={busy === "clear-api-key" || !apiKeyCredential?.configured}
+                      >
+                        {t.app.agentPlanClear}
+                      </button>
+                    ) : (
+                      <button
+                        type="button"
+                        className="danger"
+                        onClick={clearAgentPlanKey}
+                        disabled={busy === "clear-agent-plan-key" || !agentPlanCredential?.configured}
+                      >
+                        {t.app.agentPlanClear}
+                      </button>
+                    )}
                   </div>
                 </form>
               )}
@@ -2037,6 +2206,17 @@ export function App() {
             </button>
             {selectedSession && (
               <button
+                type="button"
+                onClick={downloadSelectedSessionPackage}
+                disabled={busy === `export-session-${selectedSession.id}`}
+                title={t.app.exportSessionTitle}
+              >
+                {busy === `export-session-${selectedSession.id}` ? <Loader2 size={16} className="spin" /> : <Download size={16} />}
+                {t.app.exportSession}
+              </button>
+            )}
+            {selectedSession && (
+              <button
                 onClick={() => setShowTokenUsage((value) => !value)}
                 title={t.app.usageTitle}
               >
@@ -2089,6 +2269,7 @@ export function App() {
               onDeleteCanvasShot={handleDeleteCanvasShot}
               onUploadImageAsset={handleUploadImageAsset}
               onUploadReferenceVideo={handleUploadReferenceVideo}
+              toolbarPrimaryAction={galleryPublishControl}
             />
           </Suspense>
         )}

@@ -35,7 +35,7 @@ npm run verify:release
 ## 3. 计费 / 额度（手动确认）
 
 - [ ] `SEEREEL_SESSION_GENERATION_DAILY_CAP` 设为与预算匹配的值（默认 1000）。
-- [ ] 确认 Agent Plan vs 标准 Key 归属：Seedream/Seedance 走哪条计费链路符合预期（`SEEREEL_USE_AGENT_PLAN`、各 `*_AGENT_PLAN_MODEL`）。
+- [ ] 确认 Seedance Key 归属：BP 标准 API、CN 标准 API、Agent Plan 的配置和优先级符合预期（`BP_ARK_API_KEY` / `BP_SEEDANCE_API_KEY` / `CN_ARK_API_KEY` / `CN_SEEDANCE_API_KEY` / `ARK_AGENT_PLAN_KEY`，优先级 `BP > CN > Agent Plan`）。
 - [ ] Vision 复审 + poll 自动重提的放大成本可接受；`maxReviewAttempts` 在预期范围。
 - [ ] TOS 上传产生的存储/出站费用已知悉；`TOS_*` 配置正确。
 - [ ] **真实账单对账**：发布后用火山引擎账单核对一次实际消耗。`reelyai_token_usage_total` 等指标仅供观测，**不等于**账单金额。

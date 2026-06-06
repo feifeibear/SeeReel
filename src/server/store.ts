@@ -456,6 +456,139 @@ export class CinemaStore {
     return this.getSession(session.id);
   }
 
+  buildSessionPackageData(sessionId: string) {
+    const session = this.data.sessions.find((item) => item.id === sessionId);
+    if (!session) return undefined;
+    const shots = this.data.shots
+      .filter((shot) => shot.sessionId === sessionId)
+      .sort((a, b) => a.index - b.index);
+    const assets = this.collectGalleryAssets(sessionId, shots);
+    return {
+      session: sanitizePortableSession(session),
+      shots: structuredClone(shots),
+      assets: assets.map(sanitizePortableAsset)
+    };
+  }
+
+  async importSessionPackageData(input: { session: Session; shots: Shot[]; assets: Asset[] }, ownerUserId?: string) {
+    const ts = now();
+    const sourceSession = structuredClone(input.session);
+    const sourceShots = structuredClone(input.shots || []).sort((a, b) => a.index - b.index);
+    const sourceAssets = structuredClone(input.assets || []);
+    const newSessionId = id("ses");
+    const shotIdMap = new Map(sourceShots.map((shot) => [shot.id, id("shot")]));
+    const assetIdMap = new Map(sourceAssets.map((asset) => [asset.id, id("asset")]));
+    const stitchJobIdMap = new Map((sourceSession.stitchJobs || []).map((job) => [job.id, id("stitch")]));
+
+    const mapAssetId = (assetId: string | undefined) => assetId ? assetIdMap.get(assetId) || assetId : undefined;
+    const mapShotId = (shotId: string | undefined) => shotId ? shotIdMap.get(shotId) || shotId : undefined;
+    const mapAssetIds = (assetIds: string[] | undefined) => (assetIds || []).map((assetId) => assetIdMap.get(assetId) || assetId);
+
+    const session: Session = {
+      ...sourceSession,
+      id: newSessionId,
+      ownerUserId,
+      title: normalizeImportedSessionTitle(sourceSession.title, this.data.sessions),
+      tokenUsageEvents: (sourceSession.tokenUsageEvents || []).map((event) => ({
+        ...event,
+        id: id("tok"),
+        sessionId: newSessionId,
+        nodeId: mapPortableNodeId(event.nodeId, shotIdMap, assetIdMap, stitchJobIdMap, newSessionId)
+      })),
+      stitchShotIds: (sourceSession.stitchShotIds || []).map((shotId) => shotIdMap.get(shotId)).filter(Boolean) as string[],
+      stitchJobs: (sourceSession.stitchJobs || []).map((job) => ({
+        ...job,
+        id: stitchJobIdMap.get(job.id)!,
+        shotIds: (job.shotIds || []).map((shotId) => shotIdMap.get(shotId)).filter(Boolean) as string[],
+        status: job.status === "running" ? "idle" : job.status,
+        startedAt: undefined,
+        updatedAt: ts,
+        error: job.status === "running" ? undefined : job.error,
+        progress: job.status === "running" ? "" : job.progress,
+        runningSignature: undefined,
+        finalVideoReviewRepairPlan: undefined
+      })),
+      stitchStatus: sourceSession.stitchStatus === "running" ? "idle" : sourceSession.stitchStatus,
+      stitchStartedAt: undefined,
+      stitchUpdatedAt: sourceSession.stitchStatus ? ts : sourceSession.stitchUpdatedAt,
+      stitchError: sourceSession.stitchStatus === "running" ? undefined : sourceSession.stitchError,
+      stitchProgress: sourceSession.stitchStatus === "running" ? "" : sourceSession.stitchProgress,
+      stitchRunningSignature: undefined,
+      narrationStatus: sourceSession.narrationStatus === "running" ? "idle" : sourceSession.narrationStatus,
+      narrationStartedAt: undefined,
+      narrationUpdatedAt: sourceSession.narrationStatus ? ts : sourceSession.narrationUpdatedAt,
+      narrationError: sourceSession.narrationStatus === "running" ? undefined : sourceSession.narrationError,
+      narrationProgress: sourceSession.narrationStatus === "running" ? "" : sourceSession.narrationProgress,
+      narrationRunningSignature: undefined,
+      finalVideoReviewRepairPlan: undefined,
+      createdAt: ts,
+      updatedAt: ts
+    };
+    if (session.story) {
+      session.story = {
+        ...session.story,
+        characters: (session.story.characters || []).map((character) => ({
+          ...character,
+          assetId: mapAssetId(character.assetId)
+        }))
+      };
+    }
+
+    const assets: Asset[] = sourceAssets.map((asset) => ({
+      ...asset,
+      id: assetIdMap.get(asset.id)!,
+      ownerUserId,
+      ownerSessionId: asset.ownerSessionId === sourceSession.id ? newSessionId : mapSessionScope(asset.ownerSessionId, sourceSession.id, newSessionId),
+      ownerShotId: mapShotId(asset.ownerShotId),
+      parentAssetId: mapAssetId(asset.parentAssetId),
+      referenceAssetIds: asset.referenceAssetIds?.map((assetId) => assetIdMap.get(assetId) || assetId),
+      videoReviewRepairPlan: undefined,
+      createdAt: ts,
+      updatedAt: ts
+    }));
+
+    const shots: Shot[] = sourceShots.map((shot) => ({
+      ...shot,
+      id: shotIdMap.get(shot.id)!,
+      sessionId: newSessionId,
+      assetIds: mapAssetIds(shot.assetIds),
+      firstFrameAssetId: mapAssetId(shot.firstFrameAssetId),
+      lastFrameAssetId: mapAssetId(shot.lastFrameAssetId),
+      subShotStoryboardAssetId: mapAssetId(shot.subShotStoryboardAssetId),
+      subShotStoryboardAssetIds: shot.subShotStoryboardAssetIds?.map((assetId) => assetIdMap.get(assetId) || assetId),
+      referenceVideoAssetId: mapAssetId(shot.referenceVideoAssetId),
+      referenceVideoFromShotId: mapShotId(shot.referenceVideoFromShotId),
+      generationTaskId: shot.status === "generating" ? undefined : shot.generationTaskId,
+      generationStartedAt: shot.status === "generating" ? undefined : shot.generationStartedAt,
+      seedancePhase: shot.status === "generating" ? undefined : shot.seedancePhase,
+      status: shot.status === "generating" ? (shot.videoUrl ? "ready" : shot.prompt ? "scripted" : "draft") : shot.status,
+      videoReviewRepairPlan: undefined,
+      renders: (shot.renders || []).map((render) => ({
+        ...render,
+        id: id("render"),
+        assetIds: mapAssetIds(render.assetIds),
+        firstFrameAssetId: mapAssetId(render.firstFrameAssetId),
+        lastFrameAssetId: mapAssetId(render.lastFrameAssetId),
+        subShotStoryboardAssetId: mapAssetId(render.subShotStoryboardAssetId),
+        subShotStoryboardAssetIds: render.subShotStoryboardAssetIds?.map((assetId) => assetIdMap.get(assetId) || assetId),
+        referenceVideoAssetId: mapAssetId(render.referenceVideoAssetId),
+        referenceVideoFromShotId: mapShotId(render.referenceVideoFromShotId),
+        generationTaskId: render.status === "generating" ? undefined : render.generationTaskId,
+        generationStartedAt: render.status === "generating" ? undefined : render.generationStartedAt,
+        seedancePhase: render.status === "generating" ? undefined : render.seedancePhase,
+        status: render.status === "generating" ? (render.videoUrl ? "ready" : "draft") : render.status
+      })),
+      createdAt: ts,
+      updatedAt: ts
+    }));
+
+    this.data.sessions.unshift(session);
+    this.data.assets.unshift(...assets);
+    this.data.shots.push(...shots);
+    await this.save();
+    return this.getSession(session.id);
+  }
+
   private collectGalleryAssets(sessionId: string, shots: Shot[]) {
     const shotIds = new Set(shots.map((shot) => shot.id));
     const wanted = new Set<string>();
@@ -901,6 +1034,46 @@ function sanitizeGallerySession(session: Session): Session {
   clone.narrationStartedAt = undefined;
   clone.narrationRunningSignature = undefined;
   return clone;
+}
+
+function sanitizePortableSession(session: Session): Session {
+  const clone = structuredClone(session);
+  clone.ownerUserId = undefined;
+  clone.stitchStartedAt = clone.stitchStatus === "running" ? undefined : clone.stitchStartedAt;
+  clone.stitchRunningSignature = undefined;
+  clone.narrationStartedAt = clone.narrationStatus === "running" ? undefined : clone.narrationStartedAt;
+  clone.narrationRunningSignature = undefined;
+  return clone;
+}
+
+function sanitizePortableAsset(asset: Asset): Asset {
+  const clone = structuredClone(asset);
+  clone.ownerUserId = undefined;
+  return clone;
+}
+
+function normalizeImportedSessionTitle(title: string | undefined, sessions: Session[]) {
+  const base = title?.trim() || "Imported SeeReel session";
+  const imported = `Imported · ${base}`;
+  const existing = new Set(sessions.map((session) => session.title));
+  if (!existing.has(imported)) return imported;
+  let suffix = 2;
+  while (existing.has(`${imported} ${suffix}`)) suffix += 1;
+  return `${imported} ${suffix}`;
+}
+
+function mapPortableNodeId(
+  nodeId: string,
+  shotIdMap: Map<string, string>,
+  assetIdMap: Map<string, string>,
+  stitchJobIdMap: Map<string, string>,
+  newSessionId: string
+) {
+  if (shotIdMap.has(nodeId)) return shotIdMap.get(nodeId)!;
+  if (assetIdMap.has(nodeId)) return assetIdMap.get(nodeId)!;
+  if (stitchJobIdMap.has(nodeId)) return stitchJobIdMap.get(nodeId)!;
+  if (nodeId.startsWith("ses_")) return newSessionId;
+  return nodeId;
 }
 
 function resolveGalleryPreviewVideo(session: Session, shots: Shot[]) {

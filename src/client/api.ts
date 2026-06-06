@@ -5,6 +5,7 @@ import type {
   AdminSecurityStatus,
   AdminUserAgentPlanCredentialList,
   AgentPlanCredentialStatus,
+  ApiKeyCredentialStatus,
   CreateSessionPayload,
   ExpandAssetPromptResult,
   GalleryItem,
@@ -12,9 +13,11 @@ import type {
   NarrationStrategy,
   PromptComposition,
   SessionWithShots,
+  SessionPackage,
   Shot,
   StoryPlan,
   StoreSnapshot,
+  StandardApiKeyRoute,
   SubStoryboardModel,
   WorkflowExecutionPlan
 } from "../shared/types";
@@ -121,6 +124,18 @@ async function request<T>(url: string, options?: RequestInit): Promise<T> {
   throw lastErr;
 }
 
+async function downloadFile(url: string) {
+  const response = await fetch(url, { headers: accessHeaders() });
+  if (!response.ok) {
+    const body = await response.json().catch(() => ({}));
+    throw new Error(body.error || `${response.status} ${response.statusText}`);
+  }
+  const disposition = response.headers.get("content-disposition") || "";
+  const match = disposition.match(/filename="([^"]+)"/i) || disposition.match(/filename=([^;]+)/i);
+  const filename = match?.[1]?.trim() || "seereel-session.seereel-session";
+  return { blob: await response.blob(), filename };
+}
+
 export const api = {
   state: () => request<StoreSnapshot>("/api/state"),
   gallery: () => request<{ items: GalleryItem[] }>("/api/gallery"),
@@ -129,6 +144,14 @@ export const api = {
     request<GalleryItem>("/api/gallery", { method: "POST", body: JSON.stringify({ sessionId, ...payload }) }),
   copyGalleryItemToSession: (galleryId: string) =>
     request<SessionWithShots>(`/api/gallery/${galleryId}/copy`, { method: "POST" }),
+  apiKeyCredential: () => request<ApiKeyCredentialStatus>("/api/credentials/api-key"),
+  saveApiKeyCredential: (apiKey: string, route: StandardApiKeyRoute) =>
+    request<ApiKeyCredentialStatus>("/api/credentials/api-key", {
+      method: "POST",
+      body: JSON.stringify({ apiKey, route })
+    }),
+  clearApiKeyCredential: () =>
+    request<ApiKeyCredentialStatus>("/api/credentials/api-key", { method: "DELETE" }),
   agentPlanCredential: () => request<AgentPlanCredentialStatus>("/api/credentials/agent-plan"),
   saveAgentPlanCredential: (apiKey: string) =>
     request<AgentPlanCredentialStatus>("/api/credentials/agent-plan", {
@@ -189,6 +212,9 @@ export const api = {
       body: JSON.stringify(payload || {})
     }),
   deleteSession: (sessionId: string) => request<{ ok: true }>(`/api/sessions/${sessionId}`, { method: "DELETE" }),
+  downloadSessionPackage: (sessionId: string) => downloadFile(`/api/sessions/${sessionId}/export`),
+  importSessionPackage: (pack: SessionPackage) =>
+    request<SessionWithShots>("/api/sessions/import", { method: "POST", body: JSON.stringify(pack) }),
   saveAsset: (asset: Partial<Asset>) =>
     request<Asset>(asset.id ? `/api/assets/${asset.id}` : "/api/assets", {
       method: asset.id ? "PATCH" : "POST",

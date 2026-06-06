@@ -1,6 +1,14 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 import { createHash, randomUUID } from "node:crypto";
 import type { NextFunction, Request, Response } from "express";
+import type { StandardApiKeyRoute } from "../shared/types";
+import {
+  apiKeyCredentialStorageStatus,
+  deleteApiKeyCredential,
+  getCachedApiKeyCredential,
+  hydrateApiKeyCredential,
+  storeApiKeyCredential
+} from "./apiKeyStore";
 import {
   agentPlanCredentialStorageStatus,
   deleteAgentPlanCredential,
@@ -35,7 +43,10 @@ export function userCredentialMiddleware(req: Request, res: Response, next: Next
     });
   }
   const context = { userId, ipHash: requestIpHash(req), userAgentHash: requestUserAgentHash(req) };
-  void hydrateAgentPlanCredential(userId)
+  void Promise.all([
+    hydrateAgentPlanCredential(userId),
+    hydrateApiKeyCredential(userId)
+  ])
     .catch((error) => {
       console.warn("[user-credentials] hydrate failed:", error instanceof Error ? error.message : error);
     })
@@ -65,6 +76,46 @@ export function getRequestAgentPlanKey() {
   return getCachedAgentPlanCredential(userId)?.apiKey;
 }
 
+export async function setRequestApiKey(apiKey: string, route: StandardApiKeyRoute = "byteplus") {
+  const userId = currentUserId();
+  if (!userId) throw new Error("Missing browser session");
+  await storeApiKeyCredential(userId, apiKey, route, {
+    ipHash: currentIpHash(),
+    userAgentHash: currentUserAgentHash()
+  });
+}
+
+export async function clearRequestApiKey() {
+  const userId = currentUserId();
+  if (!userId) return;
+  await deleteApiKeyCredential(userId);
+}
+
+export function getRequestApiKey() {
+  const userId = currentUserId();
+  if (!userId) return undefined;
+  return getCachedApiKeyCredential(userId)?.apiKey;
+}
+
+export function getRequestApiKeyCredential() {
+  const userId = currentUserId();
+  if (!userId) return undefined;
+  return getCachedApiKeyCredential(userId);
+}
+
+export function requestApiKeyStatus() {
+  const userId = currentUserId();
+  const credential = getCachedApiKeyCredential(userId);
+  const apiKey = credential?.apiKey;
+  return {
+    configured: Boolean(apiKey),
+    fingerprint: apiKey ? credential?.fingerprint || keyFingerprint(apiKey) : undefined,
+    route: credential?.route,
+    updatedAt: credential?.updatedAt,
+    storage: apiKeyCredentialStorageStatus()
+  };
+}
+
 export function requestAgentPlanStatus() {
   const userId = currentUserId();
   const credential = getCachedAgentPlanCredential(userId);
@@ -91,6 +142,10 @@ export function currentUserAgentHash() {
 
 export function hasRequestAgentPlanKey() {
   return Boolean(getRequestAgentPlanKey());
+}
+
+export function hasRequestApiKey() {
+  return Boolean(getRequestApiKey());
 }
 
 function readUserId(req: Request) {

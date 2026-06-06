@@ -1,6 +1,7 @@
 export type AssetType = "character" | "scene" | "prop" | "style" | "other";
 export type AssetMediaKind = "image" | "video" | "none";
 export type AssetImageModel = "gpt-image-2" | "seedream-4" | "seedream-4-5" | "seedream-5-lite";
+export type StandardApiKeyRoute = "byteplus" | "volcengine-cn";
 /** Seedream-only subset of AssetImageModel that the sub-storyboard endpoint supports (no gpt-image-2). */
 export type SubStoryboardModel = "seedream-4" | "seedream-4-5" | "seedream-5-lite";
 
@@ -552,6 +553,26 @@ export interface WorkflowExecutionPlan {
   summary: string;
 }
 
+export interface SessionPackageMediaEntry {
+  url: string;
+  filename: string;
+  contentType: string;
+  base64: string;
+}
+
+export interface SessionPackage {
+  format: "seereel-session";
+  version: 1;
+  exportedAt: string;
+  sourceSessionId: string;
+  title: string;
+  appVersion?: string;
+  session: Session;
+  shots: Shot[];
+  assets: Asset[];
+  media: SessionPackageMediaEntry[];
+}
+
 export type NarrationStatus = "idle" | "running" | "ready" | "error";
 export type NarrationStrategy = "natural";
 
@@ -670,9 +691,18 @@ export interface StoreSnapshot {
   runtime?: {
     seedreamCredentialSource?: "standard" | "agent-plan" | "missing";
     seedreamDefaultModel?: AssetImageModel;
+    apiKeyCredential?: ApiKeyCredentialStatus;
     agentPlanCredential?: AgentPlanCredentialStatus;
     freeTrial?: FreeTrialStatus;
   };
+}
+
+export interface ApiKeyCredentialStatus {
+  configured: boolean;
+  fingerprint?: string;
+  route?: StandardApiKeyRoute;
+  updatedAt?: string;
+  storage?: AgentPlanCredentialStorageStatus;
 }
 
 export interface AgentPlanCredentialStatus {

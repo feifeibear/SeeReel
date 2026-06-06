@@ -10,7 +10,7 @@ import ffmpeg from "@ffmpeg-installer/ffmpeg";
 import type { Asset, AssetImageModel, SessionWithShots, Shot, StoryBeat, StoryPlan } from "../shared/types";
 import { composeSeedanceVideoText, composeSeedreamAssetPrompt, type Lang } from "./promptCompose";
 import { fetchWithRetry } from "./fetchWithRetry";
-import { arkMissingKeyMessage, resolveArkCredential, type ArkCredential } from "./arkCredentials";
+import { arkMissingKeyMessage, BYTEPLUS_ARK_BASE, resolveArkCredential, VOLCENGINE_CN_ARK_BASE, type ArkCredential, type StandardCredentialRouteConfig } from "./arkCredentials";
 import { seedreamWebSearchPayload } from "./seedreamOptions";
 
 export interface BuildSeedancePayloadOpts {
@@ -30,15 +30,18 @@ export interface BuildSeedancePayloadOpts {
 }
 
 export const MEDIA_DIR = path.resolve(process.cwd(), "data", "media");
-const BYTEPLUS_SEEDANCE_BASE = "https://ark.ap-southeast.bytepluses.com/api/v3";
+const BYTEPLUS_SEEDANCE_BASE = BYTEPLUS_ARK_BASE;
 const BYTEPLUS_SEEDANCE_MODEL = "dreamina-seedance-2-0-260128";
 const BYTEPLUS_SEEDANCE_FAST_MODEL = "dreamina-seedance-2-0-fast-260128";
+const VOLCENGINE_CN_SEEDANCE_BASE = VOLCENGINE_CN_ARK_BASE;
+const VOLCENGINE_CN_SEEDANCE_MODEL = "doubao-seedance-2-0";
+const VOLCENGINE_CN_SEEDANCE_FAST_MODEL = "doubao-seedance-2-0-fast";
 const AGENT_PLAN_SEEDANCE_MODEL = "doubao-seedance-2-0-260128";
 const AGENT_PLAN_SEEDANCE_FAST_MODEL = "doubao-seedance-2-0-fast-260128";
 const TERMINAL_STATUSES = new Set(["succeeded", "failed", "cancelled", "canceled"]);
 const STITCH_SIGNATURE_VERSION = "stitch-v3-crf18-high";
 const openAIKey = () => process.env.OAI_KEY || process.env.OPENAI_API_KEY;
-export const seedanceTimeoutMs = () => Number(process.env.SEEDANCE_TIMEOUT_MS || 30 * 60 * 1000);
+export const seedanceTimeoutMs = () => Number(process.env.SEEDANCE_TIMEOUT_MS || 45 * 60 * 1000);
 const stitchDownloadConcurrency = () => Math.max(1, Number(process.env.STITCH_DOWNLOAD_CONCURRENCY || 2));
 const ffmpegLogBytes = () => Math.max(1024, Number(process.env.STITCH_FFMPEG_LOG_BYTES || 4096));
 
@@ -48,8 +51,48 @@ const jsonHeaders = (apiKey?: string) => ({
 });
 
 const SEED_PROMPT_KEY_ENVS = ["SEED_PROMPT_API_KEY", "BP_ARK_API_KEY", "ARK_API_KEY"];
-const SEEDREAM_KEY_ENVS = ["SEEDREAM_API_KEY", "BP_ARK_API_KEY", "ARK_API_KEY"];
-const SEEDANCE_KEY_ENVS = ["BP_ARK_API_KEY", "SEEDANCE_API_KEY", "ARK_API_KEY"];
+const SEEDREAM_KEY_ENVS = [
+  "BP_ARK_API_KEY",
+  "BP_SEEDREAM_API_KEY",
+  "CN_ARK_API_KEY",
+  "CN_SEEDREAM_API_KEY",
+  "ARK_AGENT_PLAN_KEY"
+];
+const SEEDANCE_KEY_ENVS = [
+  "BP_ARK_API_KEY",
+  "BP_SEEDANCE_API_KEY",
+  "CN_ARK_API_KEY",
+  "CN_SEEDANCE_API_KEY",
+  "ARK_AGENT_PLAN_KEY"
+];
+const SEEDREAM_STANDARD_ROUTES: StandardCredentialRouteConfig[] = [
+  {
+    route: "byteplus",
+    keyEnvNames: ["BP_ARK_API_KEY", "BP_SEEDREAM_API_KEY"],
+    baseEnvNames: ["BP_SEEDREAM_API_BASE"],
+    defaultBase: BYTEPLUS_SEEDANCE_BASE
+  },
+  {
+    route: "volcengine-cn",
+    keyEnvNames: ["CN_ARK_API_KEY", "CN_SEEDREAM_API_KEY"],
+    baseEnvNames: ["CN_SEEDREAM_API_BASE"],
+    defaultBase: VOLCENGINE_CN_SEEDANCE_BASE
+  }
+];
+const SEEDANCE_STANDARD_ROUTES: StandardCredentialRouteConfig[] = [
+  {
+    route: "byteplus",
+    keyEnvNames: ["BP_ARK_API_KEY", "BP_SEEDANCE_API_KEY"],
+    baseEnvNames: ["BP_SEEDANCE_API_BASE"],
+    defaultBase: BYTEPLUS_SEEDANCE_BASE
+  },
+  {
+    route: "volcengine-cn",
+    keyEnvNames: ["CN_ARK_API_KEY", "CN_SEEDANCE_API_KEY"],
+    baseEnvNames: ["CN_SEEDANCE_API_BASE"],
+    defaultBase: VOLCENGINE_CN_SEEDANCE_BASE
+  }
+];
 
 /**
  * Guard against "silent fake success": when a paid model key is missing the dev paths return a
@@ -73,13 +116,18 @@ function seedPromptCredential() {
 function seedreamCredential() {
   return resolveArkCredential({
     keyEnvNames: SEEDREAM_KEY_ENVS,
-    baseEnvNames: ["SEEDREAM_API_BASE", "SEEDANCE_API_BASE"],
-    defaultBase: BYTEPLUS_SEEDANCE_BASE
+    baseEnvNames: ["BP_SEEDREAM_API_BASE"],
+    defaultBase: BYTEPLUS_SEEDANCE_BASE,
+    standardRoutes: SEEDREAM_STANDARD_ROUTES
   });
 }
 
 export function seedreamCredentialSource() {
   return seedreamCredential().source;
+}
+
+export function resolveSeedreamCredential() {
+  return seedreamCredential();
 }
 
 export function defaultSeedreamAssetImageModel(): AssetImageModel {
@@ -90,7 +138,8 @@ function seedanceCredential() {
   return resolveArkCredential({
     keyEnvNames: SEEDANCE_KEY_ENVS,
     baseEnvNames: ["SEEDANCE_API_BASE"],
-    defaultBase: BYTEPLUS_SEEDANCE_BASE
+    defaultBase: BYTEPLUS_SEEDANCE_BASE,
+    standardRoutes: SEEDANCE_STANDARD_ROUTES
   });
 }
 
@@ -676,11 +725,18 @@ const AGENT_PLAN_SEEDREAM_MODEL = "doubao-seedream-5.0-lite";
 // (`seedream-4-5-251128` / `seedream-4-0-250828`), while Volcengine Ark may expose the
 // `doubao-...` ids. Do NOT normalize unconditionally; instead try alternates only after the first
 // id returns InvalidEndpointOrModel.NotFound.
-function seedreamModelAlternates(modelId: string) {
-  const ids = [modelId];
-  if (modelId.startsWith("seedream-")) ids.push(`doubao-${modelId}`);
-  if (modelId.startsWith("doubao-seedream-")) ids.push(modelId.replace(/^doubao-/, ""));
+function seedreamModelAlternates(modelId: string, credential: ArkCredential) {
+  const routePreferredModel = seedreamModelForRoute(modelId, credential.standardRoute);
+  const ids = [routePreferredModel];
+  if (routePreferredModel.startsWith("seedream-")) ids.push(`doubao-${routePreferredModel}`);
+  if (routePreferredModel.startsWith("doubao-seedream-")) ids.push(routePreferredModel.replace(/^doubao-/, ""));
   return [...new Set(ids)];
+}
+
+function seedreamModelForRoute(modelId: string, route?: string) {
+  if (route === "volcengine-cn" && modelId.startsWith("seedream-")) return `doubao-${modelId}`;
+  if (route === "byteplus" && modelId.startsWith("doubao-seedream-")) return modelId.replace(/^doubao-/, "");
+  return modelId;
 }
 
 function resolveSeedreamModelIds(variant: SeedreamVariant, usesAgentPlan = false) {
@@ -693,7 +749,7 @@ function resolveSeedreamModelIds(variant: SeedreamVariant, usesAgentPlan = false
   const model = variant === "seedream-4-5"
     ? process.env.SEEDREAM_45_MODEL || process.env.SEEDREAM_4_5_MODEL || SEEDREAM_DEFAULT_MODEL["seedream-4-5"]
     : process.env.SEEDREAM_MODEL || SEEDREAM_DEFAULT_MODEL["seedream-4"];
-  return seedreamModelAlternates(model);
+  return [model];
 }
 
 async function generateAssetImageViaSeedream(
@@ -728,7 +784,9 @@ async function generateAssetImageViaSeedream(
   // — Seedream's API is request/response (the response body IS the image URL), so retry-on-
   // timeout is safe (no orphaned task to clean up). Wrap in fetchWithRetry so transient
   // "fetch failed" / 5xx don't kill the user's gen.
-  const modelIds = resolveSeedreamModelIds(variant, credential.source === "agent-plan");
+  const modelIds = resolveSeedreamModelIds(variant, credential.source === "agent-plan").flatMap((model) =>
+    seedreamModelAlternates(model, credential)
+  );
   let lastMissingModelError: unknown;
   for (const modelId of modelIds) {
     const response = await fetchWithRetry(`${credential.apiBase}/images/generations`, {
@@ -1090,7 +1148,7 @@ async function generateShotVideoViaBytePlusArk(shot: Shot, assets: Asset[], cred
 }
 
 async function buildBytePlusSeedancePayload(shot: Shot, assets: Asset[], opts: BuildSeedancePayloadOpts = {}) {
-  const model = resolveSeedanceModel(shot);
+  const model = resolveSeedanceModel(shot, opts.credential);
   const lang: Lang = opts.lang === "en" ? "en" : "zh";
   // The shot can drive Seedance in three mutually exclusive anchor modes (anchored from strongest
   // to weakest):
@@ -1508,15 +1566,20 @@ function getAssetReferenceUsage(asset: Asset) {
   return "Use this reference for its explicitly named visual details while keeping the user's prompt authoritative.";
 }
 
-export function resolveSeedanceModel(shot: Pick<Shot, "seedanceVariant">) {
-  const usesAgentPlan = seedanceCredential().source === "agent-plan";
+export function resolveSeedanceModel(shot: Pick<Shot, "seedanceVariant">, credential: ArkCredential = seedanceCredential()) {
+  const usesAgentPlan = credential.source === "agent-plan";
+  const usesVolcengineCn = credential.standardRoute === "volcengine-cn";
   if (shot.seedanceVariant === "fast") {
     return usesAgentPlan
       ? process.env.SEEDANCE_AGENT_PLAN_FAST_MODEL || AGENT_PLAN_SEEDANCE_FAST_MODEL
+      : usesVolcengineCn
+        ? process.env.SEEDANCE_CN_FAST_MODEL || VOLCENGINE_CN_SEEDANCE_FAST_MODEL
       : process.env.SEEDANCE_FAST_MODEL || BYTEPLUS_SEEDANCE_FAST_MODEL;
   }
   return usesAgentPlan
     ? process.env.SEEDANCE_AGENT_PLAN_MODEL || AGENT_PLAN_SEEDANCE_MODEL
+    : usesVolcengineCn
+      ? process.env.SEEDANCE_CN_MODEL || VOLCENGINE_CN_SEEDANCE_MODEL
     : process.env.SEEDANCE_MODEL || BYTEPLUS_SEEDANCE_MODEL;
 }
 

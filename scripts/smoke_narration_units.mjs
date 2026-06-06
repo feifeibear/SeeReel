@@ -5,7 +5,8 @@ import {
   splitScriptIntoLines,
   assembleNarrationTimeline,
   buildSrt,
-  computeNarrationSignature
+  computeNarrationSignature,
+  buildAmixFilter
 } from "../src/server/narration.ts";
 
 // ---------- 1. CJK split ----------
@@ -98,4 +99,14 @@ console.log(`\n== computeNarrationSignature ==\n  sig1=${sig1}\n  sig2=${sig2}  
 if (sig1 !== sig2) throw new Error("FAIL: same input must yield same signature");
 if (sig1 === sig3) throw new Error("FAIL: changed script must yield different signature");
 if (sig1 === sig4) throw new Error("FAIL: changed finalVideoSignature must yield different signature");
+
+// ---------- 8. ffmpeg compatibility ----------
+const amix = buildAmixFilter(10);
+console.log(`\n== buildAmixFilter ==\n  ${amix}`);
+if (amix.includes("normalize=")) {
+  throw new Error("FAIL: amix normalize option is not supported by the production ffmpeg build");
+}
+if (!/amix=inputs=10:duration=longest/.test(amix)) {
+  throw new Error(`FAIL: unexpected amix filter: ${amix}`);
+}
 console.log("\nALL UNIT CHECKS OK");

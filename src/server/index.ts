@@ -7,6 +7,7 @@ import type { ReadableStream as WebReadableStream } from "node:stream/web";
 import { fileURLToPath } from "node:url";
 import cors from "cors";
 import express, { type Request, type Response } from "express";
+import type { StandardApiKeyRoute } from "../shared/types";
 import {
   canUseBytePlusSeedance,
   type BuildSeedancePayloadOpts,
@@ -37,9 +38,12 @@ import { inferTokenUsageModelFamily, tokenUsageEventFromRaw } from "./tokenUsage
 import { publishAssetImageToTos, publishLocalMediaToTos, hasTosConfig } from "./tos";
 import {
   clearRequestAgentPlanKey,
+  clearRequestApiKey,
   currentUserId,
   requestAgentPlanStatus,
+  requestApiKeyStatus,
   setRequestAgentPlanKey,
+  setRequestApiKey,
   userCredentialMiddleware
 } from "./userCredentials";
 import { accessGuardEnabled, accessGuardMiddleware } from "./accessGuard";
@@ -83,6 +87,7 @@ import type {
   NarrationStrategy,
   SeedancePhase,
   Session,
+  SessionPackage,
   SessionWithShots,
   Shot,
   ShotRender,
@@ -238,7 +243,7 @@ if (isProduction) {
 app.use(visitorMetricsMiddleware);
 app.use(userCredentialMiddleware);
 app.use(accessGuardMiddleware);
-app.use(express.json({ limit: "25mb" }));
+app.use(express.json({ limit: "250mb" }));
 app.use("/media", mediaAccessGuard, express.static(path.resolve(process.cwd(), "data", "media")));
 
 /**
@@ -427,6 +432,47 @@ app.post("/api/sessions/:sessionId/handoff", async (req, res) => {
   });
 });
 
+app.get("/api/sessions/:sessionId/export", async (req, res) => {
+  const session = sessionById(req.params.sessionId);
+  if (!ownsSession(session)) return res.status(404).json({ error: "Session not found" });
+  const data = store.buildSessionPackageData(req.params.sessionId);
+  if (!data) return res.status(404).json({ error: "Session not found" });
+  try {
+    const media = await collectSessionPackageMedia(data);
+    const pack: SessionPackage = {
+      format: "seereel-session",
+      version: 1,
+      exportedAt: new Date().toISOString(),
+      sourceSessionId: data.session.id,
+      title: data.session.title || data.session.id,
+      appVersion: buildVersion,
+      session: data.session,
+      shots: data.shots,
+      assets: data.assets,
+      media
+    };
+    const filename = `${sanitizeFilePart(data.session.title || data.session.id)}.seereel-session`;
+    res.type("application/json");
+    res.attachment(filename);
+    res.send(JSON.stringify(pack, null, 2));
+  } catch (error) {
+    res.status(500).json({ error: error instanceof Error ? error.message : "Session export failed" });
+  }
+});
+
+app.post("/api/sessions/import", async (req, res) => {
+  const pack = req.body as SessionPackage | undefined;
+  if (!isSessionPackage(pack)) return res.status(400).json({ error: "Invalid SeeReel session package" });
+  try {
+    const importedPayload = await materializeSessionPackageMedia(pack);
+    const session = await store.importSessionPackageData(importedPayload, userIdForRequest());
+    if (!session) return res.status(400).json({ error: "Session import failed" });
+    res.json(session);
+  } catch (error) {
+    res.status(400).json({ error: error instanceof Error ? error.message : "Session import failed" });
+  }
+});
+
 async function claimHandoffAndRedirect(req: Request, res: Response) {
   const token = Array.isArray(req.params.token) ? req.params.token[0] : req.params.token;
   const claimed = await claimHandoffToken(token, userIdForRequest());
@@ -439,6 +485,35 @@ app.get("/handoff/:token", claimHandoffAndRedirect);
 
 app.get("/api/credentials/agent-plan", (_req, res) => {
   res.json(requestAgentPlanStatus());
+});
+
+app.get("/api/credentials/api-key", (_req, res) => {
+  res.json(requestApiKeyStatus());
+});
+
+app.post("/api/credentials/api-key", async (req, res) => {
+  const apiKey = typeof req.body?.apiKey === "string" ? req.body.apiKey.trim() : "";
+  const route = standardApiKeyRoute(req.body?.route);
+  if (!apiKey || apiKey.length < 8) return res.status(400).json({ error: "请输入有效的 API Key" });
+  try {
+    await setRequestApiKey(apiKey, route);
+    res.json(requestApiKeyStatus());
+  } catch (error) {
+    res.status(500).json({ error: error instanceof Error ? error.message : "保存 API Key 失败" });
+  }
+});
+
+function standardApiKeyRoute(value: unknown): StandardApiKeyRoute {
+  return value === "volcengine-cn" ? "volcengine-cn" : "byteplus";
+}
+
+app.delete("/api/credentials/api-key", async (_req, res) => {
+  try {
+    await clearRequestApiKey();
+    res.json(requestApiKeyStatus());
+  } catch (error) {
+    res.status(500).json({ error: error instanceof Error ? error.message : "清除 API Key 失败" });
+  }
 });
 
 app.post("/api/credentials/agent-plan", async (req, res) => {
@@ -588,6 +663,7 @@ function runtimeInfo() {
   return {
     seedreamCredentialSource: seedreamCredentialSource(),
     seedreamDefaultModel: defaultSeedreamAssetImageModel(),
+    apiKeyCredential: requestApiKeyStatus(),
     agentPlanCredential: requestAgentPlanStatus(),
     freeTrial: freeTrialStatus()
   };
@@ -773,6 +849,130 @@ function visibleLocalMediaUrls() {
     }
   }
   return urls;
+}
+
+function collectLocalMediaUrlsFromValue(value: unknown, urls = new Set<string>()) {
+  const add = (candidate: unknown) => {
+    const normalized = normalizeLocalMediaUrl(candidate);
+    if (normalized) urls.add(normalized);
+  };
+  if (typeof value === "string") {
+    add(value);
+  } else if (Array.isArray(value)) {
+    value.forEach((item) => collectLocalMediaUrlsFromValue(item, urls));
+  } else if (value && typeof value === "object") {
+    Object.values(value as Record<string, unknown>).forEach((item) => collectLocalMediaUrlsFromValue(item, urls));
+  }
+  return urls;
+}
+
+function localMediaPathFromUrl(mediaUrl: string) {
+  const normalized = normalizeLocalMediaUrl(mediaUrl);
+  if (!normalized) throw new Error(`Not a local media URL: ${mediaUrl}`);
+  const relative = normalized.slice("/media/".length);
+  const resolved = path.resolve(MEDIA_DIR, relative);
+  const mediaRoot = path.resolve(MEDIA_DIR);
+  if (resolved !== mediaRoot && !resolved.startsWith(`${mediaRoot}${path.sep}`)) {
+    throw new Error(`Unsafe media path: ${mediaUrl}`);
+  }
+  return resolved;
+}
+
+function contentTypeForFilename(filename: string) {
+  const ext = path.extname(filename).toLowerCase();
+  if (ext === ".png") return "image/png";
+  if (ext === ".jpg" || ext === ".jpeg") return "image/jpeg";
+  if (ext === ".webp") return "image/webp";
+  if (ext === ".gif") return "image/gif";
+  if (ext === ".mp4") return "video/mp4";
+  if (ext === ".webm") return "video/webm";
+  if (ext === ".mp3") return "audio/mpeg";
+  if (ext === ".wav") return "audio/wav";
+  return "application/octet-stream";
+}
+
+async function collectSessionPackageMedia(data: { session: Session; shots: Shot[]; assets: Asset[] }): Promise<SessionPackage["media"]> {
+  const urls = collectLocalMediaUrlsFromValue(data);
+  const entries: SessionPackage["media"] = [];
+  for (const url of Array.from(urls).sort()) {
+    const filePath = localMediaPathFromUrl(url);
+    const bytes = await readFile(filePath);
+    const filename = path.basename(filePath) || "media.bin";
+    entries.push({
+      url,
+      filename,
+      contentType: contentTypeForFilename(filename),
+      base64: bytes.toString("base64")
+    });
+  }
+  return entries;
+}
+
+function isSessionPackage(value: unknown): value is SessionPackage {
+  const pack = value as Partial<SessionPackage> | undefined;
+  return Boolean(
+    pack &&
+    pack.format === "seereel-session" &&
+    pack.version === 1 &&
+    pack.session?.id &&
+    Array.isArray(pack.shots) &&
+    Array.isArray(pack.assets) &&
+    Array.isArray(pack.media)
+  );
+}
+
+function replacePackageMediaUrls<T>(value: T, mediaUrlMap: Map<string, string>): T {
+  if (typeof value === "string") {
+    const normalized = normalizeLocalMediaUrl(value);
+    return (normalized && mediaUrlMap.has(normalized) ? mediaUrlMap.get(normalized)! : value) as T;
+  }
+  if (Array.isArray(value)) {
+    return value.map((item) => replacePackageMediaUrls(item, mediaUrlMap)) as T;
+  }
+  if (value && typeof value === "object") {
+    const clone: Record<string, unknown> = {};
+    for (const [key, child] of Object.entries(value as Record<string, unknown>)) {
+      clone[key] = replacePackageMediaUrls(child, mediaUrlMap);
+    }
+    return clone as T;
+  }
+  return value;
+}
+
+async function materializeSessionPackageMedia(pack: SessionPackage) {
+  const importId = `portable-${Date.now()}-${randomUUID().slice(0, 8)}`;
+  const targetDir = path.join(MEDIA_DIR, "imports", importId);
+  const mediaUrlMap = new Map<string, string>();
+  if (pack.media.length) await mkdir(targetDir, { recursive: true });
+  for (const [index, entry] of pack.media.entries()) {
+    const sourceUrl = normalizeLocalMediaUrl(entry.url);
+    if (!sourceUrl) continue;
+    const rawBase = path.basename(entry.filename || sourceUrl) || `media-${index}`;
+    const ext = path.extname(rawBase) || extensionForContentType(entry.contentType);
+    const stem = sanitizeFilePart(rawBase.slice(0, rawBase.length - ext.length) || `media-${index}`);
+    const filename = `${String(index + 1).padStart(3, "0")}-${stem}${ext}`;
+    const bytes = Buffer.from(entry.base64 || "", "base64");
+    if (!bytes.length) throw new Error(`Media entry ${entry.url} is empty`);
+    await writeFile(path.join(targetDir, filename), bytes);
+    mediaUrlMap.set(sourceUrl, `/media/imports/${importId}/${encodeURIComponent(filename)}`);
+  }
+  return {
+    session: replacePackageMediaUrls(pack.session, mediaUrlMap),
+    shots: replacePackageMediaUrls(pack.shots, mediaUrlMap),
+    assets: replacePackageMediaUrls(pack.assets, mediaUrlMap)
+  };
+}
+
+function extensionForContentType(contentType: string | undefined) {
+  if (contentType === "image/png") return ".png";
+  if (contentType === "image/jpeg") return ".jpg";
+  if (contentType === "image/webp") return ".webp";
+  if (contentType === "image/gif") return ".gif";
+  if (contentType === "video/mp4") return ".mp4";
+  if (contentType === "video/webm") return ".webm";
+  if (contentType === "audio/mpeg") return ".mp3";
+  if (contentType === "audio/wav") return ".wav";
+  return ".bin";
 }
 
 function mediaAccessGuard(req: Request, res: Response, next: () => void) {

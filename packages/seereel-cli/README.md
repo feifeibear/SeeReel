@@ -26,10 +26,17 @@ For deployments protected by `SEEREEL_ACCESS_TOKEN`:
 seereelcli configure --base-url https://seereel.studio --access-token "$SEEREEL_ACCESS_TOKEN"
 ```
 
-For browser-scoped Agent Plan generation:
+For browser-scoped Agent Plan generation, which is the default guided setup:
 
 ```bash
 seereelcli configure --agent-plan-token "$ARK_AGENT_PLAN_KEY"
+```
+
+For standard Seedance API generation, choose a route explicitly. When BP, CN, and Agent Plan are all configured, the CLI/server use `BP > CN > Agent Plan`:
+
+```bash
+seereelcli configure --api-key "$BP_ARK_API_KEY" --api-key-route byteplus
+seereelcli configure --api-key "$CN_ARK_API_KEY" --api-key-route volcengine-cn
 ```
 
 Main commands:

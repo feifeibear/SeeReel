@@ -15,6 +15,33 @@ SeeReel is a cloud-visible production board. The agent is the director: design t
 - Seedance shots are max 15s. For any requested duration: `shotCount = Math.ceil(totalDurationSec / 15)`.
 - Seedance tasks may exceed 15 minutes. Keep polling patiently; do not resubmit just because a task is slow.
 - Only send public or signed `http(s)` URLs to Seedance. Local `/media/...` preview paths must be published to TOS first.
+- Do not add per-shot background music, score, soundtrack, BGM, stingers, or musical cues by default. They drift between generated shots and stitch poorly. Prompts should request normal diegetic sound only: dialogue, room tone, footsteps, clothing/prop handling, machinery, street ambience, wind, crowd murmur, etc. Use music only when the user explicitly asks, and then define it as one continuous session-level audio bed rather than different music per shot.
+- Choose one dialogue language for the whole session from the user's request or `Session.language`. Keep every spoken line in that language across `StoryPlan`, shot scripts, and video prompts. If the technical prompt is written in English for model clarity, quoted dialogue must still remain in the selected dialogue language; do not mix Chinese and English spoken lines unless the user explicitly asks for multilingual dialogue.
+
+## Story Spine And Scene Design
+
+Before rendering any narrative short, write a compact story spine into the session. A pretty shot list is not enough: the session needs one protagonist, one pressure or scam, an escalation, a reversal, and a payoff that answers the title or premise.
+
+For satire, comedy, or dialogue-driven shorts, save these before generation:
+
+1. **Story spine**: title promise, protagonist, want/fear, antagonist or social pressure, scam/mechanism, escalation, reversal, final joke or sting.
+2. **Character functions**: who is the ordinary-person anchor, who profits from confusion, who says the audience's skeptical thought, and who changes by the end.
+3. **Beat ladder**: every shot changes story state. A 60s/4-shot comedy should normally read as setup -> pitch/trap -> escalation -> reversal/payoff.
+4. **Scene objective**: each shot needs a visible objective, not just an atmosphere. Name what the scene proves, sells, reveals, or overturns.
+5. **Dialogue packet**: for each 15s shot, write 1-3 short speakable lines that are tied to visible action. Dialogue should reveal status, fear, contradiction, or punchline.
+6. **Audio and language packet**: record the single dialogue language and the non-musical sound bed for the session. Example: "spoken dialogue: Mandarin Chinese throughout; audio: natural street/room ambience, footsteps, props, crowd murmur, no music score."
+
+Dialogue belongs in story beats, shot scripts, and prompt intent. Do not rely on subtitles or readable signs to carry the plot. In video prompts, state that dialogue is performed naturally and that there are no subtitles, no readable on-screen text, and no text overlays.
+
+For every dialogue-driven prompt, also state: spoken dialogue is in the session's chosen language throughout; no mixed-language dialogue unless requested; natural diegetic sound only; no music score, no BGM, no per-shot soundtrack.
+
+Pre-render story audit:
+
+- Can the agent summarize the film in beginning / middle / end / punchline form?
+- Does every shot cause the next shot, instead of merely sharing the same theme?
+- Does the final shot reverse or complete the first-shot problem?
+- Would the story still be understandable if the viewer muted the video?
+- If the generator produced generic, contaminated, or asset-leaking beats, patch the `StoryPlan` and all affected shot prompts manually before rendering.
 
 ## Short One-Shot Frame Director
 
@@ -59,11 +86,14 @@ Default for short one-shot illusion:
 Every Seedance prompt should carry:
 
 1. Continuity bible.
-2. Segment number and role in the rhythm map.
-3. Entry frame: what the viewer sees at 0s.
-4. Motion beats: `0-4s`, `4-9s`, `9-13s`, `13-15s`.
-5. Exit frame: what must be true at the final frame for the next handoff.
-6. Negative constraints: no subtitles, no text overlays, no route line unless requested, no landmark jumps, no teleporting, no style drift.
+2. Story spine role: setup, trap, escalation, reversal, payoff, or bridge.
+3. Segment number and role in the rhythm map.
+4. Entry frame: what the viewer sees at 0s.
+5. Motion beats: `0-4s`, `4-9s`, `9-13s`, `13-15s`.
+6. Dialogue/action packet: 1-3 short lines performed naturally, each attached to a visible gesture, decision, or reaction.
+7. Sound packet: normal diegetic audio only, such as the characters' spoken dialogue in one chosen language, room tone, footsteps, props, machinery, street ambience, wind, or crowd murmur; no music score, no BGM, no per-shot soundtrack unless the user explicitly requested a continuous session-level music bed.
+8. Exit frame: what must be true at the final frame for the next handoff.
+9. Negative constraints: no subtitles, no text overlays, no route line unless requested, no landmark jumps, no teleporting, no style drift, no mixed-language dialogue unless requested, no music score by default.
 
 For drone FPV routes, write like a flight plan: altitude, speed, banking direction, landmark pass order, distance to buildings, water/skyline relation, and exit bearing.
 
@@ -73,15 +103,16 @@ Use this order for full automation:
 
 1. Create/select one session.
 2. Upload local user references as cloud assets.
-3. Save route bible, rhythm map, and segment sheet in session/shot prompts.
-4. Generate server-side storyboard/sub-storyboard assets for the segments.
-5. Publish any local references/tailframes to TOS before Seedance.
-6. Generate shots serially according to the frame-mode plan.
-7. Poll patiently; Seedance can run longer than 15 minutes.
-8. After each ready shot, inspect state, extract tailframe when needed, and patch the next shot.
-9. Stitch only when required shots are `ready`.
-10. Download only the final cloud artifact to the user computer.
-11. Return the final path plus a fresh `handoffUrl`, not a raw CLI-only `webUrl`.
+3. Save story spine, character functions, beat ladder, dialogue packet, and scene objectives into the session `StoryPlan`.
+4. Save route bible, rhythm map, and segment sheet in session/shot prompts.
+5. Generate server-side storyboard/sub-storyboard assets for the segments.
+6. Publish any local references/tailframes to TOS before Seedance.
+7. Generate shots serially according to the frame-mode plan.
+8. Poll patiently; Seedance can run longer than 15 minutes.
+9. After each ready shot, inspect state, extract tailframe when needed, and patch the next shot.
+10. Stitch only when required shots are `ready`.
+11. Download only the final cloud artifact to the user computer.
+12. Return the final path plus a fresh `handoffUrl`, not a raw CLI-only `webUrl`.
 
 ## Failure Handling
 

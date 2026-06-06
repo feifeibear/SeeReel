@@ -86,7 +86,8 @@ const ROW_HEIGHT = 240;
  *   - Asset → Storyboard: this asset's id is in the storyboard asset's referenceAssetIds
  *     (or, when no storyboard exists yet, the shot's assetIds — fallback)
  *   - Storyboard → Shot: shot.subShotStoryboardAssetId points to the storyboard asset
- *   - Shot → Stitch: every shot of the session feeds the single stitch output
+ *   - Shot → Stitch: explicit stitch playlists are shown as editable solid edges; empty playlists
+ *     still show faint default edges because the server stitches the full film by shot order
  *
  * The graph re-derives on every snapshot — there's no separate "flow state" persisted on the
  * server, so the flow view stays in sync with the API by construction.
@@ -455,20 +456,29 @@ export function buildSessionGraph(snapshot: StoreSnapshot, session: SessionWithS
       position: { x: COLUMN_X.stitch, y: middleY },
       data: { kind: "stitch", session, job, legacy } satisfies StitchNodeData
     });
-    (job.shotIds || []).forEach((shotId, orderIndex) => {
+    const explicitShotIds = job.shotIds || [];
+    const stitchShotIds = explicitShotIds.length > 0 ? explicitShotIds : orderedShots.map((shot) => shot.id);
+    const defaultOrder = explicitShotIds.length === 0;
+    stitchShotIds.forEach((shotId, orderIndex) => {
       const shot = orderedShots.find((item) => item.id === shotId);
       if (!shot) return;
       edges.push({
-        id: `e-stitch-${shot.id}-${session.id}-${job.id}`,
+        id: defaultOrder
+          ? `e-stitch-default-${shot.id}-${session.id}-${job.id}`
+          : `e-stitch-${shot.id}-${session.id}-${job.id}`,
         source: `shot-${shot.id}`,
         target: stitchNodeId,
         animated: job.status === "running",
-        data: { canDisconnectStitch: true, stitchShotId: shot.id, stitchJobId: job.id, stitchOrderIndex: orderIndex },
+        deletable: !defaultOrder,
+        data: defaultOrder
+          ? { derivedDefaultStitch: true, stitchShotId: shot.id, stitchJobId: job.id, stitchOrderIndex: orderIndex }
+          : { canDisconnectStitch: true, stitchShotId: shot.id, stitchJobId: job.id, stitchOrderIndex: orderIndex },
         label: String(orderIndex + 1),
         style: {
           stroke: "#34d399",
-          strokeWidth: 2,
-          ...(shot.videoUrl ? {} : { strokeDasharray: "4 3", opacity: 0.65 })
+          strokeWidth: defaultOrder ? 1.5 : 2,
+          opacity: defaultOrder ? 0.45 : 1,
+          ...(defaultOrder ? { strokeDasharray: "7 5" } : shot.videoUrl ? {} : { strokeDasharray: "4 3", opacity: 0.65 })
         }
       });
     });

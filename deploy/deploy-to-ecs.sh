@@ -258,7 +258,7 @@ remote_env="$(
   env_line SEEDANCE_GENERATE_AUDIO "$(env_value SEEDANCE_GENERATE_AUDIO true)"
   env_line SEEDANCE_WATERMARK "$(env_value SEEDANCE_WATERMARK false)"
   env_line SEEDANCE_POLL_MS "$(env_value SEEDANCE_POLL_MS 5000)"
-  env_line SEEDANCE_TIMEOUT_MS "$(env_value SEEDANCE_TIMEOUT_MS 900000)"
+  env_line SEEDANCE_TIMEOUT_MS "$(env_value SEEDANCE_TIMEOUT_MS 2700000)"
   env_line VOLC_TTS_APPID "$(env_value VOLC_TTS_APPID)"
   env_line VOLC_TTS_TOKEN "$(env_value VOLC_TTS_TOKEN)"
   env_line VOLC_TTS_RESOURCE_ID "$(env_value VOLC_TTS_RESOURCE_ID seed-tts-1.0)"

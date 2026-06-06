@@ -155,6 +155,7 @@ SeeReel is an **agent-operable, human-takeover canvas for filmmaking**:
 - The AI can create, inspect, update, render, review, repair, and stitch through stable commands.
 - The human can interrupt at any point and edit the same session in the web app.
 - The canvas remains the source of truth for scripts, shots, prompts, references, renders, reviews, and final videos.
+- Dialogue workflows keep one spoken language across the session and default to natural diegetic sound; agents should not add per-shot music/BGM/score because stitched clips will not share one continuous soundtrack.
 - VLM review is part of the product loop, not an afterthought.
 - It supports public web trials, bring-your-own-token generation, and local source-level customization.
 
@@ -204,21 +205,37 @@ Production-style local run:
 NODE_ENV=production PORT=5174 npm run start
 ```
 
-Without provider keys, the app still opens and can be explored in mock mode. For real video generation, configure Agent Plan and TOS.
+Without provider keys, the app still opens and can be explored in mock mode. For real generation, configure API Keys and TOS.
 
 ## Real Generation Setup
 
-Recommended route: [Volcengine Agent Plan](https://www.volcengine.com/docs/82379/2366394?lang=zh). One Agent Plan key can cover SeeReel's Seedream image generation, Seedance video generation, and Seed/VLM review path through the dedicated `/api/plan/v3` route.
+Default route: [Volcengine Agent Plan](https://www.volcengine.com/docs/82379/2366394?lang=zh). One Agent Plan key can cover SeeReel's Seedream image generation, Seedance video generation, and Seed/VLM review path through the dedicated `/api/plan/v3` route.
 
 ```bash
 ARK_AGENT_PLAN_KEY=<your-agent-plan-key>
-SEEREEL_USE_AGENT_PLAN=1
 ARK_AGENT_PLAN_BASE=https://ark.cn-beijing.volces.com/api/plan/v3
 SEEDREAM_AGENT_PLAN_MODEL=doubao-seedream-5.0-lite
 SEEDANCE_AGENT_PLAN_MODEL=doubao-seedance-2-0-260128
 SEEDANCE_AGENT_PLAN_FAST_MODEL=doubao-seedance-2-0-fast-260128
 VISION_REVIEW_AGENT_PLAN_MODEL=doubao-seed-2.0-pro
 VIDEO_ANALYZE_AGENT_PLAN_MODEL=doubao-seed-2.0-pro
+```
+
+Preferred local route when available: standard Ark API keys. If BP, CN, and Agent Plan keys are all configured, SeeReel uses `BP > CN > Agent Plan`:
+
+```bash
+BP_ARK_API_KEY=<your-standard-ark-api-key>
+BP_SEEDREAM_API_KEY=<optional-seedream-only-bp-key>
+BP_SEEDREAM_API_BASE=https://ark.ap-southeast.bytepluses.com/api/v3
+BP_SEEDANCE_API_KEY=<optional-seedance-only-bp-key>
+BP_SEEDANCE_API_BASE=https://ark.ap-southeast.bytepluses.com/api/v3
+
+CN_ARK_API_KEY=<your-cn-ark-api-key>
+CN_SEEDREAM_API_KEY=<optional-seedream-only-cn-key>
+CN_SEEDREAM_API_BASE=https://ark.cn-beijing.volces.com/api/v3
+CN_SEEDANCE_API_KEY=<optional-seedance-only-cn-key>
+CN_SEEDANCE_API_BASE=https://ark.cn-beijing.volces.com/api/v3
+SEEDANCE_CN_MODEL=doubao-seedance-2-0
 ```
 
 TOS is separate and still required when local or Codex-generated references must be sent to remote Seedance workers:
@@ -237,7 +254,11 @@ Fallback and optional providers:
 
 | Capability | Environment |
 | --- | --- |
-| Fallback Ark model calls | `BP_ARK_API_KEY` / `ARK_API_KEY` / service-specific keys |
+| Seedream BP standard API | `BP_ARK_API_KEY` / `BP_SEEDREAM_API_KEY` |
+| Seedream CN standard API | `CN_ARK_API_KEY` / `CN_SEEDREAM_API_KEY` |
+| Seedance BP standard API | `BP_ARK_API_KEY` / `BP_SEEDANCE_API_KEY` |
+| Seedance CN standard API | `CN_ARK_API_KEY` / `CN_SEEDANCE_API_KEY` |
+| Agent Plan | `ARK_AGENT_PLAN_KEY` |
 | Optional script generation | `OPENAI_API_KEY` / `OAI_KEY` |
 | Optional narration | `VOLC_TTS_APPID` / `VOLC_TTS_TOKEN` |
 | Public media fallback | non-localhost `PUBLIC_MEDIA_BASE_URL` |
@@ -270,6 +291,7 @@ npm run install:skill
 | Skill | Use |
 | --- | --- |
 | `seereel-shortdrama` | End-to-end short-drama production |
+| `seereel-canvas-review` | Review-first script, cast, scene, storyboard, and shot-prompt canvas |
 | `seereel-agent-session` | REST-driven session control |
 | `seereel-cli` | Local CLI workflow and fine-grained node control |
 | `seereel-script-chat` | Script and casting chat flow |
@@ -303,6 +325,8 @@ The web UI, CLI, and agents share the same API and persisted state.
 | Stitch final video | `POST /api/sessions/:sessionId/stitch` |
 | Poll stitch | `POST /api/sessions/:sessionId/stitch/poll` |
 | Download final video | `GET /api/sessions/:sessionId/download` |
+| Export editable session package | `GET /api/sessions/:sessionId/export` |
+| Import editable session package | `POST /api/sessions/import` |
 
 See [AGENTS.md](AGENTS.md) and [.agents/skills/seereel-agent-session/reference.md](.agents/skills/seereel-agent-session/reference.md) for operating details.
 

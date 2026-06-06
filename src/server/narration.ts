@@ -816,13 +816,13 @@ async function renderFinalNarratedVideo(opts: {
   } else if (narrationLabels.length === 1) {
     filterParts.push(`${narrationLabels[0]}anull[narrmix]`);
   } else {
-    filterParts.push(`${narrationLabels.join("")}amix=inputs=${narrationLabels.length}:duration=longest:normalize=0[narrmix]`);
+    filterParts.push(`${narrationLabels.join("")}${buildAmixFilter(narrationLabels.length)}[narrmix]`);
   }
 
   // Ambient track: from input 0 if present, otherwise the silent stereo source.
   const ambientSourceLabel = hasAudio ? "[0:a]" : `[${silenceInputIndex}:a]`;
   filterParts.push(`${ambientSourceLabel}aformat=channel_layouts=stereo,volume=${ambientGain.toFixed(3)}[ambient]`);
-  filterParts.push(`[ambient][narrmix]amix=inputs=2:duration=longest:normalize=0[aout]`);
+  filterParts.push(`[ambient][narrmix]${buildAmixFilter(2)}[aout]`);
 
   ffmpegArgs.push("-filter_complex", filterParts.join(";"));
   ffmpegArgs.push("-map", "0:v", "-map", "[aout]");
@@ -852,4 +852,9 @@ async function renderFinalNarratedVideo(opts: {
     throw err;
   }
   await report(`ffmpeg narration mix done in ${((Date.now() - start) / 1000).toFixed(1)}s`);
+}
+
+export function buildAmixFilter(inputCount: number) {
+  const safeCount = Math.max(1, Math.floor(inputCount));
+  return `amix=inputs=${safeCount}:duration=longest`;
 }

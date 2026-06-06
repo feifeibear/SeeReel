@@ -62,6 +62,11 @@ async function main() {
     const url = new URL(req.url || "/", "http://127.0.0.1");
     calls.push({ method: req.method, path: url.pathname });
     if (req.method === "GET" && url.pathname === "/api/healthz") return json(res, { ok: true });
+    if (req.method === "GET" && url.pathname === "/api/credentials/api-key") return json(res, { configured: false });
+    if (req.method === "POST" && url.pathname === "/api/credentials/api-key") {
+      await readBody(req);
+      return json(res, { configured: true, fingerprint: "api-smoke" });
+    }
     if (req.method === "GET" && url.pathname === "/api/credentials/agent-plan") return json(res, { configured: true, fingerprint: "smoke" });
     if (req.method === "GET" && url.pathname === "/api/state") {
       return json(res, { sessions: [session], shots, assets: [referenceAsset] });

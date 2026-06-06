@@ -18,6 +18,7 @@ npm run install:skill
 `install:skill` auto-detects installed runtimes and copies each skill in `.agents/skills/` to that runtime's global dir (`~/.codex|.claude|.cursor|.agents/skills`), plus gitignored in-repo project mirrors for Cursor and Claude Code (`.cursor/skills/`, `.claude/skills/`). Skills shipped:
 
 - `seereel-shortdrama`: end-to-end short-drama production workflow
+- `seereel-canvas-review`: expand a rough idea into reviewable Canvas nodes without video generation
 - `seereel-storyboard-imagegen`: Codex imagegen / `gpt-image-2` cinematic storyboard prompt workflow
 - `seereel-script-chat`: guided script-development chat flow
 - `seereel-agent-session`: REST-driven session control
@@ -72,7 +73,7 @@ npm install -g ./packages/seereel-cli
 npm run cli -- workflow "a short video idea in natural language" --duration 60
 ```
 
-Default CLI behavior is intentionally review-first: create/select the CLI cookie-scoped user session, save the prompt as the session logline, generate the script, generate the storyboard/workflow, then return a one-time `handoffUrl` for human takeover in the browser. Raw `webUrl` links belong to the CLI cookie identity and may not be visible in a normal browser. Use `seereelcli render --session latest --stitch` only when the user explicitly wants paid video generation to continue.
+Default CLI behavior is intentionally review-first: create/select the CLI cookie-scoped user session, save the prompt as the session logline, generate the script, generate the storyboard/workflow, then return a one-time `handoffUrl` for human takeover in the browser. Raw `webUrl` links belong to the CLI cookie identity and may not be visible in a normal browser. Default credential guidance is Agent Plan, but `seereelcli configure --api-key "$BP_ARK_API_KEY" --api-key-route byteplus` and `seereelcli configure --api-key "$CN_ARK_API_KEY" --api-key-route volcengine-cn` are supported. If BP, CN, and Agent Plan are all configured, Seedance uses `BP > CN > Agent Plan`. Use `seereelcli render --session latest --stitch` only when the user explicitly wants paid video generation to continue.
 
 ## Operating Model
 
@@ -80,6 +81,7 @@ Default CLI behavior is intentionally review-first: create/select the CLI cookie
 - The app stores and displays scripts, beats, shots, prompts, assets, sketches, renders, stitch state, and final videos.
 - The user can take over in the web UI at any point. Treat manual UI edits as source of truth.
 - Keep generated intermediate results visible in the app; avoid private scratch artifacts unless they are imported afterward.
+- For dialogue videos, keep one spoken language across the whole session. Default to normal diegetic sound such as dialogue, ambience, footsteps, props, and crowd noise; do not add per-shot music/BGM/score because separately generated music will not stitch continuously.
 - Prefer SeeReel APIs and persisted canvas state over manual filesystem work. If an existing endpoint can create, import, publish, generate, poll, stitch, cache, or wire an artifact, use it. Manual downloads, `ffmpeg`, or file patches are recovery steps only; immediately write the result back through SeeReel APIs/state so graph edges, Inspector data, `stitchShotIds`, `referenceVideoFromShotId`, `firstFrameAssetId`, `assetIds`, renders, and `finalVideoUrl` stay auditable in the UI.
 
 ## Spec Coding
