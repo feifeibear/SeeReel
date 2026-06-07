@@ -1,151 +1,91 @@
 ---
 name: seereel-storyboard-imagegen
-description: Generate cinematic storyboard contact sheets for one Seedance shot using Codex imagegen or gpt-image-2. Use when the user asks for Codex imagegen storyboards, gpt-image-2 storyboard prompts, cinematic 3x3 storyboard sheets, Seedance shot visual summaries, 分镜故事板, 故事板参考图, or storyboard-to-Seedance reference workflows.
+description: Use when a SeeReel shot needs a storyboard contact-sheet image prompt, Codex imagegen/gpt-image-2 storyboard reference, or clean keyframe planning before Seedance.
 ---
 
-# ReelyAI Storyboard Imagegen
+# SeeReel Storyboard Imagegen
 
-## Purpose
+## Boundary
 
-Create a cinematic storyboard that summarizes the visual arc of one Seedance-generated shot. The goal is not a random beautiful image; it is a coherent mini-sequence that helps a human and Seedance understand movement, continuity, tone, and shot language.
+Boundary: storyboard reference images only. This skill owns cinematic contact-sheet prompts and clean keyframe planning for one shot.
 
-Use this skill before importing a storyboard into ReelyAI or before asking a model such as `gpt-image-2` / Codex imagegen to draw the storyboard.
+Does not author the full Seedance video prompt. Does not decide script, casting, `assetIds`, camera grammar for the whole film, continuity mode, render order, or stitch.
 
-## Required input
+Use `seereel-cinematography` for the full shot contract and `seereel-casting-assets` for approved character/scene references.
 
-Before generating, make sure you have enough scene context:
+## Inputs
 
-- shot title and index
-- script/action beat
-- characters and wardrobe
-- location and production design
-- emotional tone and pacing
-- target video ratio and duration
-- camera/lens/movement requirements
-- continuity constraints from previous/next shots
-- any required visual references or brand/safety constraints
+- shot index/title and duration
+- locked beat purpose from StoryPlan
+- approved character/scene/prop references
+- location, wardrobe, action progression, emotional turn
+- camera intent from `seereel-cinematography`
+- previous/next continuity constraint
+- target aspect ratio
 
-If the user has not provided a scene or shot description, ask for it first.
+If the shot contract is missing, return to `seereel-cinematography` before drawing.
 
-## Storyboard format
+## Contact Sheet Rules
 
-Generate one image as a cinematic contact sheet:
+Default to a 16:9 image containing a strict declared grid: 2x2, 2x4, 3x3, or another justified grid.
 
-- Overall aspect ratio: `16:9`
-- Layout: `3 x 3`, total `9` panels
-- Panel order: left-to-right, top-to-bottom
-- Each panel is a widescreen movie still from the same shot
-- Each panel should include a small visible frame number `1` to `9` for human review
-- The nine panels should show the beginning, progression, and end state of one Seedance video shot
+- Panel order: left-to-right, top-to-bottom.
+- Every panel is a complete movie still.
+- Every panel shows one visible, filmable action, reaction, object insert, camera move, blocking change, reveal, or exit handoff.
+- The sequence shows opening state, progression, central turn, consequence, and ending/handoff frame.
+- Keep character, wardrobe, location, lighting, screen direction, and object continuity stable across panels.
+- It is not a concept board, mood board, poster, symbolic collage, or abstract theme sheet.
+- Small frame numbers are allowed for human review.
 
-Important: the 3x3 numbered contact sheet is for planning and review. If the image will be sent directly to Seedance as `reference_image`, prefer also generating or extracting a clean keyframe without panel borders, numbers, or labels. Seedance may otherwise imitate the contact-sheet layout.
+If the contact sheet will be passed to Seedance as a reference image, also create or identify a clean keyframe without grid borders, numbers, labels, or captions whenever first-frame precision matters.
 
-## Film-director analysis
-
-Before writing the image prompt, reason through:
-
-- emotional arc
-- movement progression
-- character blocking
-- screen direction
-- environment continuity
-- lighting continuity
-- camera progression
-- foreground/background layering
-- the strongest frame to use as a later clean key reference
-
-The sequence should feel like nine connected frames from a real edited film scene.
-
-## Cinematic requirements
-
-Include:
-
-- strong composition and motivated framing
-- realistic depth, perspective, and scale
-- foreground, midground, and background layering
-- motivated movie lighting with clear source direction
-- consistent color grading across all panels
-- varied but coherent camera language: establishing, wide, medium, close-up, over-the-shoulder, tracking, low-angle, high-angle, insert, or reaction shots as appropriate
-- consistent characters, wardrobe, props, environment, weather, and lighting
-- visible motion progression, not nine unrelated poses
-
-Avoid:
-
-- disconnected images
-- inconsistent character designs
-- inconsistent environments
-- generic AI-looking beauty shots
-- random dramatic lighting that breaks continuity
-- excessive text, captions, logos, watermarks, or title cards outside the small frame numbers
-
-## Prompt template
-
-Use this structure for Codex imagegen / `gpt-image-2`:
+## Prompt Template
 
 ```text
-Create a professional cinematic storyboard contact sheet for one AI video shot.
+Create a professional cinematic storyboard contact sheet for one SeeReel AI video shot.
 
-Overall image: 16:9 aspect ratio, 3x3 grid, nine widescreen panels, panels numbered 1 through 9 for review.
-
+Overall image: 16:9 aspect ratio, strict [declared grid], complete widescreen panels, ordered left-to-right/top-to-bottom.
 Scene: [shot title, duration, and one-sentence premise]
-Characters: [consistent character descriptions, wardrobe, props]
-Location: [environment, time of day, production design, weather]
+Characters: [approved character references, wardrobe, props]
+Location: [environment, time, production design]
 Tone: [emotional tone and pacing]
-Continuity: [previous/next shot constraints, screen direction, lighting continuity]
-Visual style: [cinematic genre, color grade, lens feel, texture]
+Continuity: [previous/next handoff, screen direction, lighting continuity]
+Visual style: [style bible summary]
 
 Panel progression:
-1. [opening state / establishing image]
-2. [first movement or reaction]
-3. [blocking change]
-4. [tension or camera push]
-5. [central dramatic beat]
-6. [action/reaction continuation]
-7. [closeup/insert/turning point]
-8. [movement resolution]
-9. [ending frame that leads into next shot]
+1. [opening frame and story state]
+2. [filmable action or reaction]
+3. [blocking or object action]
+4. [pressure or camera/actor movement]
+5. [central reveal, decision, contradiction, or joke]
+6. [reaction or consequence]
+7. [insert/closeup/turning point tied to a concrete object/face/hand]
+8. [movement resolution or handoff setup]
+9. [ending frame leading to next shot]
 
-Cinematic execution: strong composition, realistic movie lighting, motivated light sources, depth, foreground/background layering, consistent characters and environment, coherent camera language, production-ready film previsualization, no subtitles, no watermarks, no logo-like text, no random unrelated frames.
+Cinematic execution: strong composition, realistic depth, motivated movie lighting, foreground/midground/background layering, consistent characters and environment, coherent camera language, production-ready previsualization, strict grid, no concept-board symbolism, no subtitles, no watermarks, no logo-like text, no random unrelated frames.
 ```
 
-## ReelyAI handoff
+Adjust panel count to match the declared grid exactly.
 
-After image generation:
+## Quality Gate
 
-1. Save or import the image into the target shot with `POST /api/shots/:shotId/sketches/import`.
-2. If it is local `/media/...`, publish it before Seedance generation with `POST /api/sessions/:sessionId/storyboards/publish-tos` or the web button "故事板 TOS".
-3. If Seedance fetches the storyboard slowly, compress it to a smaller JPEG before publishing.
-4. For best video guidance, generate a clean keyframe from the approved storyboard and use that clean frame as the direct `reference_image` or first frame.
+Reject or regenerate when:
 
-## Approval loop
+- the grid count is wrong
+- cells are cropped, missing, merged, or poster-like
+- panels are abstract nouns or mood labels
+- characters/wardrobe/location drift between panels
+- first/middle/final states do not describe a usable shot arc
+- the sheet contains subtitles, caption blocks, title cards, logo text, or fake UI
+- the final panel does not provide an exit/handoff frame when continuity needs one
 
-After presenting a storyboard, ask whether the user wants changes. Accept adjustments such as:
+## Handoff
 
-- darker mood
-- more dramatic light
-- wider camera language
-- more emotional close-ups
-- stronger weather or atmosphere
-- more handheld or more classical camera feeling
-- slower or faster visual pacing
-- more aggressive composition
+Return to `seereel-cinematography`:
 
-When changes are requested, regenerate the entire storyboard while preserving continuity.
-
-## Seedance prompt handoff
-
-When the storyboard is approved, produce or refine the Seedance prompt with:
-
-- cinematic atmosphere
-- character and environment continuity
-- emotional tone
-- camera movement
-- lighting direction
-- action progression
-- lens/composition behavior
-- pacing and motion detail
-- constraints against subtitles, watermarks, and unwanted text
-
-Use the storyboard as a visual reference, not as the whole Seedance prompt. The Seedance prompt must separately state the shot contract: opening frame, explicit shot size/framing such as WS/MS/CU or 远景/中景/近景/特写, `0-4s / 4-9s / 9-13s / 13-15s` action progression, camera motion, dialogue/sound, exit frame, reference roles, and negative constraints.
-
-If the 3x3 contact sheet is attached as a `reference_image`, explicitly say that it guides composition and action progression only; Seedance must not render panel borders, panel numbers, captions, labels, or a grid layout. When first-frame precision matters, generate or extract a clean keyframe instead of using the contact sheet directly.
+- declared grid
+- final storyboard prompt
+- generated/imported storyboard asset id or sketch id if available
+- recommended clean keyframe, if needed
+- notes about what Seedance must not copy from the contact sheet: panel borders, numbers, labels, captions, or grid layout

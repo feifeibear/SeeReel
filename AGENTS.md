@@ -17,10 +17,12 @@ npm run install:skill
 
 `install:skill` auto-detects installed runtimes and copies each skill in `.agents/skills/` to that runtime's global dir (`~/.codex|.claude|.cursor|.agents/skills`), plus gitignored in-repo project mirrors for Cursor and Claude Code (`.cursor/skills/`, `.claude/skills/`). Skills shipped:
 
-- `seereel-shortdrama`: end-to-end short-drama production workflow
-- `seereel-canvas-review`: expand a rough idea into reviewable Canvas nodes without video generation
-- `seereel-storyboard-imagegen`: Codex imagegen / `gpt-image-2` cinematic storyboard prompt workflow
-- `seereel-script-chat`: guided script-development chat flow
+- `seereel-shortdrama`: end-to-end orchestration and stage routing
+- `seereel-script-chat`: initial idea -> locked `StoryPlan`
+- `seereel-casting-assets`: locked `StoryPlan` -> character/scene assets and `assetIds`
+- `seereel-cinematography`: approved assets -> storyboard, shot nodes, continuity, and `rawPrompt`/`prompt`
+- `seereel-canvas-review`: final canvas consistency review and fallback routing before video generation
+- `seereel-storyboard-imagegen`: Codex imagegen / `gpt-image-2` cinematic storyboard reference workflow
 - `seereel-agent-session`: REST-driven session control
 - `seereel-cli`: local CLI workflow and fine-grained node control for AI agents
 

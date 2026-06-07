@@ -294,11 +294,13 @@ npm run install:skill
 
 | Skill | Use |
 | --- | --- |
-| `seereel-shortdrama` | End-to-end short-drama production |
-| `seereel-canvas-review` | Review-first script, cast, scene, storyboard, and shot-prompt canvas |
+| `seereel-shortdrama` | End-to-end orchestration and fallback routing |
+| `seereel-script-chat` | Initial idea -> locked `StoryPlan` |
+| `seereel-casting-assets` | Locked `StoryPlan` -> character/scene assets and `assetIds` |
+| `seereel-cinematography` | Approved assets -> storyboard, shot nodes, continuity, and prompts |
+| `seereel-canvas-review` | Final canvas consistency review before video generation |
 | `seereel-agent-session` | REST-driven session control |
 | `seereel-cli` | Local CLI workflow and fine-grained node control |
-| `seereel-script-chat` | Script and casting chat flow |
 | `seereel-storyboard-imagegen` | Storyboard contact-sheet prompting |
 
 Target one runtime or all detected runtimes:

@@ -293,11 +293,13 @@ npm run install:skill
 
 | Skill | 用途 |
 | --- | --- |
-| `seereel-shortdrama` | 端到端短剧生产 |
-| `seereel-canvas-review` | 先审阅的剧本、角色、场景、故事板与分镜 prompt 画布 |
+| `seereel-shortdrama` | 端到端编排与 fallback 路由 |
+| `seereel-script-chat` | initial idea -> 锁定 `StoryPlan` |
+| `seereel-casting-assets` | 锁定 `StoryPlan` -> 角色/场景资产与 `assetIds` |
+| `seereel-cinematography` | 已批准资产 -> storyboard、shot node、连续性与 prompt |
+| `seereel-canvas-review` | 视频生成前的最终 canvas 一致性审阅 |
 | `seereel-agent-session` | REST session 控制 |
 | `seereel-cli` | CLI workflow 与细粒度 node 操作 |
-| `seereel-script-chat` | 剧本、角色、场景对话 |
 | `seereel-storyboard-imagegen` | 故事板 contact sheet 提示词 |
 
 指定 runtime：

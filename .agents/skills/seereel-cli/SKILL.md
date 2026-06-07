@@ -1,6 +1,6 @@
 ---
 name: seereel-cli
-description: Use the local SeeReel CLI to create, inspect, edit, render, review, repair, and stitch web-visible SeeReel video workflows from natural language. Trigger when the user asks an AI agent to use SeeReel, seereel.studio, the SeeReel CLI, generate a web workflow, operate a shot/node prompt, generate a tailframe, run VLM review, repair prompts, publish storyboards to TOS, or produce a complete video through the site.
+description: Use when a user asks an AI agent to operate SeeReel through seereelcli, seereel.studio, CLI workflow creation, node control, TOS publish, render polling, repair, download, handoff, or stitch commands.
 ---
 
 # SeeReel CLI
@@ -11,6 +11,12 @@ SeeReel has two surfaces:
 
 - Web app: human review and takeover surface.
 - CLI/API: agent operation surface. Everything important must remain visible in the web app.
+
+## Boundary
+
+Boundary: transport and node operations only. This skill owns local/published CLI installation, configuration, handoff, status inspection, node patching, TOS publish, render/poll, download, and stitch commands.
+
+It does not decide the script, casting, production design, camera grammar, storyboard sequence, or final consistency verdict. Use `seereel-script-chat`, `seereel-casting-assets`, `seereel-cinematography`, and `seereel-canvas-review` for those creative stages, then use the CLI to persist and operate their outputs.
 
 ## Human Credential Boundary
 
@@ -41,7 +47,7 @@ seereelcli configure --base-url https://seereel.studio --api-key "<CN_ARK_API_KE
 
 or set `BP_ARK_API_KEY` / `BP_SEEDANCE_API_KEY` for BytePlus, `CN_ARK_API_KEY` / `CN_SEEDANCE_API_KEY` for CN, or `ARK_AGENT_PLAN_KEY` for Agent Plan in the AI runtime environment.
 
-Browser credentials and CLI credentials are cookie-scoped separately. Treat that isolation as intentional. A raw `webUrl` belongs to the CLI cookie scope; return `handoffUrl` when a human needs to open and continue editing the AI-created workflow in a normal browser.
+Browser credentials and CLI credentials are cookie-scoped separately on online deployments. Treat that isolation as intentional. For online base URLs, a raw `webUrl` belongs to the CLI cookie scope; return `handoffUrl` when a human needs to open and continue editing the AI-created workflow in a normal browser. For `localhost`, `127.0.0.1`, or `::1`, return the explicit `webUrl` directly; local CLI-created sessions automatically appear in the browser session list across cookie identities and do not need an encrypted handoff token.
 
 ## Install
 
@@ -101,13 +107,15 @@ seereelcli workflow "一个失眠导演在午夜便利店遇见未来的自己" 
   --json
 ```
 
-Return the one-time `handoffUrl` to the user, not the raw `webUrl`. It should look like:
+For online deployments, return the one-time `handoffUrl` to the user, not the raw `webUrl`. It should look like:
 
 ```text
 https://seereel.studio/api/handoff/xxxxxxxx
 ```
 
 Tell the human the handoff link transfers the session from the CLI cookie identity to their current browser identity, then they can edit script, shot prompts, assets, duration, references, and generation choices in the web UI. After a handoff is claimed, keep using the browser/web UI as source of truth unless the human asks you to continue from a CLI-owned session.
+
+For local development base URLs such as `http://localhost:5173`, return the `webUrl` directly. The browser can see CLI-created local sessions in `/api/state` and the session list automatically, so do not require or create an encrypted handoff token for ordinary localhost review.
 
 ## Full Video Flow
 
@@ -140,7 +148,8 @@ seereelcli workflow "用户的视频创意" \
 
 `--cloud-only` uploads `--reference-image` as an input asset, generates
 server-side storyboard assets before Seedance render, stitches through SeeReel,
-returns a handoff URL, and downloads only the final cloud artifact to `--output`.
+returns the correct review link for the base URL (explicit local `webUrl`, online
+`handoffUrl`), and downloads only the final cloud artifact to `--output`.
 Do not use local ffmpeg splitting or local recovered MP4 imports for cloud-only
 intermediates.
 
@@ -232,7 +241,7 @@ seereelcli publish-storyboards --session latest --json
 - Always use `--json` when you need to parse results.
 - Use `--jsonl` or `--progress` for long render/stitch runs so the agent can observe progress without polling `/api/state` in another shell.
 - Refresh status before continuing after a human web edit.
-- Browser credentials and CLI credentials are cookie-scoped separately. Raw `webUrl` may not be visible in a bare browser; use `seereelcli handoff --session latest --json` and return the one-time `handoffUrl` for human takeover.
+- Browser credentials and CLI credentials are cookie-scoped separately on online deployments. Raw online `webUrl` may not be visible in a bare browser; use `seereelcli handoff --session latest --json` and return the one-time `handoffUrl` for human takeover. On localhost, return the explicit `webUrl` directly; local CLI sessions appear in the browser session list automatically and do not require an encrypted handoff token.
 - Do not call paid generation before Agent Plan is configured and the human has approved continuing.
 - Keep local scratch media out of the final story; SeeReel web state is the source of truth.
 - For Seedance references, only remote `http(s)` URLs are valid. Publish local references to TOS first.
