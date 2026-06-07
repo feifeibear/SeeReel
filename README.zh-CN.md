@@ -291,6 +291,17 @@ https://seereel.studio
 npm run install:skill
 ```
 
+SeeReel 的 skill 按拍片工序拆分，目标是每个环节职责不重叠。核心 workflow 是：
+
+```text
+initial idea
+  -> seereel-script-chat
+  -> seereel-casting-assets
+  -> seereel-cinematography
+  -> seereel-canvas-review
+  -> 通过审阅后由 seereel-shortdrama + CLI/API 进入生成和拼接
+```
+
 | Skill | 用途 |
 | --- | --- |
 | `seereel-shortdrama` | 端到端编排与 fallback 路由 |
@@ -301,6 +312,16 @@ npm run install:skill
 | `seereel-agent-session` | REST session 控制 |
 | `seereel-cli` | CLI workflow 与细粒度 node 操作 |
 | `seereel-storyboard-imagegen` | 故事板 contact sheet 提示词 |
+
+问题归属：
+
+| 如果坏在... | 修改这个 skill |
+| --- | --- |
+| 前提、剧情、视角、对白、调研、audienceDelivery、`StoryPlan` | `seereel-script-chat` |
+| 角色身份、场景风格、道具设计、style bible、过期/缺失 `assetIds` | `seereel-casting-assets` |
+| storyboard 顺序、shot node、摄影语法、连续性、`rawPrompt`/`prompt` | `seereel-cinematography` |
+| canvas 是否和 initial idea、锁定 `StoryPlan` 一致 | `seereel-canvas-review` |
+| API 调用、CLI handoff、TOS 发布、render 轮询、stitch、download | `seereel-agent-session` 或 `seereel-cli` |
 
 指定 runtime：
 

@@ -292,6 +292,17 @@ This repo ships cross-agent skills in `.agents/skills/`. `npm install` runs a be
 npm run install:skill
 ```
 
+SeeReel skills are intentionally split by production ownership. The core workflow is:
+
+```text
+initial idea
+  -> seereel-script-chat
+  -> seereel-casting-assets
+  -> seereel-cinematography
+  -> seereel-canvas-review
+  -> approved render/stitch through seereel-shortdrama + CLI/API
+```
+
 | Skill | Use |
 | --- | --- |
 | `seereel-shortdrama` | End-to-end orchestration and fallback routing |
@@ -302,6 +313,16 @@ npm run install:skill
 | `seereel-agent-session` | REST-driven session control |
 | `seereel-cli` | Local CLI workflow and fine-grained node control |
 | `seereel-storyboard-imagegen` | Storyboard contact-sheet prompting |
+
+Troubleshooting ownership:
+
+| If the workflow fails at... | Fix this skill |
+| --- | --- |
+| Premise, plot, POV, dialogue, research, audienceDelivery, or `StoryPlan` | `seereel-script-chat` |
+| Character identity, scene style, prop design, style bible, stale/missing `assetIds` | `seereel-casting-assets` |
+| Storyboard sequence, shot nodes, camera grammar, continuity wiring, `rawPrompt`/`prompt` | `seereel-cinematography` |
+| Canvas consistency against the initial idea and locked `StoryPlan` | `seereel-canvas-review` |
+| API calls, CLI handoff, TOS publish, render polling, stitch, download | `seereel-agent-session` or `seereel-cli` |
 
 Target one runtime or all detected runtimes:
 
