@@ -146,6 +146,8 @@ export const api = {
     request<GalleryItem>("/api/gallery", { method: "POST", body: JSON.stringify({ sessionId, ...payload }) }),
   copyGalleryItemToSession: (galleryId: string) =>
     request<SessionWithShots>(`/api/gallery/${galleryId}/copy`, { method: "POST" }),
+  deleteGalleryItem: (galleryId: string) =>
+    request<{ ok: true; galleryId: string }>(`/api/gallery/${galleryId}`, { method: "DELETE" }),
   apiKeyCredential: () => request<ApiKeyCredentialStatus>("/api/credentials/api-key"),
   saveApiKeyCredential: (apiKey: string, route: StandardApiKeyRoute) =>
     request<ApiKeyCredentialStatus>("/api/credentials/api-key", {
@@ -214,6 +216,11 @@ export const api = {
       body: JSON.stringify(payload || {})
     }),
   deleteSession: (sessionId: string) => request<{ ok: true }>(`/api/sessions/${sessionId}`, { method: "DELETE" }),
+  deleteSessions: (sessionIds: string[]) =>
+    request<{ ok: true; deletedSessionIds: string[] }>("/api/sessions/bulk-delete", {
+      method: "POST",
+      body: JSON.stringify({ sessionIds })
+    }),
   downloadSessionPackage: (sessionId: string) => downloadFile(`/api/sessions/${sessionId}/export`),
   importSessionPackage: (pack: SessionPackage) =>
     request<SessionWithShots>("/api/sessions/import", { method: "POST", body: JSON.stringify(pack) }),
@@ -299,6 +306,11 @@ export const api = {
     request<Shot>(`/api/shots/${shotId}/renders/${renderId}/restore`, { method: "POST" }),
   createShotTailFrame: (shotId: string, opts?: { publishToTos?: boolean; canvasNode?: boolean }) =>
     request<{ asset: Asset }>(`/api/shots/${shotId}/tailframe`, {
+      method: "POST",
+      body: JSON.stringify(opts || {})
+    }),
+  createShotTailClip: (shotId: string, opts?: { durationSec?: number; publishToTos?: boolean }) =>
+    request<{ asset: Asset }>(`/api/shots/${shotId}/tail-clip`, {
       method: "POST",
       body: JSON.stringify(opts || {})
     }),

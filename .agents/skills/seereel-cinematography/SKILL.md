@@ -78,6 +78,8 @@ Rules:
 
 - Important story facts from `audienceDelivery` must be spoken through character dialogue or voiceover, with visible action/reaction backup.
 - Quoted dialogue stays in the session spoken language.
+- Dialogue and narration must not overlap as simultaneous foreground speech. If a character speaks, the narrator is silent for that timed beat; move voiceover to a separate no-dialogue reaction, insert, travel, or transition beat.
+- For dialogue scenes, define `allowedSpeakers` in the prompt intent. Only those named speakers may produce intelligible foreground lines. All other characters, witnesses, vendors, bystanders, and crowds must be visually present or low non-verbal ambience only; they must not interrupt, comment, murmur words, or add third-party voices.
 - Use natural diegetic sound only unless the StoryPlan explicitly requests session-level music.
 - No subtitles, no watermark, no logo, no readable text overlays unless explicitly requested.
 - Do not fill every reference slot by habit; assign each reference a function such as character anchor, scene tone, prop detail, camera/motion reference, or clean first frame.

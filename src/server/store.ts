@@ -41,6 +41,13 @@ export class CinemaStore {
     return structuredClone(this.data);
   }
 
+  snapshotForLocalReview(): StoreSnapshot {
+    return structuredClone({
+      ...this.data,
+      gallery: (this.data.gallery || []).map(sanitizeGalleryItemForPublic)
+    });
+  }
+
   snapshotForOwner(ownerUserId: string, includeLegacyPublic = false): StoreSnapshot {
     const sessions = this.data.sessions.filter((session) => {
       if (session.ownerUserId) return session.ownerUserId === ownerUserId;
@@ -55,7 +62,7 @@ export class CinemaStore {
       if (asset.ownerUserId) return asset.ownerUserId === ownerUserId;
       return includeLegacyPublic;
     });
-    return structuredClone({ sessions, shots, assets, gallery: this.data.gallery || [] });
+    return structuredClone({ sessions, shots, assets, gallery: (this.data.gallery || []).map(sanitizeGalleryItemForPublic) });
   }
 
   private ownerUserIdForAssetScope(asset: Partial<Asset>) {
@@ -300,11 +307,12 @@ export class CinemaStore {
   }
 
   listGalleryItems() {
-    return structuredClone(this.data.gallery || []);
+    return structuredClone((this.data.gallery || []).map(sanitizeGalleryItemForPublic));
   }
 
   getGalleryItem(galleryId: string) {
-    return structuredClone((this.data.gallery || []).find((item) => item.id === galleryId));
+    const item = (this.data.gallery || []).find((row) => row.id === galleryId);
+    return item ? structuredClone(sanitizeGalleryItemForPublic(item)) : undefined;
   }
 
   async publishSessionToGallery(sessionId: string, payload: GalleryPublishPayload = {}) {
@@ -319,6 +327,7 @@ export class CinemaStore {
     const title = payload.title?.trim() || session.title || "Untitled SeeReel";
     const item: GalleryItem = {
       id: existing?.id || id("gal"),
+      ownerUserId: session.ownerUserId,
       sourceSessionId: session.id,
       title,
       description: payload.description?.trim() || session.logline || "",
@@ -337,7 +346,16 @@ export class CinemaStore {
     };
     this.data.gallery = [item, ...(this.data.gallery || []).filter((row) => row.id !== item.id)];
     await this.save();
-    return structuredClone(item);
+    return structuredClone(sanitizeGalleryItemForPublic(item));
+  }
+
+  async deleteGalleryItem(galleryId: string, ownerUserId?: string) {
+    const item = (this.data.gallery || []).find((row) => row.id === galleryId);
+    if (!item) return false;
+    if (item.ownerUserId && item.ownerUserId !== ownerUserId) return false;
+    this.data.gallery = (this.data.gallery || []).filter((row) => row.id !== galleryId);
+    await this.save();
+    return true;
   }
 
   async copyGalleryItemToSession(galleryId: string, ownerUserId?: string) {
@@ -974,7 +992,7 @@ export class CinemaStore {
     return structuredClone(this.data.assets.filter((asset) => wanted.has(asset.id)));
   }
 
-  getAssetsForShot(shot: Pick<Shot, "id" | "sessionId" | "assetIds" | "prompt" | "rawPrompt">) {
+  getAssetsForShot(shot: Pick<Shot, "id" | "sessionId" | "assetIds" | "prompt" | "rawPrompt" | "referenceVideoAssetId" | "subShotStoryboardAssetId" | "subShotStoryboardAssetIds" | "firstFrameAssetId" | "lastFrameAssetId">) {
     // Visibility rules for an asset relative to this shot:
     //   - ownerShotId set & !== shot.id  → another shot's private sketch, hidden
     //   - ownerSessionId set & !== shot.sessionId → another session's session-scoped asset, hidden
@@ -985,23 +1003,36 @@ export class CinemaStore {
       return true;
     };
 
+    const byId = new Map(this.data.assets.map((asset) => [asset.id, asset]));
     const wanted = new Set<string>();
-    (shot.assetIds ?? []).forEach((assetId) => {
+    const addIfVisible = (assetId: string | undefined) => {
+      if (!assetId) return;
       const asset = this.data.assets.find((item) => item.id === assetId);
       if (!asset) return;
       if (!isVisible(asset)) return;
       wanted.add(assetId);
-    });
+    };
+    (shot.assetIds ?? []).forEach(addIfVisible);
+
+    // Prompt @-mentions may activate only assets that are already wired to this shot through
+    // explicit canvas fields. This preserves the user-visible graph as the source of truth and
+    // prevents stale prompt text from pulling deleted or merely session-visible assets back in.
     const prompt = normalizeMentionText(`${shot.rawPrompt || ""}\n${shot.prompt || ""}`);
-    const matchedAssets: Asset[] = [];
-    this.data.assets.forEach((asset) => {
-      if (!isVisible(asset)) return;
+    const mentionOnlyIds = [
+      shot.referenceVideoAssetId,
+      shot.subShotStoryboardAssetId,
+      ...(shot.subShotStoryboardAssetIds || []),
+      shot.firstFrameAssetId,
+      shot.lastFrameAssetId
+    ];
+    for (const assetId of mentionOnlyIds) {
+      const asset = byId.get(assetId || "");
+      if (!asset || !isVisible(asset)) continue;
       const aliases = [asset.name, ...(asset.tags ?? [])]
         .map((value) => normalizeMentionText(value))
         .filter(Boolean);
-      if (aliases.some((alias) => prompt.includes(`@${alias}`))) matchedAssets.push(asset);
-    });
-    preferSessionAssets(matchedAssets, shot.sessionId).forEach((asset) => wanted.add(asset.id));
+      if (aliases.some((alias) => prompt.includes(`@${alias}`))) wanted.add(asset.id);
+    }
     return structuredClone(this.data.assets.filter((asset) => wanted.has(asset.id)));
   }
 }
@@ -1033,6 +1064,12 @@ function sanitizeGallerySession(session: Session): Session {
   clone.stitchRunningSignature = undefined;
   clone.narrationStartedAt = undefined;
   clone.narrationRunningSignature = undefined;
+  return clone;
+}
+
+function sanitizeGalleryItemForPublic(item: GalleryItem): GalleryItem {
+  const clone = structuredClone(item);
+  clone.ownerUserId = undefined;
   return clone;
 }
 
@@ -1117,20 +1154,6 @@ function collectShotAssetIds(shot: Shot) {
 
 function normalizeMentionText(value: string) {
   return value.toLowerCase().replace(/\s+/g, "").replace(/／/g, "/").trim();
-}
-
-function assetAliases(asset: Asset) {
-  return [asset.name, ...(asset.tags ?? [])].map((value) => normalizeMentionText(value)).filter(Boolean);
-}
-
-function preferSessionAssets(assets: Asset[], sessionId: string) {
-  const sessionAliases = new Set(
-    assets
-      .filter((asset) => asset.ownerSessionId === sessionId)
-      .flatMap((asset) => assetAliases(asset))
-  );
-  if (!sessionAliases.size) return assets;
-  return assets.filter((asset) => asset.ownerSessionId || !assetAliases(asset).some((alias) => sessionAliases.has(alias)));
 }
 
 function shotPatchFromRender(render: ShotRender): Partial<Shot> {

@@ -125,6 +125,7 @@ function terminateServer(child: ChildProcess) {
 }
 
 async function main() {
+  let sessionId = "";
   const session = await request<Session>("/api/sessions", {
     method: "POST",
     body: JSON.stringify({
@@ -136,66 +137,72 @@ async function main() {
     })
   });
   assert.ok(session.id, "session id should exist");
+  sessionId = session.id;
 
-  const asset = await request<Asset>("/api/assets", {
-    method: "POST",
-    body: JSON.stringify({
-      name: "Smoke Character",
-      type: "character",
-      description: "smoke asset",
-      prompt: "",
-      ownerSessionId: session.id,
-      tags: ["anchor", "character", "smoke"]
-    })
-  });
-  assert.ok(asset.id, "asset id should exist");
+  try {
+    const asset = await request<Asset>("/api/assets", {
+      method: "POST",
+      body: JSON.stringify({
+        name: "Smoke Character",
+        type: "character",
+        description: "smoke asset",
+        prompt: "",
+        ownerSessionId: session.id,
+        tags: ["anchor", "character", "smoke"]
+      })
+    });
+    assert.ok(asset.id, "asset id should exist");
 
-  const appended = await request<{ shot: Shot; session: Session }>(`/api/sessions/${session.id}/shots`, {
-    method: "POST",
-    body: JSON.stringify({ title: "Smoke Shot" })
-  });
-  assert.ok(appended.shot.id, "shot id should exist");
+    const appended = await request<{ shot: Shot; session: Session }>(`/api/sessions/${session.id}/shots`, {
+      method: "POST",
+      body: JSON.stringify({ title: "Smoke Shot" })
+    });
+    assert.ok(appended.shot.id, "shot id should exist");
 
-  const wired = await request<Shot>(`/api/shots/${appended.shot.id}`, {
-    method: "PATCH",
-    body: JSON.stringify({ assetIds: [asset.id] })
-  });
-  assert.deepEqual(wired.assetIds, [asset.id], "asset should wire to shot");
+    const wired = await request<Shot>(`/api/shots/${appended.shot.id}`, {
+      method: "PATCH",
+      body: JSON.stringify({ assetIds: [asset.id] })
+    });
+    assert.deepEqual(wired.assetIds, [asset.id], "asset should wire to shot");
 
-  await request<{ ok: true }>(`/api/assets/${asset.id}`, { method: "DELETE" });
-  let snapshot = await request<Snapshot>("/api/state");
-  assert.equal(snapshot.assets.some((a) => a.id === asset.id), false, "asset should be deleted");
-  assert.equal(
-    snapshot.shots.find((s) => s.id === appended.shot.id)?.assetIds.includes(asset.id),
-    false,
-    "asset delete should clear shot.assetIds"
-  );
+    await request<{ ok: true }>(`/api/assets/${asset.id}`, { method: "DELETE" });
+    let snapshot = await request<Snapshot>("/api/state");
+    assert.equal(snapshot.assets.some((a) => a.id === asset.id), false, "asset should be deleted");
+    assert.equal(
+      snapshot.shots.find((s) => s.id === appended.shot.id)?.assetIds.includes(asset.id),
+      false,
+      "asset delete should clear shot.assetIds"
+    );
 
-  const restoredAsset = await request<Asset>("/api/assets/restore", {
-    method: "POST",
-    body: JSON.stringify({ asset })
-  });
-  assert.equal(restoredAsset.id, asset.id, "asset restore should preserve id");
+    const restoredAsset = await request<Asset>("/api/assets/restore", {
+      method: "POST",
+      body: JSON.stringify({ asset })
+    });
+    assert.equal(restoredAsset.id, asset.id, "asset restore should preserve id");
 
-  const relinked = await request<Shot>(`/api/shots/${appended.shot.id}`, {
-    method: "PATCH",
-    body: JSON.stringify({ assetIds: [asset.id] })
-  });
-  assert.deepEqual(relinked.assetIds, [asset.id], "restored asset should relink to shot");
+    const relinked = await request<Shot>(`/api/shots/${appended.shot.id}`, {
+      method: "PATCH",
+      body: JSON.stringify({ assetIds: [asset.id] })
+    });
+    assert.deepEqual(relinked.assetIds, [asset.id], "restored asset should relink to shot");
 
-  const ownedAssetsBeforeShotDelete = (await request<Snapshot>("/api/state")).assets.filter((a) => a.ownerShotId === appended.shot.id);
-  await request<{ ok: true; shotId: string }>(`/api/shots/${appended.shot.id}`, { method: "DELETE" });
-  snapshot = await request<Snapshot>("/api/state");
-  assert.equal(snapshot.shots.some((s) => s.id === appended.shot.id), false, "shot should be deleted");
+    const ownedAssetsBeforeShotDelete = (await request<Snapshot>("/api/state")).assets.filter((a) => a.ownerShotId === appended.shot.id);
+    await request<{ ok: true; shotId: string }>(`/api/shots/${appended.shot.id}`, { method: "DELETE" });
+    snapshot = await request<Snapshot>("/api/state");
+    assert.equal(snapshot.shots.some((s) => s.id === appended.shot.id), false, "shot should be deleted");
 
-  const restoredShot = await request<{ shot: Shot; session: Session; assets: Asset[] }>("/api/shots/restore", {
-    method: "POST",
-    body: JSON.stringify({ shot: appended.shot, assets: ownedAssetsBeforeShotDelete })
-  });
-  assert.equal(restoredShot.shot.id, appended.shot.id, "shot restore should preserve id");
+    const restoredShot = await request<{ shot: Shot; session: Session; assets: Asset[] }>("/api/shots/restore", {
+      method: "POST",
+      body: JSON.stringify({ shot: appended.shot, assets: ownedAssetsBeforeShotDelete })
+    });
+    assert.equal(restoredShot.shot.id, appended.shot.id, "shot restore should preserve id");
 
-  await request<{ ok: true }>(`/api/sessions/${session.id}`, { method: "DELETE" });
-  console.log("canvas CRUD smoke passed", { sessionId: session.id, assetId: asset.id, shotId: appended.shot.id });
+    console.log("canvas CRUD smoke passed", { sessionId: session.id, assetId: asset.id, shotId: appended.shot.id });
+  } finally {
+    if (sessionId) {
+      await request<{ ok: true }>(`/api/sessions/${sessionId}`, { method: "DELETE" }).catch(() => undefined);
+    }
+  }
 }
 
 withServer(main).catch((err) => {

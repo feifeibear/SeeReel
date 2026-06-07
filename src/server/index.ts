@@ -1,4 +1,5 @@
 import "dotenv/config";
+import { AsyncLocalStorage } from "node:async_hooks";
 import { createHash, randomUUID } from "node:crypto";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
@@ -69,6 +70,7 @@ import { getMentionedSessionCastAssets } from "./castReferences";
 import { directoryStats, fileSize, productionPaths, readableFileStatus, snapshotCounts, tokenUsageSummary, writableDirectoryStatus } from "./diagnostics";
 import { incCounter, metricsText, observeHttpRequest, setGauge, setHttpInflight } from "./metrics";
 import { collectVisitorMetrics, visitorMetricsMiddleware } from "./visitorMetrics";
+import { cleanupDeletedSessionArtifacts, collectDeletedSessionArtifacts, collectDeletedSessionsArtifacts } from "./sessionCleanup";
 import { resolveNodeReviewEnabled } from "../shared/reviewSettings";
 import {
   composeSeedanceVideoText,
@@ -129,6 +131,7 @@ const ADMIN_COOKIE = "seereel_admin_session";
 const adminSessions = new Map<string, { createdAt: number }>();
 const HANDOFF_TOKEN_TTL_MS = 1000 * 60 * 60 * 24;
 const handoffTokens = new Map<string, { sessionId: string; ownerUserId: string; expiresAt: number; createdAt: string }>();
+const localSessionReviewContext = new AsyncLocalStorage<{ enabled: boolean }>();
 // In-process singleflight registry for stitch background workers. Keyed by sessionId + stitch job id;
 // value is the signature currently being processed. Survives concurrent /stitch POSTs but does NOT
 // survive process restart (handled separately via resetOrphanStitchJobs() at startup).
@@ -247,6 +250,9 @@ if (isProduction) {
 }
 app.use(visitorMetricsMiddleware);
 app.use(userCredentialMiddleware);
+app.use((req, _res, next) => {
+  localSessionReviewContext.run({ enabled: localSessionReviewEnabledForRequest(req) }, next);
+});
 app.use(accessGuardMiddleware);
 app.use(express.json({ limit: "250mb" }));
 app.use("/media", mediaAccessGuard, express.static(path.resolve(process.cwd(), "data", "media")));
@@ -409,10 +415,45 @@ app.get("/api/gallery/:galleryId", async (req, res) => {
   res.json(item);
 });
 
+app.delete("/api/gallery/:galleryId", async (req, res) => {
+  const deleted = await store.deleteGalleryItem(req.params.galleryId, userIdForRequest());
+  if (!deleted) return res.status(404).json({ error: "Gallery item not found" });
+  res.json({ ok: true, galleryId: req.params.galleryId });
+});
+
+app.post("/api/sessions/bulk-delete", async (req, res) => {
+  const rawSessionIds: unknown[] = Array.isArray(req.body?.sessionIds) ? req.body.sessionIds : [];
+  const sessionIds = Array.from(new Set(rawSessionIds.flatMap((id) => {
+    if (typeof id !== "string") return [];
+    const trimmed = id.trim();
+    return trimmed ? [trimmed] : [];
+  })));
+  if (!sessionIds.length) return res.status(400).json({ error: "sessionIds required" });
+
+  const deletedArtifacts = collectDeletedSessionsArtifacts(store.snapshot(), sessionIds);
+  const deletedSessionIds: string[] = [];
+  for (const sessionId of sessionIds) {
+    const deleted = await store.deleteSession(sessionId);
+    if (deleted) deletedSessionIds.push(sessionId);
+  }
+  if (!deletedSessionIds.length) return res.status(404).json({ error: "Sessions not found" });
+  const cleanup = await cleanupDeletedSessionArtifacts(deletedArtifacts, store.snapshot());
+  res.json({ ok: true, deletedSessionIds, cleanup });
+});
+
 app.post("/api/sessions/:sessionId/handoff", async (req, res) => {
   const session = sessionById(req.params.sessionId);
   const ownerUserId = userIdForRequest();
   if (!session || !ownsSession(session, ownerUserId)) return res.status(404).json({ error: "Session not found" });
+
+  const baseUrl = requestPublicBaseUrl(req);
+  if (localSessionReviewEnabledForRequest(req)) {
+    return res.json({
+      sessionId: session.id,
+      webUrl: `${baseUrl}/canvas/${encodeURIComponent(session.id)}`,
+      webUrlVisibleInBrowser: true
+    });
+  }
 
   const token = randomUUID().replace(/-/g, "");
   const createdAt = new Date().toISOString();
@@ -425,7 +466,6 @@ app.post("/api/sessions/:sessionId/handoff", async (req, res) => {
   });
   cleanExpiredHandoffTokens();
 
-  const baseUrl = requestPublicBaseUrl(req);
   res.json({
     sessionId: session.id,
     webUrl: `${baseUrl}/canvas/${encodeURIComponent(session.id)}`,
@@ -631,6 +671,29 @@ function sessionIdForAsset(asset: Asset) {
   return undefined;
 }
 
+function addAssetId(ids: Set<string>, value: string | undefined | null) {
+  if (value) ids.add(value);
+}
+
+function sessionPlanningAssets(session: SessionWithShots, snapshot: StoreSnapshot) {
+  const shotIds = new Set(session.shots.map((shot) => shot.id));
+  const explicitAssetIds = new Set<string>();
+  session.shots.forEach((shot) => {
+    (shot.assetIds || []).forEach((id) => explicitAssetIds.add(id));
+    addAssetId(explicitAssetIds, shot.firstFrameAssetId);
+    addAssetId(explicitAssetIds, shot.lastFrameAssetId);
+    addAssetId(explicitAssetIds, shot.subShotStoryboardAssetId);
+    (shot.subShotStoryboardAssetIds || []).forEach((id) => explicitAssetIds.add(id));
+    addAssetId(explicitAssetIds, shot.referenceVideoAssetId);
+  });
+
+  return snapshot.assets.filter((asset) => {
+    if (asset.ownerSessionId === session.id) return true;
+    if (asset.ownerShotId && shotIds.has(asset.ownerShotId)) return true;
+    return explicitAssetIds.has(asset.id);
+  });
+}
+
 function ownerUserIdForSessionId(sessionId: string | undefined) {
   return sessionId ? sessionById(sessionId)?.ownerUserId || userIdForRequest() : userIdForRequest();
 }
@@ -721,12 +784,50 @@ function legacyPublicSessionsEnabled() {
   return /^(1|true|yes|on)$/i.test(process.env.SEEREEL_LEGACY_PUBLIC_DATA || process.env.REELYAI_LEGACY_PUBLIC_DATA || "");
 }
 
+function localSessionReviewEnabledForRequest(req: Request) {
+  if (configuredPublicUrlIsNonLocal()) return false;
+  return isLocalHostname(requestHostName(req));
+}
+
+function localSessionReviewEnabled() {
+  return localSessionReviewContext.getStore()?.enabled === true;
+}
+
+function requestHostName(req: Request) {
+  const forwardedHost = req.header("x-forwarded-host")?.split(",")[0]?.trim();
+  return normalizeHostName(forwardedHost || req.get("host") || `localhost:${port}`);
+}
+
+function configuredPublicUrlIsNonLocal() {
+  const configured = (process.env.APP_PUBLIC_URL || process.env.SEEREEL_PUBLIC_URL || process.env.REELYAI_PUBLIC_URL || "").trim();
+  if (!configured) return false;
+  try {
+    return !isLocalHostname(new URL(configured).hostname);
+  } catch {
+    return false;
+  }
+}
+
+function normalizeHostName(host: string | undefined) {
+  const value = (host || "").trim().toLowerCase();
+  if (!value) return "";
+  if (value.startsWith("[")) return value.slice(1, value.indexOf("]"));
+  if (value === "::1") return value;
+  return value.split(":")[0] || value;
+}
+
+function isLocalHostname(hostname: string | undefined) {
+  const value = normalizeHostName(hostname);
+  return value === "localhost" || value === "127.0.0.1" || value === "::1";
+}
+
 function userIdForRequest() {
   return currentUserId() || "anonymous";
 }
 
 function ownsSession(session: Pick<Session, "ownerUserId"> | undefined, userId = userIdForRequest()) {
   if (!session) return false;
+  if (localSessionReviewEnabled()) return true;
   if (session.ownerUserId) return session.ownerUserId === userId;
   return legacyPublicSessionsEnabled();
 }
@@ -779,6 +880,7 @@ function ownsShot(shot: Pick<Shot, "sessionId"> | undefined, userId = userIdForR
 
 function ownsAsset(asset: Asset | undefined, userId = userIdForRequest()) {
   if (!asset) return false;
+  if (localSessionReviewEnabled()) return true;
   if (asset.ownerShotId) return ownsShot(shotById(asset.ownerShotId), userId);
   if (asset.ownerSessionId) return ownsSession(sessionById(asset.ownerSessionId), userId);
   if (asset.ownerUserId) return asset.ownerUserId === userId;
@@ -786,6 +888,7 @@ function ownsAsset(asset: Asset | undefined, userId = userIdForRequest()) {
 }
 
 function snapshotForCurrentUser(): StoreSnapshot {
+  if (localSessionReviewEnabled()) return store.snapshotForLocalReview();
   return store.snapshotForOwner(userIdForRequest(), legacyPublicSessionsEnabled());
 }
 
@@ -981,7 +1084,7 @@ function extensionForContentType(contentType: string | undefined) {
 }
 
 function mediaAccessGuard(req: Request, res: Response, next: () => void) {
-  if (legacyPublicSessionsEnabled()) return next();
+  if (legacyPublicSessionsEnabled() || localSessionReviewEnabledForRequest(req)) return next();
   const requested = normalizeLocalMediaUrl(`/media${req.path}`);
   if (requested && visibleLocalMediaUrls().has(requested)) return next();
   return res.status(404).send("Not found");
@@ -1358,9 +1461,11 @@ app.post("/api/sessions/:sessionId/promote", async (req, res) => {
 });
 
 app.delete("/api/sessions/:sessionId", async (req, res) => {
+  const deletedArtifacts = collectDeletedSessionArtifacts(store.snapshot(), req.params.sessionId);
   const deleted = await store.deleteSession(req.params.sessionId);
   if (!deleted) return res.status(404).json({ error: "Session not found" });
-  res.json({ ok: true });
+  const cleanup = await cleanupDeletedSessionArtifacts(deletedArtifacts, store.snapshot());
+  res.json({ ok: true, cleanup });
 });
 
 app.post("/api/assets", async (req, res) => {
@@ -2293,6 +2398,55 @@ app.post("/api/shots/:shotId/tailframe", async (req, res) => {
   }
 });
 
+app.post("/api/shots/:shotId/tail-clip", async (req, res) => {
+  const shot = store.getShot(req.params.shotId);
+  if (!shot) return res.status(404).json({ error: "Shot not found" });
+  const videoUrl = shot.videoUrl;
+  if (!videoUrl) return res.status(400).json({ error: "Shot has no rendered videoUrl" });
+  const reqBody = (req.body as Record<string, unknown>) || {};
+  const durationSec = Math.min(Math.max(Number(reqBody.durationSec) || 2, 1), 15);
+  const publishToTos = reqBody.publishToTos !== false;
+  try {
+    const localUrl = await extractTailVideoClip(videoUrl, shot.id, shot.id, durationSec);
+    let mediaUrl = localUrl;
+    let tosObjectKey: string | undefined;
+    let tosPublishedAt: string | undefined;
+    const tags = ["reference-video", "tail-clip", "video-clip", `source-shot:${shot.id}`];
+    if (publishToTos && hasTosConfig()) {
+      const result = await publishLocalMediaToTos(localUrl, {
+        keyHint: `${shot.id}-tail-${durationSec}s`
+      });
+      mediaUrl = result.url;
+      tosObjectKey = result.key;
+      tosPublishedAt = new Date().toISOString();
+      tags.push("tos-published");
+    }
+    const asset = await store.upsertAsset(withAssetOwner({
+      name: `${shot.title || `Shot ${shot.index}`} 尾段 ${durationSec}s`,
+      type: "other",
+      mediaKind: "video",
+      description: publishToTos && !tosObjectKey
+        ? `自动从 ${shot.title || `Shot ${shot.index}`} 的渲染视频裁出的尾段参考视频。本地环境未配置 TOS，当前只保留本地预览。`
+        : `自动从 ${shot.title || `Shot ${shot.index}`} 的渲染视频裁出的尾段参考视频，可连线给下一镜作为 reference_video。`,
+      prompt: "",
+      mediaUrl,
+      referenceImageUrl: localUrl,
+      imageUrl: undefined,
+      tags,
+      ownerSessionId: shot.sessionId,
+      parseStatus: "idle",
+      clipStrategy: "trim",
+      clipDurationSec: durationSec,
+      tosObjectKey,
+      tosPublishedAt,
+      generatedAt: new Date().toISOString()
+    }));
+    res.json({ asset });
+  } catch (error) {
+    res.status(500).json({ error: friendlyApiError(error, "tail clip extraction failed") });
+  }
+});
+
 // Append a single shot to an existing session — drives the canvas "新建分镜镜头" flow.
 // Body fields are all optional: { title?, durationSec?, rawPrompt?, prompt? }
 app.post("/api/sessions/:sessionId/shots", async (req, res) => {
@@ -2344,18 +2498,23 @@ app.post("/api/assets/:assetId/generate", async (req, res) => {
     // deliberate derived-character identity locking.
     const referenceImageUrls: string[] = [];
     const referenceAssetIds: string[] = [];
+    const addReference = (refAsset: Asset | undefined) => {
+      if (!refAsset || referenceAssetIds.includes(refAsset.id)) return;
+      if (refAsset.id === asset.id) return;
+      const imageUrl = refAsset.referenceImageUrl || refAsset.mediaUrl || refAsset.imageUrl;
+      if (!imageUrl) return;
+      referenceImageUrls.push(imageUrl);
+      referenceAssetIds.push(refAsset.id);
+    };
     if (asset.referenceImageUrl) {
       referenceImageUrls.push(asset.referenceImageUrl);
       referenceAssetIds.push(asset.id);
     }
     if (asset.parentAssetId) {
       const parent = allAssets.find((item) => item.id === asset.parentAssetId);
-      const parentImage = parent?.referenceImageUrl || parent?.mediaUrl || parent?.imageUrl;
-      if (parentImage) {
-        referenceImageUrls.push(parentImage);
-        referenceAssetIds.push(parent.id);
-      }
+      addReference(parent);
     }
+    (asset.referenceAssetIds || []).forEach((id) => addReference(allAssets.find((item) => item.id === id)));
 
     // Resolve language: prefer the asset's owning session, fall back to global default.
     const ownerSession = asset.ownerSessionId ? store.getSession(asset.ownerSessionId) : undefined;
@@ -2389,7 +2548,10 @@ app.post("/api/assets/:assetId/generate", async (req, res) => {
               const parent = allAssets.find((item) => item.id === asset.parentAssetId);
               return [parent?.referenceImageUrl || parent?.mediaUrl || parent?.imageUrl];
             })()
-          : [])
+          : []),
+        ...(asset.referenceAssetIds || [])
+          .map((id) => allAssets.find((item) => item.id === id))
+          .map((item) => item?.referenceImageUrl || item?.mediaUrl || item?.imageUrl)
       ].filter(Boolean) as string[],
       lang,
       generate: async (_attempt, rewrittenPrompt) => {
@@ -2516,7 +2678,7 @@ app.post("/api/sessions/:sessionId/script/generate", async (req, res) => {
   if (!consumeGenerationOr429(res, session.id, "script_generate")) return;
 
   try {
-    const result = await generateStoryPlanDetailed(session, store.snapshot().assets);
+    const result = await generateStoryPlanDetailed(session, sessionPlanningAssets(session, store.snapshot()));
     await recordTokenUsage(session.id, result.rawUsage, {
       nodeId: session.id,
       nodeType: "session",
@@ -2878,6 +3040,7 @@ function normalizeShotPatch(body: Partial<Shot>) {
     "generationTaskId",
     "generationStartedAt",
     "referenceClipUrl",
+    "referenceClipTosObjectKey",
     "referenceAudioUrl",
     "referenceClipPreviewUrl",
     "referenceAudioPreviewUrl",
@@ -3247,8 +3410,8 @@ function buildStoryWithCastCharacters(currentStory: StoryPlan, cast: StoryCharac
   };
 }
 
-function getSessionCastAssets(session: Session | undefined, allAssets: Asset[], promptText: string) {
-  return getMentionedSessionCastAssets(session, allAssets, promptText);
+function getSessionCastAssets(session: Session | undefined, allAssets: Asset[], promptText: string, allowedAssetIds?: Set<string>) {
+  return getMentionedSessionCastAssets(session, allAssets, promptText, allowedAssetIds);
 }
 
 function mergeAssetsById(lists: Asset[][]) {
@@ -3359,28 +3522,27 @@ function resolveSubStoryboardReferenceAssets({
   shot,
   allAssets,
   explicitIds,
-  textSources
+  textSources,
+  sessionShotIds
 }: {
   shot: Shot;
   allAssets: Asset[];
   explicitIds: string[];
   textSources: string[];
+  sessionShotIds?: Set<string>;
 }) {
+  const isStoryboardReferenceAsset = (asset: Asset) => (asset.tags || []).includes("sub-storyboard");
   const isVisible = (asset: Asset) => {
-    if (asset.ownerShotId && asset.ownerShotId !== shot.id) return false;
+    if (asset.ownerShotId && asset.ownerShotId !== shot.id) {
+      return isStoryboardReferenceAsset(asset) && Boolean(sessionShotIds?.has(asset.ownerShotId));
+    }
     if (asset.ownerSessionId && asset.ownerSessionId !== shot.sessionId) return false;
     return true;
   };
   const visibleAssetsAll = allAssets.filter(isVisible);
-  const byId = new Map(visibleAssetsAll.map((asset) => [asset.id, asset]));
-  const sessionAliases = new Set(
-    visibleAssetsAll
-      .filter((asset) => asset.ownerSessionId === shot.sessionId)
-      .flatMap((asset) => assetMentionAliases(asset))
-  );
-  const mentionAssets = sessionAliases.size
-    ? visibleAssetsAll.filter((asset) => asset.ownerSessionId || !assetMentionAliases(asset).some((alias) => sessionAliases.has(alias)))
-    : visibleAssetsAll;
+  const wiredIds = new Set((shot.assetIds || []).filter(Boolean));
+  const byId = new Map(visibleAssetsAll.filter((asset) => wiredIds.has(asset.id)).map((asset) => [asset.id, asset]));
+  const mentionAssets = Array.from(byId.values());
   const ordered: Asset[] = [];
   const seen = new Set<string>();
   const add = (asset: Asset | undefined) => {
@@ -3403,7 +3565,7 @@ function resolveSubStoryboardReferenceAssets({
   if (ordered.length === 0) {
     (shot.assetIds || []).forEach((id) => {
       const asset = byId.get(id);
-      if (asset?.type === "character") add(asset);
+      if (asset && (asset.type !== "other" || isStoryboardReferenceAsset(asset))) add(asset);
     });
   }
 
@@ -3713,7 +3875,7 @@ app.post("/api/sessions/:sessionId/storyboard", async (req, res) => {
   if (!session) return res.status(404).json({ error: "Session not found" });
   if (!consumeGenerationOr429(res, session.id, "storyboard_plan")) return;
 
-  const assets = store.snapshot().assets;
+  const assets = sessionPlanningAssets(session, store.snapshot());
   const storyboardResult = await generateStoryboardDetailed(session, assets);
   const plannedShots = storyboardResult.shots;
   await recordTokenUsage(session.id, storyboardResult.rawUsage, {
@@ -4010,14 +4172,17 @@ app.post("/api/shots/:shotId/sub-storyboard", async (req, res) => {
   //   3. legacy fallback: shot.assetIds intersected with character assets
   // The materialized URLs go into Seedream's `image:` field; labels get baked into the prompt as
   // `image_1: <name>` so the model can bind identity per character.
-  const allAssets = store.snapshot().assets;
+  const snapshotForStoryboardRefs = store.snapshot();
+  const allAssets = snapshotForStoryboardRefs.assets;
+  const sessionShotIds = new Set(snapshotForStoryboardRefs.shots.filter((item) => item.sessionId === shot.sessionId).map((item) => item.id));
   const resolvedStoryboardRefs = resolveSubStoryboardReferenceAssets({
     shot,
     allAssets,
     explicitIds: Array.isArray(reqBody.referenceAssetIds)
       ? (reqBody.referenceAssetIds as unknown[]).map((v) => String(v).trim()).filter(Boolean)
       : [],
-    textSources: [scenePrompt, composedPromptOverride, ...panelPromptTexts]
+    textSources: [scenePrompt, composedPromptOverride, ...panelPromptTexts],
+    sessionShotIds
   });
   const requestedRefIds = resolvedStoryboardRefs.referenceAssetIds;
   const referenceImageUrls = resolvedStoryboardRefs.referenceImageUrls;
@@ -4288,7 +4453,7 @@ async function dryRunSeedanceComposition(shotId: string) {
   const shotForCompose = { ...shot, rawPrompt: promptText, prompt: promptText };
 
   const mentionedAssets = store.getAssetsForShot({ ...shot, rawPrompt: promptText, prompt: promptText });
-  const castAssets = getSessionCastAssets(session, allAssets, promptText);
+  const castAssets = getSessionCastAssets(session, allAssets, promptText, new Set(shot.assetIds || []));
   // Same @-mention gating as the actual /generate path: wired refvideo doesn't fire reference_video
   // until the user @-mentions it. Dry-run preview should reflect the same payload reality.
   const referencedAssets = mergeAssetsById([
@@ -4388,7 +4553,7 @@ async function submitShotGeneration(shotId: string, body: Partial<Shot>): Promis
     const allAssets = store.snapshot().assets;
     const mentionedAssets = store.getAssetsForShot({ ...shot, rawPrompt: promptText, prompt: promptText });
     const session = store.getSession(shot.sessionId);
-    const castAssets = getSessionCastAssets(session, allAssets, promptText);
+    const castAssets = getSessionCastAssets(session, allAssets, promptText, new Set(shot.assetIds || []));
     // Reference videos are only passed to Seedance when the user explicitly @-mentions them in
     // the prompt. Wiring a RefVideo node to a Shot via canvas registers the relationship
     // (referenceVideoAssetId / referenceClipUrl) but doesn't auto-fire the reference_video field;
@@ -4439,6 +4604,7 @@ async function submitShotGeneration(shotId: string, body: Partial<Shot>): Promis
         : referencedAssets;
 
     let referenceClipUrl = shot.referenceClipUrl;
+    let referenceClipTosObjectKey = shot.referenceClipTosObjectKey;
     let referenceAudioUrl = shot.referenceAudioUrl;
     let referenceClipPreviewUrl = shot.referenceClipPreviewUrl;
     let referenceAudioPreviewUrl = shot.referenceAudioPreviewUrl;
@@ -4470,6 +4636,7 @@ async function submitShotGeneration(shotId: string, body: Partial<Shot>): Promis
     if (useReferenceVideoMode && referenceVideoUrl && referenceVideoAsset) {
       // Take precedence over previous-shot continuity. The user explicitly wired a remake.
       referenceClipUrl = referenceVideoUrl;
+      referenceClipTosObjectKey = referenceVideoAsset.tosObjectKey;
       referenceAudioUrl = undefined;
       referenceClipPreviewUrl = undefined;
       referenceAudioPreviewUrl = undefined;
@@ -4478,6 +4645,7 @@ async function submitShotGeneration(shotId: string, body: Partial<Shot>): Promis
       // Cross-shot wiring path. We don't have an Asset row to merge, so just set referenceClipUrl
       // — the Seedance payload builder reads this field directly via getSeedanceWebUrl().
       referenceClipUrl = referenceVideoFromShotUrl;
+      referenceClipTosObjectKey = undefined;
       referenceAudioUrl = undefined;
       referenceClipPreviewUrl = undefined;
       referenceAudioPreviewUrl = undefined;
@@ -4509,16 +4677,20 @@ async function submitShotGeneration(shotId: string, body: Partial<Shot>): Promis
             return undefined;
           });
           referenceClipUrl = published?.url || seedanceReferenceUrl;
+          referenceClipTosObjectKey = published?.key;
         } else {
           referenceClipUrl = seedanceReferenceUrl;
+          referenceClipTosObjectKey = undefined;
         }
       } else {
         referenceClipUrl = undefined;
+        referenceClipTosObjectKey = undefined;
       }
       referenceAudioUrl = undefined;
       referenceAudioPreviewUrl = undefined;
     } else {
       referenceClipUrl = undefined;
+      referenceClipTosObjectKey = undefined;
       referenceAudioUrl = undefined;
       referenceClipPreviewUrl = undefined;
       referenceAudioPreviewUrl = undefined;
@@ -4532,6 +4704,7 @@ async function submitShotGeneration(shotId: string, body: Partial<Shot>): Promis
       previousShotClipSec,
       previousShotClipSecOverride: nextUsePreviousShotClip ? Boolean(shot.previousShotClipSecOverride) : shot.previousShotClipSecOverride,
       referenceClipUrl,
+      referenceClipTosObjectKey,
       referenceAudioUrl,
       referenceClipPreviewUrl,
       referenceAudioPreviewUrl,
@@ -4572,6 +4745,7 @@ async function submitShotGeneration(shotId: string, body: Partial<Shot>): Promis
         previousShotClipSec: shot.previousShotClipSec,
         previousShotClipSecOverride: shot.previousShotClipSecOverride,
         referenceClipUrl: shot.referenceClipUrl,
+        referenceClipTosObjectKey: shot.referenceClipTosObjectKey,
         referenceAudioUrl: shot.referenceAudioUrl,
         referenceClipPreviewUrl: shot.referenceClipPreviewUrl,
         referenceAudioPreviewUrl: shot.referenceAudioPreviewUrl,
@@ -4694,6 +4868,7 @@ function createPendingShotRender(shot: Shot, assets: Asset[]): ShotRender {
     previousShotClipSec: shot.previousShotClipSec,
     previousShotClipSecOverride: shot.previousShotClipSecOverride,
     referenceClipUrl: shot.referenceClipUrl || undefined,
+    referenceClipTosObjectKey: shot.referenceClipTosObjectKey || undefined,
     referenceAudioUrl: shot.referenceAudioUrl || undefined,
     referenceClipPreviewUrl: shot.referenceClipPreviewUrl || undefined,
     referenceAudioPreviewUrl: shot.referenceAudioPreviewUrl || undefined,
@@ -6159,6 +6334,7 @@ async function triggerNarrationJob(
     return { status: resolved.error.status === 404 ? 400 : resolved.error.status, error: "Final video not ready — please run stitch first." };
   }
   const finalArtifact = resolved.artifact;
+  const audioSourceJobId = input.jobId || finalArtifact.job?.id || "legacy";
   if (!finalArtifact.finalVideoSignature) {
     return { status: 400, error: "Final video signature missing — please re-run stitch first." };
   }
@@ -6212,7 +6388,8 @@ async function triggerNarrationJob(
     narrationScript: input.script,
     narrationVoice: effectiveVoice,
     narrationStrategy: input.strategy,
-    narrationStitchJobId: input.jobId,
+    narrationStitchJobId: audioSourceJobId,
+    audioTrackStitchJobIds: Array.from(new Set([...(session.audioTrackStitchJobIds || []), audioSourceJobId])),
     narrationSubtitleMode: input.subtitleMode,
     narrationSubtitlePosition: input.subtitlePosition,
     narrationVolume: input.narrationVolume,
@@ -6227,7 +6404,11 @@ async function triggerNarrationJob(
   });
 
   setImmediate(() => {
-    void runNarrationJobInBackground(sessionId, { ...input, voice: effectiveVoice }, signature, {
+    void runNarrationJobInBackground(sessionId, {
+      ...input,
+      voice: effectiveVoice,
+      jobId: audioSourceJobId === "legacy" ? undefined : audioSourceJobId
+    }, signature, {
       finalVideoUrl: finalArtifact.finalVideoUrl,
       finalVideoSignature: finalArtifact.finalVideoSignature
     });
@@ -6277,7 +6458,8 @@ async function runNarrationJobInBackground(
       narrationSignature: result.narrationSignature,
       // Reflect the voice the pipeline actually used (may have language-swapped from input.voice).
       narrationVoice: result.effectiveVoice,
-      narrationStitchJobId: input.jobId,
+      narrationStitchJobId: input.jobId || "legacy",
+      audioTrackStitchJobIds: Array.from(new Set([...(store.getSession(sessionId)?.audioTrackStitchJobIds || []), input.jobId || "legacy"])),
       narrationSubtitleMode: input.subtitleMode,
       narrationSubtitlePosition: input.subtitlePosition,
       narrationVolume: input.narrationVolume,

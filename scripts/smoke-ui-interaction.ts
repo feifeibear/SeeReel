@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import { resolveInitialLanguage } from "../src/client/i18n";
 import { resolveSessionDockState } from "../src/client/sessionDockState";
 import { resolveCanvasCreatePosition } from "../src/client/flow/canvasPosition";
+import { buildSessionGraph } from "../src/client/flow/buildGraph";
 import { buildPendingConnectEdge, mergePendingEdges } from "../src/client/flow/pendingConnection";
 
 function assertEqual<T>(actual: T, expected: T, label: string) {
@@ -74,12 +75,112 @@ const mergedPendingEdges = mergePendingEdges(
 assertEqual(mergedPendingEdges.length, 2, "pending edge appears immediately before server refresh");
 assertEqual(mergePendingEdges([pendingStitchEdge!], [pendingStitchEdge!]).length, 1, "server-confirmed edge replaces pending duplicate");
 
+const visualReferenceSnapshot = {
+  runtime: { seedreamDefaultModel: "seedream-4-5" as const },
+  sessions: [],
+  shots: [],
+  assets: [
+    {
+      id: "assetChar",
+      name: "Character",
+      type: "character" as const,
+      mediaKind: "image" as const,
+      description: "",
+      prompt: "",
+      ownerSessionId: "sesA",
+      referenceAssetIds: ["assetScene"],
+      tags: ["anchor", "character"],
+      createdAt: "",
+      updatedAt: ""
+    },
+    {
+      id: "assetScene",
+      name: "Scene",
+      type: "scene" as const,
+      mediaKind: "image" as const,
+      description: "",
+      prompt: "",
+      ownerSessionId: "sesA",
+      referenceAssetIds: ["storyboardAsset"],
+      tags: ["anchor", "scene"],
+      createdAt: "",
+      updatedAt: ""
+    },
+    {
+      id: "storyboardAsset",
+      name: "Storyboard",
+      type: "scene" as const,
+      mediaKind: "image" as const,
+      description: "",
+      prompt: "",
+      ownerShotId: "shotA",
+      referenceAssetIds: ["assetChar"],
+      tags: ["sub-storyboard", "shot-scoped"],
+      createdAt: "",
+      updatedAt: ""
+    }
+  ]
+};
+
+const visualReferenceSession = {
+  id: "sesA",
+  title: "Session",
+  logline: "",
+  style: "",
+  targetDurationSec: 10,
+  createdAt: "",
+  updatedAt: "",
+  shots: [{
+    id: "shotA",
+    sessionId: "sesA",
+    index: 1,
+    title: "Shot 1",
+    durationSec: 5,
+    rawPrompt: "",
+    prompt: "",
+    assetIds: ["assetChar"],
+    subShotPanelCount: 9,
+    subShotStoryboardAssetId: "storyboardAsset",
+    subShotStoryboardAssetIds: ["storyboardAsset"],
+    renders: [],
+    status: "draft" as const,
+    createdAt: "",
+    updatedAt: ""
+  }]
+};
+const visualReferenceGraph = buildSessionGraph(visualReferenceSnapshot, visualReferenceSession);
+assertEqual(
+  visualReferenceGraph.edges.some((edge) => edge.id === "e-assetref-assetScene-assetChar"),
+  true,
+  "character assets can reference scene assets for image generation"
+);
+assertEqual(
+  visualReferenceGraph.edges.some((edge) => edge.id === "e-storyboardref-storyboardAsset-assetScene"),
+  true,
+  "scene assets can reference storyboard assets for image generation"
+);
+assertEqual(
+  visualReferenceGraph.edges.some((edge) => edge.id === "e-asset-assetChar-storyboard-shotA"),
+  true,
+  "storyboards can reference character assets for image generation"
+);
+
+const pendingAssetReferenceEdge = buildPendingConnectEdge({
+  connection: { source: "asset-assetScene", target: "asset-assetChar" },
+  session: visualReferenceSession,
+  snapshot: visualReferenceSnapshot
+});
+assertEqual(pendingAssetReferenceEdge?.id, "e-assetref-assetScene-assetChar", "pending asset reference edge matches final edge id");
+
+const createNodeMenuSource = readFileSync(new URL("../src/client/flow/CreateNodeMenu.tsx", import.meta.url), "utf8");
+const appSource = readFileSync(new URL("../src/client/App.tsx", import.meta.url), "utf8");
+const flowSource = readFileSync(new URL("../src/client/flow/FlowView.tsx", import.meta.url), "utf8");
+assertEqual(createNodeMenuSource.includes('"storyboard"'), true, "right-click create menu exposes a storyboard option");
+assertEqual(flowSource.includes('if (option === "storyboard")'), true, "right-click storyboard option creates a visible storyboard node");
+
 assertEqual(resolveInitialLanguage(null), "zh", "fresh public entry defaults to Chinese");
 assertEqual(resolveInitialLanguage("en", "zh"), "en", "current-version explicit English preference is respected");
 assertEqual(resolveInitialLanguage(null, "en"), "zh", "legacy English preference does not override Chinese default");
-
-const appSource = readFileSync(new URL("../src/client/App.tsx", import.meta.url), "utf8");
-const flowSource = readFileSync(new URL("../src/client/flow/FlowView.tsx", import.meta.url), "utf8");
 
 [
   "optimisticAssets",

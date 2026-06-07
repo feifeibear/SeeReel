@@ -33,4 +33,10 @@ assert.deepEqual(
   "plain prose character names must not auto-attach the whole session cast"
 );
 
+assert.deepEqual(
+  getMentionedSessionCastAssets(session, assets, "白门楼最后一幕：@曹操 看着刑场。", new Set(["asset_chen"])),
+  [],
+  "explicit @mentioned cast must still be wired into this shot before it can become a Seedance reference"
+);
+
 console.log("seedance cast filter smoke passed");

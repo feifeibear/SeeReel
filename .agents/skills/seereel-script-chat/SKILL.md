@@ -62,6 +62,7 @@ After the first draft, run skeptical review passes before locking. Check:
 - Story-critical facts are audience-facing through character dialogue, voiceover, overheard line, argument, question-answer, or visible action with spoken backup.
 - Prompt-only lore, subtitles, readable signs, UI text, captions, and private notes do not carry essential plot facts.
 - Dialogue and narration do not overlap as simultaneous foreground speech.
+- Dialogue beats name their allowed speakers. Witnesses, crowds, vendors, bystanders, or narrators must not add intelligible third-party voices during a two-person exchange unless the story explicitly makes them speakers.
 - Spoken lines stay in one language.
 - Duration is plausible, with 15-second beat packing where possible.
 

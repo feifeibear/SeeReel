@@ -164,10 +164,11 @@ export async function generateStoryboard(session: SessionWithShots, assets: Asse
 }
 
 export async function generateStoryboardDetailed(session: SessionWithShots, assets: Asset[]): Promise<StoryboardPlanResult> {
+  const planningAssets = sessionScopedPlanningAssets(session, assets);
   if (session.story?.beats?.length) {
     const shots = session.shots.map((shot, index) => {
       const beat = session.story?.beats.find((item) => item.index === shot.index) || session.story?.beats[index % session.story.beats.length];
-      return beat ? shotFromStoryBeat(session, beat, shot, assets) : undefined;
+      return beat ? shotFromStoryBeat(session, beat, shot, planningAssets) : undefined;
     }).filter(Boolean) as Array<Partial<Shot>>;
     return { shots, model: session.story.model };
   }
@@ -195,7 +196,7 @@ export async function generateStoryboardDetailed(session: SessionWithShots, asse
                 style: session.style,
                 targetDurationSec: session.targetDurationSec,
                 shotCount: session.shots.length,
-                assets: assets.map((asset) => ({
+                assets: planningAssets.map((asset) => ({
                   name: asset.name,
                   type: asset.type,
                   description: asset.description
@@ -271,9 +272,10 @@ export async function generateStoryPlan(session: SessionWithShots, assets: Asset
 }
 
 export async function generateStoryPlanDetailed(session: SessionWithShots, assets: Asset[]): Promise<StoryPlanResult> {
-  if (session.story?.locked) return { story: normalizeStoryPlan(session.story, session, assets, session.story.model || "locked"), model: session.story.model || "locked" };
+  const planningAssets = sessionScopedPlanningAssets(session, assets);
+  if (session.story?.locked) return { story: normalizeStoryPlan(session.story, session, planningAssets, session.story.model || "locked"), model: session.story.model || "locked" };
 
-  const fallback = buildLocalStoryPlan(session, assets);
+  const fallback = buildLocalStoryPlan(session, planningAssets);
   const apiKey = openAIKey();
   if (!apiKey) return { story: fallback, model: "local-template" };
 
@@ -298,7 +300,7 @@ export async function generateStoryPlanDetailed(session: SessionWithShots, asset
               style: session.style,
               targetDurationSec: session.targetDurationSec,
               shotCount: session.shots.length,
-              assets: assets.map((asset) => ({
+              assets: planningAssets.map((asset) => ({
                 id: asset.id,
                 name: asset.name,
                 type: asset.type,
@@ -351,7 +353,7 @@ export async function generateStoryPlanDetailed(session: SessionWithShots, asset
     const data = (await response.json()) as { output_text?: string; output?: Array<{ content?: Array<{ text?: string }> }>; usage?: unknown };
     const text = data.output_text || data.output?.flatMap((item) => item.content ?? []).map((item) => item.text).join("");
     if (!text) return { story: fallback, model: "local-template" };
-    return { story: normalizeStoryPlan(JSON.parse(text), session, assets, model), model, rawUsage: data.usage };
+    return { story: normalizeStoryPlan(JSON.parse(text), session, planningAssets, model), model, rawUsage: data.usage };
   } catch {
     return { story: fallback, model: "local-template" };
   }
@@ -386,7 +388,8 @@ function shotFromStoryBeat(session: SessionWithShots, beat: StoryBeat, shot: Sho
   };
 }
 
-function buildLocalStoryPlan(session: SessionWithShots, assets: Asset[]): StoryPlan {
+export function buildLocalStoryPlan(session: SessionWithShots, assets: Asset[]): StoryPlan {
+  const planningAssets = sessionScopedPlanningAssets(session, assets);
   const beatTitles = [
     "建立处境",
     "扰动出现",
@@ -398,7 +401,7 @@ function buildLocalStoryPlan(session: SessionWithShots, assets: Asset[]): StoryP
     "余韵收束"
   ];
   const perBeat = Math.min(15, Math.max(1, Math.round(session.targetDurationSec / Math.max(session.shots.length, 1))));
-  const mentions = assets.slice(0, 4).map((asset) => `@${formatAssetMention(asset.name)}`);
+  const mentions = planningAssets.slice(0, 4).map((asset) => `@${formatAssetMention(asset.name)}`);
   return normalizeStoryPlan(
     {
       premise: session.logline || `${session.title} 的短片故事`,
@@ -407,7 +410,7 @@ function buildLocalStoryPlan(session: SessionWithShots, assets: Asset[]): StoryP
         `${session.title} 围绕一个清晰的视觉冲突展开：主角在有限时间内被迫面对一个改变关系和命运的选择。故事以具体动作推进，强调人物状态、场景压力和结尾余韵。`,
       theme: "人在压力下选择诚实面对自己",
       tone: session.style || "电影感、克制、真实、情绪逐步升高",
-      characters: assets
+      characters: planningAssets
         .filter((asset) => asset.type === "character")
         .slice(0, 4)
         .map((asset) => ({
@@ -433,9 +436,32 @@ function buildLocalStoryPlan(session: SessionWithShots, assets: Asset[]): StoryP
       locked: false
     },
     session,
-    assets,
+    planningAssets,
     "local-template"
   );
+}
+
+function sessionScopedPlanningAssets(session: SessionWithShots, assets: Asset[]) {
+  const shotIds = new Set(session.shots.map((shot) => shot.id));
+  const explicitAssetIds = new Set<string>();
+  session.shots.forEach((shot) => {
+    (shot.assetIds || []).forEach((id) => explicitAssetIds.add(id));
+    addDefinedAssetId(explicitAssetIds, shot.firstFrameAssetId);
+    addDefinedAssetId(explicitAssetIds, shot.lastFrameAssetId);
+    addDefinedAssetId(explicitAssetIds, shot.subShotStoryboardAssetId);
+    (shot.subShotStoryboardAssetIds || []).forEach((id) => explicitAssetIds.add(id));
+    addDefinedAssetId(explicitAssetIds, shot.referenceVideoAssetId);
+  });
+
+  return assets.filter((asset) => {
+    if (asset.ownerSessionId === session.id) return true;
+    if (asset.ownerShotId && shotIds.has(asset.ownerShotId)) return true;
+    return explicitAssetIds.has(asset.id);
+  });
+}
+
+function addDefinedAssetId(ids: Set<string>, value: string | undefined | null) {
+  if (value) ids.add(value);
 }
 
 function normalizeStoryPlan(value: unknown, session: SessionWithShots, assets: Asset[], model?: string): StoryPlan {

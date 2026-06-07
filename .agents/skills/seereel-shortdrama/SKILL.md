@@ -42,6 +42,7 @@ Use `seereel-cli` or `seereel-agent-session` only as transport/control surfaces.
 - Seedance workers need public or signed `http(s)` references. Publish local storyboard/reference media to TOS before using them as Seedance references.
 - Generate adjacent narrative shots serially when they share characters, location, time, lighting, color grade, screen direction, or camera motion. Use previous-tail clips, tailframes, or first-frame anchors when continuity needs them.
 - Keep one spoken dialogue language across the whole session. Use natural diegetic sound by default; no per-shot music/BGM/score unless explicitly requested as a session-level music plan.
+- Treat foreground-speech clarity as blocking. Dialogue shots need an explicit allowed speaker list; characters outside that list, bystanders, vendors, crowds, witnesses, and narrators must not produce intelligible foreground speech during that shot.
 - If a real Seedance task is slow, keep polling until terminal success/failure unless the user asks for recovery.
 
 ## Fallback Routing

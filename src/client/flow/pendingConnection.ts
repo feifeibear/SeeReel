@@ -22,6 +22,35 @@ export function buildPendingConnectEdge(input: PendingConnectInput): Edge | unde
   const target = input.connection.target || "";
   if (!source || !target) return undefined;
 
+  if ((source.startsWith("asset-") || source.startsWith("storyboard-")) && (target.startsWith("asset-") || target.startsWith("storyboard-"))) {
+    const sourceAsset = resolveVisualReferenceSourceAssetId(source, input.session);
+    if (!sourceAsset) return undefined;
+    if (target.startsWith("asset-")) {
+      const targetAssetId = target.slice("asset-".length);
+      const targetAsset = input.snapshot.assets.find((asset) => asset.id === targetAssetId);
+      if (!targetAsset || targetAsset.id === sourceAsset.id) return undefined;
+      return {
+        id: `${source.startsWith("storyboard-") ? "e-storyboardref" : "e-assetref"}-${sourceAsset.id}-${targetAsset.id}`,
+        source,
+        target,
+        animated: true,
+        data: { canDisconnectAssetReference: true, sourceAssetId: sourceAsset.id, targetAssetId: targetAsset.id },
+        style: { stroke: "#f59e0b", strokeWidth: 2, strokeDasharray: "5 3", opacity: 0.8 }
+      };
+    }
+    const targetShotId = target.slice("storyboard-".length);
+    const targetShot = input.session.shots?.find((shot) => shot.id === targetShotId);
+    if (!targetShot || targetShot.subShotStoryboardAssetId === sourceAsset.id) return undefined;
+    return {
+      id: `e-asset-${sourceAsset.id}-${target}`,
+      source,
+      target,
+      animated: true,
+      data: { canDisconnect: true, assetId: sourceAsset.id, shotId: targetShot.id },
+      style: { stroke: "#fbbf24", strokeWidth: 2, opacity: 0.8 }
+    };
+  }
+
   if (source.startsWith("asset-") && (target.startsWith("storyboard-") || target.startsWith("shot-"))) {
     const assetId = source.slice("asset-".length);
     const targetShotId = target.startsWith("storyboard-")
@@ -128,6 +157,24 @@ export function buildPendingConnectEdge(input: PendingConnectInput): Edge | unde
     };
   }
 
+  if (source.startsWith("stitch-") && target.startsWith("audio-") && input.targetNodeData?.kind === "audioTrack") {
+    const job = input.targetNodeData.job;
+    if (input.session.audioTrackStitchJobIds?.includes(job.id)) return undefined;
+    return {
+      id: `e-audio-${source}-${target}`,
+      source,
+      target,
+      animated: true,
+      data: { canDisconnectAudioTrack: true, stitchJobId: job.id },
+      style: {
+        stroke: "#f472b6",
+        strokeWidth: 2,
+        opacity: 0.8,
+        ...(job.finalVideoUrl ? {} : { strokeDasharray: "6 4" })
+      }
+    };
+  }
+
   if (source.startsWith("shot-") && target.startsWith("shot-")) {
     const sourceShotId = source.slice("shot-".length);
     const targetShotId = target.slice("shot-".length);
@@ -149,4 +196,12 @@ export function buildPendingConnectEdge(input: PendingConnectInput): Edge | unde
 
 function hasTag(asset: Asset, tag: string) {
   return (asset.tags || []).includes(tag);
+}
+
+function resolveVisualReferenceSourceAssetId(nodeId: string, session: SessionWithShots): { id: string } | undefined {
+  if (nodeId.startsWith("asset-")) return { id: nodeId.slice("asset-".length) };
+  if (!nodeId.startsWith("storyboard-")) return undefined;
+  const shotId = nodeId.slice("storyboard-".length);
+  const shot = session.shots?.find((item) => item.id === shotId);
+  return shot?.subShotStoryboardAssetId ? { id: shot.subShotStoryboardAssetId } : undefined;
 }

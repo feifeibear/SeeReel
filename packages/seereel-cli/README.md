@@ -76,10 +76,12 @@ CLI uploads those inputs into the SeeReel session, then creates storyboards,
 shot renders, stitch output, and the final video through SeeReel server APIs.
 Only the final stitched cloud artifact is downloaded to `--output`.
 
-`workflow --json` includes both `webUrl` and `handoffUrl`. Because CLI and
-browser identities are isolated by `seereel_user_id` cookies, return `handoffUrl`
-when a human needs to see and continue editing the AI-created workflow in a
-normal browser. The raw `webUrl` is still useful inside the CLI cookie scope.
+`workflow --json` includes `webUrl`, and online deployments also include
+`handoffUrl`. Because CLI and browser identities are isolated by
+`seereel_user_id` cookies online, return `handoffUrl` when a human needs to see
+and continue editing the AI-created workflow in a normal browser. On localhost,
+return the direct `webUrl`; local CLI sessions automatically appear in the
+browser session list and do not need encrypted handoff.
 
 Use `--jsonl` for long fully automated runs; it emits `session_created`,
 `shot_submitted`, `task_id`, `poll_status`, `retrying`, and `stitch_ready`

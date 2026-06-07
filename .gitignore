@@ -17,6 +17,10 @@ data/
 
 # Local demo/test media should not be committed. Configure public examples through admin/runtime data.
 fixtures/
+outputs/
+assets/generated/
+assets/references/
+.vscode/
 
 # Local agent runtime state + generated Claude Code skill mirror (source: .agents/skills/)
 .claude/

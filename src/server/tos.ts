@@ -14,6 +14,11 @@ export interface TosPublishResult {
   expiresSec?: number;
 }
 
+export interface TosDeleteObjectsResult {
+  deletedKeys: string[];
+  failed: Array<{ key: string; error: string }>;
+}
+
 export function hasTosConfig() {
   return Boolean(getTosConfig(false));
 }
@@ -139,6 +144,40 @@ export async function publishLocalMediaToTos(localUrl: string, opts: { keyHint?:
     response: { contentType: contentTypeFromPath(filePath) }
   });
   return { key, url, localUrl, expiresSec: config.presignExpiresSec };
+}
+
+export async function deleteTosObjectKeys(keys: string[]): Promise<TosDeleteObjectsResult> {
+  const uniqueKeys = [...new Set(keys.map((key) => key.trim()).filter(Boolean))];
+  if (uniqueKeys.length === 0) return { deletedKeys: [], failed: [] };
+
+  const config = getTosConfig(false);
+  if (!config) {
+    return {
+      deletedKeys: [],
+      failed: uniqueKeys.map((key) => ({ key, error: "TOS deletion is not configured" }))
+    };
+  }
+
+  const client = new TosClient({
+    accessKeyId: config.accessKeyId,
+    accessKeySecret: config.accessKeySecret,
+    stsToken: config.stsToken,
+    region: config.region,
+    endpoint: config.endpoint,
+    bucket: config.bucket
+  });
+
+  const deletedKeys: string[] = [];
+  const failed: TosDeleteObjectsResult["failed"] = [];
+  for (const key of uniqueKeys) {
+    try {
+      await client.deleteObject({ bucket: config.bucket, key });
+      deletedKeys.push(key);
+    } catch (error) {
+      failed.push({ key, error: error instanceof Error ? error.message : String(error) });
+    }
+  }
+  return { deletedKeys, failed };
 }
 
 function getTosConfig(throwOnMissing: true): TosConfig;

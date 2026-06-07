@@ -89,59 +89,66 @@ async function waitForServer(timeoutMs = 40_000) {
 }
 
 async function main() {
+  let sessionId = "";
   // 1) Access gate ------------------------------------------------------------
-  const health = await call("/api/healthz");
-  assert.equal(health.status, 200, "healthz must be open without a token");
+  try {
+    const health = await call("/api/healthz");
+    assert.equal(health.status, 200, "healthz must be open without a token");
 
-  const stateNoToken = await call("/api/state");
-  assert.equal(stateNoToken.status, 401, "/api/state must require a token");
-  assert.equal(stateNoToken.body?.code, "access_token_required", "401 should carry access_token_required code");
+    const stateNoToken = await call("/api/state");
+    assert.equal(stateNoToken.status, 401, "/api/state must require a token");
+    assert.equal(stateNoToken.body?.code, "access_token_required", "401 should carry access_token_required code");
 
-  const diagNoToken = await call("/api/diagnostics");
-  assert.equal(diagNoToken.status, 401, "/api/diagnostics must require a token");
+    const diagNoToken = await call("/api/diagnostics");
+    assert.equal(diagNoToken.status, 401, "/api/diagnostics must require a token");
 
-  const sessionNoToken = await call("/api/sessions", { method: "POST", body: JSON.stringify({ title: "x" }) });
-  assert.equal(sessionNoToken.status, 401, "POST /api/sessions must require a token");
+    const sessionNoToken = await call("/api/sessions", { method: "POST", body: JSON.stringify({ title: "x" }) });
+    assert.equal(sessionNoToken.status, 401, "POST /api/sessions must require a token");
 
-  const stateWithToken = await call("/api/state", { token: true });
-  assert.equal(stateWithToken.status, 200, "/api/state must succeed with a valid token");
-  console.log("[ok] access token gate");
+    const stateWithToken = await call("/api/state", { token: true });
+    assert.equal(stateWithToken.status, 200, "/api/state must succeed with a valid token");
+    console.log("[ok] access token gate");
 
-  // Create the fixtures we need (with token).
-  const session = await call("/api/sessions", {
-    method: "POST",
-    token: true,
-    body: JSON.stringify({ title: "Guardrail Smoke", logline: "guardrail", style: "test", targetDurationSec: 10, shotCount: 0 })
-  });
-  assert.equal(session.status, 200, "session create should succeed with token");
-  const sessionId = session.body.id as string;
+    // Create the fixtures we need (with token).
+    const session = await call("/api/sessions", {
+      method: "POST",
+      token: true,
+      body: JSON.stringify({ title: "Guardrail Smoke", logline: "guardrail", style: "test", targetDurationSec: 10, shotCount: 0 })
+    });
+    assert.equal(session.status, 200, "session create should succeed with token");
+    sessionId = session.body.id as string;
 
-  const asset = await call("/api/assets", {
-    method: "POST",
-    token: true,
-    body: JSON.stringify({ name: "Guardrail Asset", type: "character", description: "guardrail", prompt: "a hero", ownerSessionId: sessionId, tags: ["smoke"] })
-  });
-  assert.equal(asset.status, 200, "asset create should succeed with token");
-  const assetId = asset.body.id as string;
+    const asset = await call("/api/assets", {
+      method: "POST",
+      token: true,
+      body: JSON.stringify({ name: "Guardrail Asset", type: "character", description: "guardrail", prompt: "a hero", ownerSessionId: sessionId, tags: ["smoke"] })
+    });
+    assert.equal(asset.status, 200, "asset create should succeed with token");
+    const assetId = asset.body.id as string;
 
-  // 2) No silent fake success + 3) cap, exercised on the same paid route -------
-  // CAP=2: first two generate attempts consume a slot and must ERROR (no key in production),
-  // the third must be blocked by the cap with 429.
-  const gen1 = await call(`/api/assets/${assetId}/generate`, { method: "POST", token: true, body: JSON.stringify({}) });
-  assert.ok(gen1.status >= 400, `generate #1 should error without a key, got ${gen1.status}`);
-  assert.equal(gen1.status === 429, false, "generate #1 should not be the cap (cap not reached yet)");
-  assert.equal(/placehold\.co|placeholder/i.test(JSON.stringify(gen1.body)), false, "generate must not return a placeholder success in production");
+    // 2) No silent fake success + 3) cap, exercised on the same paid route -------
+    // CAP=2: first two generate attempts consume a slot and must ERROR (no key in production),
+    // the third must be blocked by the cap with 429.
+    const gen1 = await call(`/api/assets/${assetId}/generate`, { method: "POST", token: true, body: JSON.stringify({}) });
+    assert.ok(gen1.status >= 400, `generate #1 should error without a key, got ${gen1.status}`);
+    assert.equal(gen1.status === 429, false, "generate #1 should not be the cap (cap not reached yet)");
+    assert.equal(/placehold\.co|placeholder/i.test(JSON.stringify(gen1.body)), false, "generate must not return a placeholder success in production");
 
-  const gen2 = await call(`/api/assets/${assetId}/generate`, { method: "POST", token: true, body: JSON.stringify({}) });
-  assert.ok(gen2.status >= 400 && gen2.status !== 429, `generate #2 should error (not cap), got ${gen2.status}`);
-  console.log("[ok] no silent fake success in production");
+    const gen2 = await call(`/api/assets/${assetId}/generate`, { method: "POST", token: true, body: JSON.stringify({}) });
+    assert.ok(gen2.status >= 400 && gen2.status !== 429, `generate #2 should error (not cap), got ${gen2.status}`);
+    console.log("[ok] no silent fake success in production");
 
-  const gen3 = await call(`/api/assets/${assetId}/generate`, { method: "POST", token: true, body: JSON.stringify({}) });
-  assert.equal(gen3.status, 429, `generate #3 should hit the daily cap (429), got ${gen3.status}`);
-  assert.equal(gen3.body?.code, "generation_cap_exceeded", "cap response should carry generation_cap_exceeded code");
-  console.log(`[ok] per-session daily generation cap (cap=${CAP})`);
+    const gen3 = await call(`/api/assets/${assetId}/generate`, { method: "POST", token: true, body: JSON.stringify({}) });
+    assert.equal(gen3.status, 429, `generate #3 should hit the daily cap (429), got ${gen3.status}`);
+    assert.equal(gen3.body?.code, "generation_cap_exceeded", "cap response should carry generation_cap_exceeded code");
+    console.log(`[ok] per-session daily generation cap (cap=${CAP})`);
 
-  console.log("guardrail smoke passed");
+    console.log("guardrail smoke passed");
+  } finally {
+    if (sessionId) {
+      await call(`/api/sessions/${encodeURIComponent(sessionId)}`, { method: "DELETE", token: true }).catch(() => undefined);
+    }
+  }
 }
 
 async function run() {

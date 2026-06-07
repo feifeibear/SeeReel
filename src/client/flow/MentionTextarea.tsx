@@ -31,10 +31,10 @@ interface MentionTextareaProps {
  * boundary; while the popup is open, ArrowUp/Down navigates, Enter / Tab picks, and Escape closes
  * without inserting. Click also picks. Filtering is by case-insensitive handle prefix match.
  *
- * Why: lets the user point at any wired reference (or any visible asset in the session) without
- * memorizing the exact handle the server-side parser expects. The handles are normalized the
- * same way the server normalizes mention text — strip whitespace and slashes — so what the
- * user picks is exactly what the server will recognize.
+ * Why: lets the user point at graph-wired references without memorizing the exact handle the
+ * server-side parser expects. The handles are normalized the same way the server normalizes
+ * mention text — strip whitespace and slashes — so what the user picks is exactly what the
+ * server will recognize.
  */
 export function MentionTextarea({ value, onChange, options, rows = 10, placeholder, onCommit }: MentionTextareaProps) {
   const { t } = useI18n();

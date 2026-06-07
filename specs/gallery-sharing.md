@@ -13,7 +13,7 @@ SeeReel Gallery is the creator sharing surface. It lets users publish a complete
 - Gallery data persisted in the SeeReel store.
 - Public Gallery page in the web app.
 - Clean browser routes for Studio and Gallery.
-- API routes for listing gallery items, publishing a session to Gallery, reading one item, and copying an item.
+- API routes for listing gallery items, publishing a session to Gallery, reading one item, copying an item, and deleting a published item.
 - Session-copy semantics for prompts, shots, asset wiring, generated media, stitch outputs, and owner isolation.
 
 ## Non-Goals
@@ -21,13 +21,14 @@ SeeReel Gallery is the creator sharing surface. It lets users publish a complete
 - Moderation, ranking, likes, comments, search, and creator profiles.
 - Cross-device authenticated accounts.
 - Paid generation on copy. Copying a gallery item does not submit new Seedance or Seedream jobs.
-- Public deletion/unpublish workflow.
+- Moderation-grade public takedown workflow.
 
 ## User Stories
 
 - As a creator, I can publish my current session to Gallery from the web app.
 - As a visitor, I can open Gallery and preview shared generated videos.
 - As a visitor, I can copy a gallery item into my own session list and continue editing from that copy.
+- As a creator, I can delete a Gallery item I published when I no longer want it shown publicly.
 - As a creator, I can delete or keep editing my original session without breaking the already-published Gallery item.
 
 ## Product Rules
@@ -42,6 +43,8 @@ SeeReel Gallery is the creator sharing surface. It lets users publish a complete
 - Copying a Gallery item creates new session, shot, and asset ids owned by the copying visitor.
 - Copying preserves editable prompts, asset references, generated media URLs, stitch outputs, and shot order, while clearing in-flight task ids and token usage history.
 - The copied session is selected immediately so the visitor can continue creating without hunting through history.
+- Deleting a Gallery item removes only the public Gallery item. It must not delete the original session, copied sessions, assets, media files, or existing remixes.
+- Gallery items published after this rule carry the publishing owner internally so other current-owner visitors cannot delete them. Legacy items without an owner may still be removed to keep old local data manageable.
 
 ## Acceptance Criteria
 
@@ -53,6 +56,9 @@ SeeReel Gallery is the creator sharing surface. It lets users publish a complete
 - [ ] Gallery cards show a video preview when the published session has generated media.
 - [ ] Copying a Gallery item through `POST /api/gallery/:galleryId/copy` creates a new owned session with remapped shot and asset ids.
 - [ ] The web app copy action selects the newly copied session for editing.
+- [ ] Deleting a Gallery item through `DELETE /api/gallery/:galleryId` removes it from `GET /api/gallery` and prevents future copies.
+- [ ] The web app Gallery card exposes a delete action that confirms before deletion and removes the card after success.
+- [ ] A Gallery item owned by another current owner cannot be deleted.
 - [ ] Deleting the source session after publishing does not prevent the Gallery item from being copied.
 
 ## Verification

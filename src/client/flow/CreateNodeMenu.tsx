@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useRef, type ReactElement } from "react";
-import { Film, Globe, Image as ImageIcon, Mountain, Plus, Scissors, Upload, User } from "lucide-react";
+import { Film, Globe, Image as ImageIcon, Mountain, Music2, Plus, Scissors, Upload, User } from "lucide-react";
 import { useI18n } from "../i18n";
 
-export type CreateMenuOption = "character" | "scene" | "shot" | "stitch" | "uploadCharacter" | "uploadScene" | "uploadVideo";
+export type CreateMenuOption = "character" | "scene" | "storyboard" | "shot" | "stitch" | "audioTrack" | "uploadCharacter" | "uploadScene" | "uploadVideo";
 
 interface CreateNodeMenuProps {
   /** Anchor position in viewport coords (clientX/Y from the context-menu event). */
@@ -55,8 +55,10 @@ export function CreateNodeMenu({ x, y, onPick, onClose }: CreateNodeMenuProps) {
       if (e.key === "Escape") return safeClose();
       if (e.key === "c" || e.key === "C") return safePick("character");
       if (e.key === "s" || e.key === "S") return safePick("scene");
+      if (e.key === "b" || e.key === "B") return safePick("storyboard");
       if (e.key === "n" || e.key === "N") return safePick("shot");
       if (e.key === "j" || e.key === "J") return safePick("stitch");
+      if (e.key === "a" || e.key === "A") return safePick("audioTrack");
       if (e.key === "u" || e.key === "U") return safePick("uploadCharacter");
       if (e.key === "v" || e.key === "V") return safePick("uploadScene");
       if (e.key === "r" || e.key === "R") return safePick("uploadVideo");
@@ -82,8 +84,10 @@ export function CreateNodeMenu({ x, y, onPick, onClose }: CreateNodeMenuProps) {
   const items: Array<{ key: CreateMenuOption; icon: ReactElement; label: string; hint: string; tag: string }> = [
     { key: "character", icon: <User size={14} />, label: t.menu.character, hint: t.menu.characterHint, tag: "C" },
     { key: "scene", icon: <Mountain size={14} />, label: t.menu.scene, hint: t.menu.sceneHint, tag: "S" },
+    { key: "storyboard", icon: <ImageIcon size={14} />, label: t.menu.storyboard, hint: t.menu.storyboardHint, tag: "B" },
     { key: "shot", icon: <Plus size={14} />, label: t.menu.shot, hint: t.menu.shotHint, tag: "N" },
     { key: "stitch", icon: <Scissors size={14} />, label: t.menu.stitch, hint: t.menu.stitchHint, tag: "J" },
+    { key: "audioTrack", icon: <Music2 size={14} />, label: t.menu.audioTrack, hint: t.menu.audioTrackHint, tag: "A" },
     { key: "uploadCharacter", icon: <Upload size={14} />, label: t.menu.uploadCharacter, hint: t.menu.uploadCharacterHint, tag: "U" },
     { key: "uploadScene", icon: <ImageIcon size={14} />, label: t.menu.uploadScene, hint: t.menu.uploadSceneHint, tag: "V" },
     { key: "uploadVideo", icon: <Film size={14} />, label: t.menu.uploadVideo, hint: t.menu.uploadVideoHint, tag: "R" }

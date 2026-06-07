@@ -88,6 +88,13 @@ async function main() {
     assert.equal(ownerBSnapshot.assets.some((item) => item.id === copied.shots[0].assetIds[0]), true, "copied asset appears in owner B snapshot");
     assert.equal(ownerBSnapshot.gallery?.some((item) => item.id === galleryItem.id), true, "gallery remains visible in scoped snapshots");
 
+    assert.equal(await store.deleteGalleryItem(galleryItem.id, ownerB), false, "other owners cannot delete the published gallery item");
+    assert.equal(store.listGalleryItems().some((item) => item.id === galleryItem.id), true, "gallery item remains after rejected delete");
+    assert.equal(await store.deleteGalleryItem(galleryItem.id, ownerA), true, "published gallery item can be deleted by its owner");
+    assert.equal(store.listGalleryItems().some((item) => item.id === galleryItem.id), false, "deleted gallery item is removed from list");
+    assert.equal(await store.copyGalleryItemToSession(galleryItem.id, ownerB), undefined, "deleted gallery item cannot be copied");
+    assert.equal(await store.deleteGalleryItem(galleryItem.id, ownerA), false, "deleting a missing gallery item reports false");
+
     console.log("gallery sharing smoke passed", { galleryId: galleryItem.id, copiedSessionId: copied.id });
   } finally {
     process.chdir(repoRoot);

@@ -427,6 +427,15 @@ function sessionUrl(baseUrl, sessionId) {
   return `${baseUrl}/canvas/${encodeURIComponent(sessionId)}`;
 }
 
+function isLocalBaseUrl(baseUrl) {
+  try {
+    const hostname = new URL(baseUrl).hostname.toLowerCase();
+    return hostname === "localhost" || hostname === "127.0.0.1" || hostname === "::1";
+  } catch {
+    return false;
+  }
+}
+
 function downloadUrl(baseUrl, sessionId) {
   return `${baseUrl}/api/sessions/${encodeURIComponent(sessionId)}/download`;
 }
@@ -441,6 +450,20 @@ async function createSessionHandoff(runtime, sessionId) {
     return { ...handoff, handoffUrl: handoffUrl(runtime.baseUrl, handoff.handoffToken) };
   }
   return handoff;
+}
+
+async function sessionAccess(runtime, sessionId) {
+  const webUrl = sessionUrl(runtime.baseUrl, sessionId);
+  if (isLocalBaseUrl(runtime.baseUrl)) {
+    return { webUrl, webUrlVisibleInBrowser: true };
+  }
+  const handoff = await createSessionHandoff(runtime, sessionId);
+  return {
+    webUrl,
+    webUrlVisibleInBrowser: false,
+    handoffUrl: handoff.handoffUrl,
+    handoffExpiresAt: handoff.handoffExpiresAt
+  };
 }
 
 function clampInt(value, fallback, { min = 1, max = Number.MAX_SAFE_INTEGER } = {}) {
@@ -690,15 +713,12 @@ async function commandWorkflow(runtime, positionals, options) {
     options.reporter?.event("final_downloaded", { sessionId: session.id, output, bytes: result.bytes });
   }
 
-  const handoff = await createSessionHandoff(runtime, session.id);
+  const access = await sessionAccess(runtime, session.id);
   const result = {
     baseUrl: runtime.baseUrl,
     sessionId: session.id,
     title: currentSession.title || title,
-    webUrl: sessionUrl(runtime.baseUrl, session.id),
-    webUrlVisibleInBrowser: false,
-    handoffUrl: handoff.handoffUrl,
-    handoffExpiresAt: handoff.handoffExpiresAt,
+    ...access,
     cloudOnly,
     credential,
     agentPlan: credential.agentPlan,
@@ -1426,16 +1446,13 @@ async function commandOpen(runtime, options) {
 async function commandHandoff(runtime, options) {
   await api(runtime, "/api/healthz");
   const sessionId = await resolveSessionId(runtime, options.session || "latest");
-  const handoff = await createSessionHandoff(runtime, sessionId);
+  const access = await sessionAccess(runtime, sessionId);
   const result = {
     action: "handoff",
     sessionId,
-    webUrl: sessionUrl(runtime.baseUrl, sessionId),
-    webUrlVisibleInBrowser: false,
-    handoffUrl: handoff.handoffUrl,
-    handoffExpiresAt: handoff.handoffExpiresAt
+    ...access
   };
-  if (options.open) openUrl(result.handoffUrl);
+  if (options.open) openUrl(result.handoffUrl || result.webUrl);
   return result;
 }
 

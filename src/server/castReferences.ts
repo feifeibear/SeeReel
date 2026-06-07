@@ -44,7 +44,7 @@ function findSessionCastAsset(character: StoryCharacter, allAssets: Asset[], ses
   });
 }
 
-export function getMentionedSessionCastAssets(session: Session | undefined, allAssets: Asset[], promptText: string) {
+export function getMentionedSessionCastAssets(session: Session | undefined, allAssets: Asset[], promptText: string, allowedAssetIds?: Set<string>) {
   if (!session?.story?.characters?.length) return [];
 
   const assets: Asset[] = [];
@@ -55,6 +55,7 @@ export function getMentionedSessionCastAssets(session: Session | undefined, allA
     if (!promptMentionsCast(promptText, character)) continue;
 
     const match = findSessionCastAsset(character, allAssets, session.id);
+    if (match && allowedAssetIds && !allowedAssetIds.has(match.id)) continue;
     if (!match || seen.has(match.id)) continue;
     seen.add(match.id);
     assets.push(match);

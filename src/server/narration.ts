@@ -14,7 +14,7 @@ import type { NarrationStrategy, NarrationSubtitleMode, NarrationSubtitlePositio
 
 // Bumped whenever rendering / timing / TTS request shape changes so cached narration artifacts get
 // re-rendered (signature is part of the output filename).
-const NARRATION_SIGNATURE_VERSION = "narr-v10-audio-subtitle-options";
+const NARRATION_SIGNATURE_VERSION = "narr-v11-timed-lines";
 
 // V3 single-shot SSE endpoint - emits a stream of `event:/data:` blocks whose `data` JSON
 // contains base64-encoded audio chunks. v1 (api/v1/tts) is intentionally NOT used: it does not
@@ -38,6 +38,7 @@ export interface NarrationLineDescriptor {
   text: string;
   audioPath: string;
   rawDurationSec: number;
+  startSec?: number;
 }
 
 export interface NarrationTimelineSegment {
@@ -63,6 +64,11 @@ export interface NarrationTimeline {
   droppedLineCount: number;
   /** Warning string suitable for surfacing to the UI/progress log; empty if no caveat. */
   warning?: string;
+}
+
+interface ParsedNarrationLine {
+  text: string;
+  startSec?: number;
 }
 
 export interface NarrationPipelineResult {
@@ -197,6 +203,33 @@ export function splitScriptIntoLines(script: string): string[] {
     if (buffer) out.push(buffer);
   }
   return out.filter((line) => /[\p{L}\p{N}]/u.test(line));
+}
+
+/**
+ * Parse optional leading timecodes from narration lines.
+ *
+ * Supported forms:
+ *   [00:15] 文本
+ *   [15s] 文本
+ *   [15] 文本
+ *
+ * The marker controls when that TTS line starts in the final video. It is not spoken.
+ * Plain scripts keep the existing automatic left-to-right packing behavior.
+ */
+export function parseNarrationScriptLines(script: string): ParsedNarrationLine[] {
+  return splitScriptIntoLines(script)
+    .map((line) => {
+      const match = line.match(/^\s*\[(?:(\d{1,2}):)?(\d{1,2})(?:\.(\d{1,3}))?s?\]\s*(.+)$/i);
+      if (!match) return { text: line };
+      const minutes = match[1] ? Number(match[1]) : 0;
+      const seconds = Number(match[2]);
+      const fraction = match[3] ? Number(`0.${match[3]}`) : 0;
+      const text = match[4].trim();
+      const startSec = minutes * 60 + seconds + fraction;
+      if (!text || !Number.isFinite(startSec)) return { text: line };
+      return { text, startSec };
+    })
+    .filter((line) => /[\p{L}\p{N}]/u.test(line.text));
 }
 
 // ---------- Volcengine OpenSpeech TTS ----------
@@ -362,7 +395,7 @@ async function consumeVolcSseStream(body: ReadableStream<Uint8Array>): Promise<B
  * Trailing sentences may be silently dropped — caller is expected to show the warning back.
  */
 export function assembleNarrationTimeline(
-  lines: Array<{ text: string; audioPath: string; rawDurationSec: number }>,
+  lines: Array<{ text: string; audioPath: string; rawDurationSec: number; startSec?: number }>,
   videoDurationSec: number,
   opts?: { gapMs?: number; maxTempo?: number }
 ): NarrationTimeline {
@@ -387,9 +420,22 @@ export function assembleNarrationTimeline(
   const totalSpeechSec = lines.reduce((sum, line) => sum + line.rawDurationSec, 0);
   const totalGapSec = gapSec * Math.max(0, lines.length - 1);
   const naturalTotal = totalSpeechSec + totalGapSec;
+  const hasTimedLines = lines.some((line) => Number.isFinite(line.startSec));
 
   let globalTempo = 1.0;
-  if (naturalTotal > videoDurationSec) {
+  if (hasTimedLines) {
+    for (let index = 0; index < lines.length; index += 1) {
+      const line = lines[index];
+      const startSec = clampTimelineStart(line.startSec ?? 0, videoDurationSec);
+      const nextTimed = lines.slice(index + 1).find((next) => Number.isFinite(next.startSec));
+      const windowEnd = nextTimed?.startSec !== undefined
+        ? clampTimelineStart(nextTimed.startSec, videoDurationSec)
+        : videoDurationSec;
+      const availableSec = Math.max(0.1, windowEnd - startSec - gapSec);
+      globalTempo = Math.max(globalTempo, line.rawDurationSec / availableSec);
+    }
+    globalTempo = Math.min(maxTempo, globalTempo);
+  } else if (naturalTotal > videoDurationSec) {
     globalTempo = Math.min(maxTempo, naturalTotal / videoDurationSec);
   }
 
@@ -399,6 +445,9 @@ export function assembleNarrationTimeline(
   const epsilon = 0.05;
   for (let index = 0; index < lines.length; index += 1) {
     const line = lines[index];
+    if (hasTimedLines && Number.isFinite(line.startSec)) {
+      cursorSec = Math.max(cursorSec, clampTimelineStart(line.startSec, videoDurationSec));
+    }
     const adjustedDuration = line.rawDurationSec / globalTempo;
     const endIfPlaced = cursorSec + adjustedDuration;
     if (endIfPlaced > videoDurationSec + epsilon) {
@@ -423,7 +472,9 @@ export function assembleNarrationTimeline(
     const tempoNote = globalTempo > 1.001 ? `已按 ${globalTempo.toFixed(2)}x 加速；` : "";
     warning = `脚本明显长于视频：${tempoNote}末尾 ${droppedLineCount} 句因放不下被裁掉。视频长度未改变；如需保留请缩短脚本或在 .env 调大 NARRATION_FIT_MAX_TEMPO（默认 ${DEFAULT_MAX_TEMPO}）。`;
   } else if (globalTempo > 1.001) {
-    warning = `脚本略长于视频：旁白整体加速 ${globalTempo.toFixed(2)}x 以贴合视频长度。`;
+    warning = hasTimedLines
+      ? `部分带时间码旁白略长：旁白整体加速 ${globalTempo.toFixed(2)}x 以贴合指定镜头窗口。`
+      : `脚本略长于视频：旁白整体加速 ${globalTempo.toFixed(2)}x 以贴合视频长度。`;
   }
 
   return {
@@ -435,6 +486,11 @@ export function assembleNarrationTimeline(
     droppedLineCount,
     warning
   };
+}
+
+function clampTimelineStart(value: number | undefined, videoDurationSec: number) {
+  if (!Number.isFinite(value)) return 0;
+  return Math.max(0, Math.min(value || 0, Math.max(0, videoDurationSec - 0.05)));
 }
 
 // ---------- SRT ----------
@@ -673,13 +729,14 @@ export async function runNarrationPipeline(
   const videoDurationSec = await probeMediaDurationSec(sourceVideoPath);
   await report(`video duration ${videoDurationSec.toFixed(2)}s`);
 
-  const lines = splitScriptIntoLines(input.script);
+  const lines = parseNarrationScriptLines(input.script);
   if (!lines.length) throw new Error("脚本为空或全是标点。");
   await report(`split script into ${lines.length} lines`);
 
   const lineDescriptors: NarrationLineDescriptor[] = [];
   for (let index = 0; index < lines.length; index += 1) {
-    const text = lines[index];
+    const line = lines[index];
+    const text = line.text;
     const audioPath = path.join(MEDIA_DIR, `narr-${session.id}-${signature}-line-${pad3(index + 1)}.mp3`);
     if (!(await fileExists(audioPath))) {
       await report(`tts ${index + 1}/${lines.length}: ${truncatePreview(text)}`);
@@ -694,11 +751,16 @@ export async function runNarrationPipeline(
       await report(`tts ${index + 1}/${lines.length}: reuse cached`);
     }
     const rawDurationSec = await probeMediaDurationSec(audioPath).catch(() => 0);
-    lineDescriptors.push({ index, text, audioPath, rawDurationSec });
+    lineDescriptors.push({ index, text, audioPath, rawDurationSec, startSec: line.startSec });
   }
 
   const timeline = assembleNarrationTimeline(
-    lineDescriptors.map((line) => ({ text: line.text, audioPath: line.audioPath, rawDurationSec: line.rawDurationSec })),
+    lineDescriptors.map((line) => ({
+      text: line.text,
+      audioPath: line.audioPath,
+      rawDurationSec: line.rawDurationSec,
+      startSec: line.startSec
+    })),
     videoDurationSec
   );
   await report(

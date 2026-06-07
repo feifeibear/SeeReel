@@ -4689,6 +4689,12 @@ body {
   box-shadow: inset 3px 0 0 var(--focus-teal);
 }
 
+.session.selected-for-delete {
+  background: rgba(255, 99, 99, 0.1);
+  border-color: rgba(255, 122, 122, 0.34);
+  box-shadow: inset 3px 0 0 rgba(255, 122, 122, 0.82);
+}
+
 .session.active span:first-child {
   background: rgba(76, 199, 191, 0.16);
   box-shadow: 0 0 0 1px rgba(76, 199, 191, 0.26);
@@ -4701,6 +4707,13 @@ body {
   padding: 0;
   opacity: 0.66;
   transform: none;
+}
+
+.session-bulk-delete {
+  width: 100%;
+  min-height: 36px;
+  justify-content: center;
+  gap: 8px;
 }
 
 .session-row:hover .session-delete,
@@ -4952,6 +4965,14 @@ body {
   align-items: center;
   justify-content: space-between;
   gap: 10px;
+}
+
+.gallery-card-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  min-width: 0;
 }
 
 .gallery-card-footer button {

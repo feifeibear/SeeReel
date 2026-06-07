@@ -351,17 +351,23 @@ function AssetNodeImpl({ data, selected }: NodeProps<AssetFlowNode>) {
   const tag = typeLabel[asset.type] ?? asset.type;
   const reviewInfo = reviewBadge(t, asset.imageReviewStatus, asset.imageReview?.score);
   const showReviewBadge = asset.imageReviewStatus === "running" || asset.imageReviewStatus === "error" || Boolean(asset.imageReview);
+  const isUploading = asset.tags?.includes("client-pending-upload");
   return (
-    <div className={`flow-node asset-node ${selected ? "selected" : ""} ${isGenerating ? "generating" : ""}`} style={{ width: NODE_WIDTH }}>
+    <div className={`flow-node asset-node ${selected ? "selected" : ""} ${(isGenerating || isUploading) ? "generating" : ""}`} style={{ width: NODE_WIDTH }}>
       <div className="flow-node-head">
         <span className={`flow-tag tag-${asset.type}`}>{tag}</span>
         <strong className="flow-node-title" title={asset.name}>{asset.name}</strong>
+        {isUploading && (
+          <span className="flow-node-pending-badge" title={t.app.pendingUpload}>
+            {t.app.pendingUpload}
+          </span>
+        )}
         {isGenerating && (
           <span className="flow-node-pending-badge" title={t.nodes.pendingAssetTitle}>
             {t.nodes.generating}{pendingElapsed ? ` · ${pendingElapsed}` : "…"}
           </span>
         )}
-        {thumb && (
+        {thumb && !isUploading && (
           <ReviewButton
             label="VLM"
             title={t.nodes.reviewImageTitle}
@@ -371,7 +377,7 @@ function AssetNodeImpl({ data, selected }: NodeProps<AssetFlowNode>) {
             }}
           />
         )}
-        {thumb && (
+        {thumb && !isUploading && (
           <DownloadButton
             href={api.downloadAssetUrl(asset.id)}
             filename={`${asset.name}.png`}
@@ -387,6 +393,12 @@ function AssetNodeImpl({ data, selected }: NodeProps<AssetFlowNode>) {
             <span className="flow-empty-spinner" aria-hidden />
             {t.nodes.generating}{pendingElapsed ? ` · ${pendingElapsed}` : "…"}
             <small style={{ opacity: 0.65, marginTop: 4 }}>{t.nodes.seedreamReviewHint}</small>
+          </div>
+        )}
+        {isUploading && (
+          <div className="flow-node-pending-overlay">
+            <span className="flow-empty-spinner" aria-hidden />
+            {t.app.pendingUpload}
           </div>
         )}
       </div>
@@ -532,6 +544,16 @@ function ShotNodeImpl({ data, selected }: NodeProps<ShotFlowNode>) {
             title={t.nodes.tailframeTitle}
             onClick={async () => {
               await api.createShotTailFrame(shot.id, { publishToTos: true, canvasNode: true });
+              emitFlowMutated();
+            }}
+          />
+        )}
+        {videoUrl && (
+          <ReviewButton
+            label={t.nodes.tailClip}
+            title={t.nodes.tailClipTitle}
+            onClick={async () => {
+              await api.createShotTailClip(shot.id, { durationSec: 2, publishToTos: true });
               emitFlowMutated();
             }}
           />

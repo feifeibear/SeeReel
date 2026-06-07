@@ -29,6 +29,16 @@ import type { UndoableAction } from "./useUndoStack";
 import { useI18n, type UiLanguage } from "../i18n";
 
 type AnchorKind = Extract<AssetType, "character" | "scene" | "prop" | "style">;
+export type UploadImageAssetResult = Asset | {
+  asset: Asset;
+  completed?: Promise<Asset | undefined>;
+};
+
+function normalizeUploadImageAssetResult(result: UploadImageAssetResult | undefined) {
+  if (!result) return undefined;
+  if ("asset" in result) return result;
+  return { asset: result };
+}
 
 const nodeTypes = {
   assetNode: AssetNode,
@@ -57,7 +67,7 @@ export interface FlowViewProps {
   onSetStitchOrder: (jobId: string, shotIds: string[], legacy?: boolean) => Promise<void> | void;
   onDeleteCanvasAsset: (asset: Asset) => Promise<boolean> | boolean;
   onDeleteCanvasShot: (shot: Shot) => Promise<boolean> | boolean;
-  onUploadImageAsset: (file: File, kind: "character" | "scene") => Promise<Asset | undefined> | Asset | undefined;
+  onUploadImageAsset: (file: File, kind: "character" | "scene") => Promise<UploadImageAssetResult | undefined> | UploadImageAssetResult | undefined;
   /** Drop a video file onto the canvas → upload + auto-trigger reference-video analysis. */
   onUploadReferenceVideo: (file: File) => Promise<Asset | undefined> | Asset | undefined;
   onPushUndo?: (action: UndoableAction) => void;
@@ -130,6 +140,17 @@ export function FlowView({ snapshot, session, visionReviewEnabled, defaultImageM
       return nextNodes;
     });
   }, []);
+
+  const centerUploadImageResult = useCallback((result: UploadImageAssetResult | undefined, placement?: XYPosition) => {
+    const upload = normalizeUploadImageAssetResult(result);
+    if (!upload) return;
+    centerNodeAt(`asset-${upload.asset.id}`, placement);
+    if (upload.completed) {
+      void upload.completed.then((asset) => {
+        if (asset) centerNodeAt(`asset-${asset.id}`, placement);
+      });
+    }
+  }, [centerNodeAt]);
 
   useEffect(() => {
     setNodes((prev) => {
@@ -277,12 +298,30 @@ export function FlowView({ snapshot, session, visionReviewEnabled, defaultImageM
    *      input. Sets both `shot.referenceVideoAssetId` (canonical
    *      wiring) and `shot.referenceClipUrl` (what the existing generator path actually reads).
    *
+   *   5. Stitch → Audio:    opt-in post-production audio-track wiring. Audio tracks are separate
+   *      nodes and are not part of the final chain unless this edge is explicit.
+   *
    * Connections that don't match any pattern are silently rejected.
    */
   const onConnect = useCallback(async (conn: Connection) => {
     if (!session) return;
     const src = conn.source || "";
     const tgt = conn.target || "";
+    const resolveVisualReferenceSource = () => {
+      if (src.startsWith("asset-")) {
+        const assetId = src.slice("asset-".length);
+        const asset = snapshot.assets.find((item) => item.id === assetId);
+        const isFrameAnchor = (asset?.tags || []).includes("tailframe") || (asset?.tags || []).includes("frame-anchor");
+        return asset && !isFrameAnchor ? asset : undefined;
+      }
+      if (src.startsWith("storyboard-")) {
+        const ownerShotId = src.slice("storyboard-".length);
+        const ownerShot = (session.shots || []).find((shot) => shot.id === ownerShotId);
+        const storyboardAssetId = ownerShot?.subShotStoryboardAssetId;
+        return storyboardAssetId ? snapshot.assets.find((asset) => asset.id === storyboardAssetId) : undefined;
+      }
+      return undefined;
+    };
 
     if (src.startsWith("asset-") && tgt.startsWith("shot-")) {
       const assetId = src.slice("asset-".length);
@@ -318,6 +357,79 @@ export function FlowView({ snapshot, session, visionReviewEnabled, defaultImageM
           await apply();
           onPushUndo?.({
             description: "连接尾帧到镜头首帧",
+            undo: async () => { await revert(); await onMutated(); },
+            redo: async () => { await apply(); await onMutated(); }
+          });
+          await onMutated();
+        });
+        return;
+      }
+    }
+
+    if ((src.startsWith("asset-") || src.startsWith("storyboard-")) && (tgt.startsWith("asset-") || tgt.startsWith("storyboard-"))) {
+      const sourceAsset = resolveVisualReferenceSource();
+      if (!sourceAsset) return;
+      if (tgt.startsWith("asset-")) {
+        const targetAssetId = tgt.slice("asset-".length);
+        if (targetAssetId === sourceAsset.id) return;
+        const targetAsset = snapshot.assets.find((asset) => asset.id === targetAssetId);
+        if (!targetAsset) return;
+        const current = targetAsset.referenceAssetIds || [];
+        if (current.includes(sourceAsset.id)) return;
+        const apply = async () => {
+          const live = await api.state();
+          const liveAsset = live.assets.find((asset) => asset.id === targetAssetId);
+          const liveIds = liveAsset?.referenceAssetIds || [];
+          return api.saveAsset({
+            id: targetAssetId,
+            referenceAssetIds: liveIds.includes(sourceAsset.id) ? liveIds : [...liveIds, sourceAsset.id]
+          });
+        };
+        const revert = async () => {
+          const live = await api.state();
+          const liveAsset = live.assets.find((asset) => asset.id === targetAssetId);
+          const liveIds = liveAsset?.referenceAssetIds || [];
+          return api.saveAsset({
+            id: targetAssetId,
+            referenceAssetIds: liveIds.filter((id) => id !== sourceAsset.id)
+          });
+        };
+        await runConnectMutation(conn, async () => {
+          await apply();
+          onPushUndo?.({
+            description: "连接图像参考到资产",
+            undo: async () => { await revert(); await onMutated(); },
+            redo: async () => { await apply(); await onMutated(); }
+          });
+          await onMutated();
+        });
+        return;
+      }
+      if (tgt.startsWith("storyboard-")) {
+        const targetShotId = tgt.slice("storyboard-".length);
+        const targetShot = (session.shots || []).find((shot) => shot.id === targetShotId);
+        if (!targetShot || targetShot.subShotStoryboardAssetId === sourceAsset.id) return;
+        const current = targetShot.assetIds || [];
+        if (current.includes(sourceAsset.id)) return;
+        const apply = async () => {
+          const live = await api.state();
+          const liveShot = live.shots.find((shot) => shot.id === targetShotId);
+          const liveIds = liveShot?.assetIds || [];
+          return api.updateShot(targetShotId, {
+            assetIds: liveIds.includes(sourceAsset.id) ? liveIds : [...liveIds, sourceAsset.id],
+            subShotPanelCount: liveShot?.subShotPanelCount && liveShot.subShotPanelCount > 1 ? liveShot.subShotPanelCount : 9
+          });
+        };
+        const revert = async () => {
+          const live = await api.state();
+          const liveShot = live.shots.find((shot) => shot.id === targetShotId);
+          const liveIds = liveShot?.assetIds || [];
+          return api.updateShot(targetShotId, { assetIds: liveIds.filter((id) => id !== sourceAsset.id) });
+        };
+        await runConnectMutation(conn, async () => {
+          await apply();
+          onPushUndo?.({
+            description: "连接图像参考到分镜板",
             undo: async () => { await revert(); await onMutated(); },
             redo: async () => { await apply(); await onMutated(); }
           });
@@ -571,6 +683,43 @@ export function FlowView({ snapshot, session, visionReviewEnabled, defaultImageM
       return;
     }
 
+    if (src.startsWith("stitch-") && tgt.startsWith("audio-")) {
+      const source = nodesRef.current.find((node) => node.id === src)?.data;
+      const target = nodesRef.current.find((node) => node.id === tgt)?.data;
+      if (!source || source.kind !== "stitch" || !target || target.kind !== "audioTrack") return;
+      if (source.session.id !== session.id || target.session.id !== session.id) return;
+      if (source.job.id !== target.job.id) return;
+      const jobId = target.job.id;
+      if ((session.audioTrackStitchJobIds || []).includes(jobId)) return;
+      const apply = async () => {
+        const live = await api.state();
+        const liveSession = live.sessions.find((item) => item.id === session.id);
+        const liveIds = liveSession?.audioTrackStitchJobIds || [];
+        return api.updateSession(session.id, {
+          audioTrackHidden: false,
+          audioTrackStitchJobIds: liveIds.includes(jobId) ? liveIds : [...liveIds, jobId]
+        });
+      };
+      const revert = async () => {
+        const live = await api.state();
+        const liveSession = live.sessions.find((item) => item.id === session.id);
+        const liveIds = liveSession?.audioTrackStitchJobIds || [];
+        return api.updateSession(session.id, {
+          audioTrackStitchJobIds: liveIds.filter((id) => id !== jobId)
+        });
+      };
+      await runConnectMutation(conn, async () => {
+        await apply();
+        onPushUndo?.({
+          description: "连接拼接到音轨",
+          undo: async () => { await revert(); await onMutated(); },
+          redo: async () => { await apply(); await onMutated(); }
+        });
+        await onMutated();
+      });
+      return;
+    }
+
     // Shot → Shot reference-video wiring. Source shot's rendered video becomes the target shot's
     // Seedance `reference_video`. Resolved at submit time by the server (it walks the source
     // shot's renders for an https remoteVideoUrl). We DON'T materialize an Asset row — the
@@ -643,6 +792,8 @@ export function FlowView({ snapshot, session, visionReviewEnabled, defaultImageM
    *     activates and re-references the asset.
    *   - `canDisconnectRefVideo`    → refvideo→shot edge → clear `referenceVideoAssetId` and
    *     `referenceClipUrl` together so the next regen drops Seedance reference_video.
+   *   - `canDisconnectAudioTrack` → stitch→audio edge → remove that stitch job from explicit
+   *     post-production audio-track wiring.
    * Auto-derived edges (shot→stitch) carry `deletable: false` and never reach this path.
    */
   const onEdgesDelete = useCallback(async (deleted: Edge[]) => {
@@ -654,6 +805,11 @@ export function FlowView({ snapshot, session, visionReviewEnabled, defaultImageM
       shotId?: string;
       auditOnly?: boolean;
       storyboardAssetId?: string;
+    };
+    type AssetReferenceEdgeData = {
+      canDisconnectAssetReference?: boolean;
+      sourceAssetId?: string;
+      targetAssetId?: string;
     };
     type DerivedClipEdgeData = {
       canDisconnectDerivedClip?: boolean;
@@ -686,10 +842,18 @@ export function FlowView({ snapshot, session, visionReviewEnabled, defaultImageM
       stitchShotId?: string;
       stitchJobId?: string;
     };
+    type AudioTrackEdgeData = {
+      canDisconnectAudioTrack?: boolean;
+      stitchJobId?: string;
+    };
 
     const assetRemovals = deleted
       .map((edge) => edge.data as AssetEdgeData | undefined)
       .filter((d): d is AssetEdgeData & { assetId: string; shotId: string } => Boolean(d?.canDisconnect && d.assetId && d.shotId));
+    const assetReferenceRemovals = deleted
+      .map((edge) => edge.data as AssetReferenceEdgeData | undefined)
+      .filter((d): d is Required<AssetReferenceEdgeData> =>
+        Boolean(d?.canDisconnectAssetReference && d.sourceAssetId && d.targetAssetId));
     const storyboardRemovals = deleted
       .map((edge) => edge.data as StoryboardEdgeData | undefined)
       .filter((d): d is StoryboardEdgeData & { storyboardAssetId: string; targetShotId: string } =>
@@ -709,11 +873,14 @@ export function FlowView({ snapshot, session, visionReviewEnabled, defaultImageM
     const stitchRemovals = deleted
       .map((edge) => edge.data as StitchEdgeData | undefined)
       .filter((d): d is Required<StitchEdgeData> => Boolean(d?.canDisconnectStitch && d.stitchShotId));
+    const audioTrackRemovals = deleted
+      .map((edge) => edge.data as AudioTrackEdgeData | undefined)
+      .filter((d): d is Required<AudioTrackEdgeData> => Boolean(d?.canDisconnectAudioTrack && d.stitchJobId));
     const derivedClipRemovals = deleted
       .map((edge) => edge.data as DerivedClipEdgeData | undefined)
       .filter((d): d is Required<DerivedClipEdgeData> => Boolean(d?.canDisconnectDerivedClip && d.sourceAssetId && d.derivedAssetId));
 
-    if (!assetRemovals.length && !storyboardRemovals.length && !refVideoRemovals.length && !shotRefRemovals.length && !firstFrameRemovals.length && !stitchRemovals.length && !derivedClipRemovals.length) return;
+    if (!assetRemovals.length && !assetReferenceRemovals.length && !storyboardRemovals.length && !refVideoRemovals.length && !shotRefRemovals.length && !firstFrameRemovals.length && !stitchRemovals.length && !audioTrackRemovals.length && !derivedClipRemovals.length) return;
 
     // Mark these edge ids as pending deletion so any racing snapshot refresh during the await
     // doesn't reanimate them via the useEffect rebuild path.
@@ -756,6 +923,12 @@ export function FlowView({ snapshot, session, visionReviewEnabled, defaultImageM
       entry.add(r.assetId);
       storyboardAssetRefDrops.set(r.storyboardAssetId, entry);
     }
+    const assetReferenceDrops = new Map<string, Set<string>>();
+    for (const r of assetReferenceRemovals) {
+      const entry = assetReferenceDrops.get(r.targetAssetId) || new Set<string>();
+      entry.add(r.sourceAssetId);
+      assetReferenceDrops.set(r.targetAssetId, entry);
+    }
     const derivedAssetClears = new Set(derivedClipRemovals.map((item) => item.derivedAssetId));
 
     const beforeByShot = new Map(Array.from(byShot.keys()).map((shotId) => {
@@ -774,6 +947,7 @@ export function FlowView({ snapshot, session, visionReviewEnabled, defaultImageM
       } : undefined] as const;
     }));
     const beforeStitchShotIds = [...(session.stitchShotIds || [])];
+    const beforeAudioTrackStitchJobIds = [...(session.audioTrackStitchJobIds || [])];
     const stitchRemovalIds = new Set(stitchRemovals.filter((item) => !item.stitchJobId || item.stitchJobId === "legacy").map((item) => item.stitchShotId));
     const stitchRemovalIdsByJob = new Map<string, Set<string>>();
     for (const item of stitchRemovals) {
@@ -783,8 +957,10 @@ export function FlowView({ snapshot, session, visionReviewEnabled, defaultImageM
       stitchRemovalIdsByJob.set(item.stitchJobId, set);
     }
     const beforeStitchJobs = new Map((session.stitchJobs || []).map((job) => [job.id, { ...job, shotIds: [...(job.shotIds || [])] }]));
+    const audioTrackRemovalIds = new Set(audioTrackRemovals.map((item) => item.stitchJobId));
     const beforeByAsset = new Map(Array.from(new Set([
       ...Array.from(storyboardAssetRefDrops.keys()),
+      ...Array.from(assetReferenceDrops.keys()),
       ...Array.from(derivedAssetClears)
     ])).map((assetId) => {
       const asset = snapshot.assets.find((item) => item.id === assetId);
@@ -843,6 +1019,14 @@ export function FlowView({ snapshot, session, visionReviewEnabled, defaultImageM
           referenceAssetIds: (asset.referenceAssetIds || []).filter((id) => !dropIds.has(id))
         });
       }));
+      await Promise.all(Array.from(assetReferenceDrops.entries()).map(([assetId, dropIds]) => {
+        const asset = snapshot.assets.find((item) => item.id === assetId);
+        if (!asset) return Promise.resolve();
+        return api.saveAsset({
+          id: assetId,
+          referenceAssetIds: (asset.referenceAssetIds || []).filter((id) => !dropIds.has(id))
+        });
+      }));
       await Promise.all(Array.from(derivedAssetClears).map((assetId) => api.saveAsset({
         id: assetId,
         derivedFromAssetId: ""
@@ -865,6 +1049,11 @@ export function FlowView({ snapshot, session, visionReviewEnabled, defaultImageM
           progress: ""
         });
       }));
+      if (audioTrackRemovalIds.size) {
+        await api.updateSession(session.id, {
+          audioTrackStitchJobIds: beforeAudioTrackStitchJobIds.filter((id) => !audioTrackRemovalIds.has(id))
+        });
+      }
       onPushUndo?.({
         description: deleted.length > 1 ? "断开多个连接" : "断开连接",
         undo: async () => {
@@ -888,6 +1077,11 @@ export function FlowView({ snapshot, session, visionReviewEnabled, defaultImageM
             const before = beforeStitchJobs.get(jobId);
             return before ? api.updateStitchJob(session.id, jobId, before) : Promise.resolve();
           }));
+          if (audioTrackRemovalIds.size) {
+            await api.updateSession(session.id, {
+              audioTrackStitchJobIds: beforeAudioTrackStitchJobIds
+            });
+          }
           await onMutated();
         },
         redo: async () => {
@@ -932,6 +1126,14 @@ export function FlowView({ snapshot, session, visionReviewEnabled, defaultImageM
               referenceAssetIds: (asset.referenceAssetIds || []).filter((id) => !dropIds.has(id))
             });
           }));
+          await Promise.all(Array.from(assetReferenceDrops.entries()).map(([assetId, dropIds]) => {
+            const asset = live.assets.find((item) => item.id === assetId);
+            if (!asset) return Promise.resolve();
+            return api.saveAsset({
+              id: assetId,
+              referenceAssetIds: (asset.referenceAssetIds || []).filter((id) => !dropIds.has(id))
+            });
+          }));
           await Promise.all(Array.from(derivedAssetClears).map((assetId) => api.saveAsset({
             id: assetId,
             derivedFromAssetId: ""
@@ -957,6 +1159,13 @@ export function FlowView({ snapshot, session, visionReviewEnabled, defaultImageM
               progress: ""
             });
           }));
+          if (audioTrackRemovalIds.size) {
+            const liveSession = live.sessions.find((item) => item.id === session.id);
+            const liveIds = liveSession?.audioTrackStitchJobIds || [];
+            await api.updateSession(session.id, {
+              audioTrackStitchJobIds: liveIds.filter((id) => !audioTrackRemovalIds.has(id))
+            });
+          }
           await onMutated();
         }
       });
@@ -1097,12 +1306,25 @@ export function FlowView({ snapshot, session, visionReviewEnabled, defaultImageM
             }
           } else if (data.kind === "audioTrack") {
             const sessionId = data.session.id;
-            await api.updateSession(sessionId, { audioTrackHidden: true });
+            const before = {
+              audioTrackHidden: data.session.audioTrackHidden,
+              audioTrackStitchJobIds: data.session.audioTrackStitchJobIds ? [...data.session.audioTrackStitchJobIds] : undefined
+            };
+            await api.updateSession(sessionId, {
+              audioTrackHidden: true,
+              audioTrackStitchJobIds: (data.session.audioTrackStitchJobIds || []).filter((id) => id !== data.job.id)
+            });
             ok = true;
             onPushUndo?.({
               description: "删除添加音轨节点",
-              undo: async () => { await api.updateSession(sessionId, { audioTrackHidden: false }); await onMutated(); },
-              redo: async () => { await api.updateSession(sessionId, { audioTrackHidden: true }); await onMutated(); }
+              undo: async () => { await api.updateSession(sessionId, before); await onMutated(); },
+              redo: async () => {
+                await api.updateSession(sessionId, {
+                  audioTrackHidden: true,
+                  audioTrackStitchJobIds: (before.audioTrackStitchJobIds || []).filter((id) => id !== data.job.id)
+                });
+                await onMutated();
+              }
             });
           }
           if (!ok) {
@@ -1149,6 +1371,15 @@ export function FlowView({ snapshot, session, visionReviewEnabled, defaultImageM
         if (asset) centerNodeAt(`asset-${asset.id}`, placement);
       });
     }
+    if (option === "storyboard") {
+      return guardCreate("storyboard", async () => {
+        const shot = await onCreateShot();
+        if (!shot) return;
+        await api.updateShot(shot.id, { subShotPanelCount: 9 });
+        centerNodeAt(`storyboard-${shot.id}`, placement);
+        await onMutated();
+      });
+    }
     if (option === "shot") {
       return guardCreate("shot", async () => {
         const shot = await onCreateShot();
@@ -1160,6 +1391,20 @@ export function FlowView({ snapshot, session, visionReviewEnabled, defaultImageM
         if (!session) return;
         const job = await onCreateStitchJob();
         if (job) centerNodeAt(`stitch-${session.id}-${job.id}`, placement);
+      });
+    }
+    if (option === "audioTrack") {
+      return guardCreate("audioTrack", async () => {
+        if (!session) return;
+        await api.updateSession(session.id, { audioTrackHidden: false });
+        const firstJob = session.stitchJobs?.[0];
+        if (firstJob) {
+          centerNodeAt(`audio-${session.id}-${firstJob.id}`, placement);
+        } else {
+          const hasLegacyStitch = !session.stitchHidden && ((session.shots || []).length >= 2 || Boolean(session.finalVideoUrl) || Boolean(session.stitchShotIds?.length));
+          if (hasLegacyStitch) centerNodeAt(`audio-${session.id}`, placement);
+        }
+        await onMutated();
       });
     }
     if (option === "uploadCharacter") {
@@ -1179,7 +1424,7 @@ export function FlowView({ snapshot, session, visionReviewEnabled, defaultImageM
       videoInputRef.current?.click();
       return;
     }
-  }, [centerNodeAt, createMenu?.flowPosition, guardCreate, onCreateAnchorAsset, onCreateShot, onCreateStitchJob, session]);
+  }, [centerNodeAt, createMenu?.flowPosition, guardCreate, onCreateAnchorAsset, onCreateShot, onCreateStitchJob, onMutated, session]);
 
   /** Drop-on-canvas handler: route file by mime type. Image → character anchor; video → reference. */
   const onDrop = useCallback((event: React.DragEvent<HTMLDivElement>) => {
@@ -1189,9 +1434,7 @@ export function FlowView({ snapshot, session, visionReviewEnabled, defaultImageM
     const placement = flowPositionFromClient(event.clientX, event.clientY);
     if (file.type.startsWith("image/")) {
       pendingFileKindRef.current = "character";
-      void Promise.resolve(onUploadImageAsset(file, "character")).then((asset) => {
-        if (asset) centerNodeAt(`asset-${asset.id}`, placement);
-      });
+      void Promise.resolve(onUploadImageAsset(file, "character")).then((result) => centerUploadImageResult(result, placement));
       return;
     }
     if (file.type.startsWith("video/")) {
@@ -1200,7 +1443,7 @@ export function FlowView({ snapshot, session, visionReviewEnabled, defaultImageM
       });
       return;
     }
-  }, [centerNodeAt, flowPositionFromClient, onUploadImageAsset, onUploadReferenceVideo]);
+  }, [centerNodeAt, centerUploadImageResult, flowPositionFromClient, onUploadImageAsset, onUploadReferenceVideo]);
 
   if (!session) {
     return (
@@ -1332,8 +1575,8 @@ export function FlowView({ snapshot, session, visionReviewEnabled, defaultImageM
           if (!file) return;
           const placement = pendingFilePositionRef.current;
           pendingFilePositionRef.current = undefined;
-          const asset = await onUploadImageAsset(file, pendingFileKindRef.current);
-          if (asset) centerNodeAt(`asset-${asset.id}`, placement);
+          const result = await onUploadImageAsset(file, pendingFileKindRef.current);
+          centerUploadImageResult(result, placement);
         }}
       />
       <input

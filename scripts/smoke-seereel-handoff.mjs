@@ -81,37 +81,79 @@ try {
   assert(sessionId, "session id missing");
 
   const before = await request(browser, "/api/state");
-  assert(!before.body.sessions.some((session) => session.id === sessionId), "browser should not see CLI-owned session before handoff");
+  assert(before.body.sessions.some((session) => session.id === sessionId), "localhost browser should see CLI-owned session without handoff");
 
-  const handoff = await request(agent, `/api/sessions/${encodeURIComponent(sessionId)}/handoff`, { method: "POST" });
+  const localHandoff = await request(agent, `/api/sessions/${encodeURIComponent(sessionId)}/handoff`, { method: "POST" });
+  assert(localHandoff.body.webUrl, "local handoff response should include the direct webUrl");
+  assert(localHandoff.body.webUrlVisibleInBrowser === true, "localhost webUrl should be browser-visible");
+  assert(!localHandoff.body.handoffUrl, "localhost should not create encrypted handoff URLs");
+  assert(!localHandoff.body.handoffToken, "localhost should not create handoff tokens");
+
+  await request(browser, `/api/sessions/${encodeURIComponent(sessionId)}`, { method: "DELETE" });
+  sessionId = undefined;
+
+  const onlineHeaders = {
+    "x-forwarded-host": "seereel-smoke.example",
+    "x-forwarded-proto": "https"
+  };
+  const onlineOrigin = "https://seereel-smoke.example";
+  const onlineAgent = new CookieJar();
+  const onlineBrowser = new CookieJar();
+
+  await request(onlineAgent, "/api/healthz", { headers: onlineHeaders });
+  await request(onlineBrowser, "/api/healthz", { headers: onlineHeaders });
+
+  const onlineCreated = await request(onlineAgent, "/api/sessions", {
+    method: "POST",
+    headers: onlineHeaders,
+    body: JSON.stringify({
+      title: "Smoke online handoff session",
+      logline: "online handoff smoke",
+      style: "minimal",
+      targetDurationSec: 15,
+      shotCount: 1
+    })
+  });
+  sessionId = onlineCreated.body.id;
+  assert(sessionId, "online session id missing");
+
+  const onlineBefore = await request(onlineBrowser, "/api/state", { headers: onlineHeaders });
+  assert(!onlineBefore.body.sessions.some((session) => session.id === sessionId), "online browser should not see CLI-owned session before handoff");
+
+  const handoff = await request(onlineAgent, `/api/sessions/${encodeURIComponent(sessionId)}/handoff`, {
+    method: "POST",
+    headers: onlineHeaders
+  });
   assert(handoff.body.handoffUrl, "handoffUrl missing");
   assert(handoff.body.webUrlVisibleInBrowser === false, "handoff response should flag raw webUrl as not browser-visible");
   const handoffUrl = new URL(handoff.body.handoffUrl);
-  assert(handoffUrl.origin === baseUrl, "handoffUrl should use the configured app origin");
+  assert(handoffUrl.origin === onlineOrigin, "handoffUrl should use the configured app origin");
   assert(handoffUrl.pathname.startsWith("/api/handoff/"), "handoffUrl should use the API claim route");
   const token = handoff.body.handoffToken || handoffUrl.pathname.split("/").pop();
   assert(token, "handoff token missing");
 
-  const claim = await request(browser, `/api/handoff/${encodeURIComponent(token)}`, {
+  const claim = await request(onlineBrowser, `/api/handoff/${encodeURIComponent(token)}`, {
     redirect: "manual",
+    headers: onlineHeaders,
     expectOk: false
   });
   assert(claim.res.status === 302, `expected handoff redirect, got ${claim.res.status}`);
   assert(claim.res.headers.get("location") === `/canvas/${encodeURIComponent(sessionId)}`, "handoff redirect target mismatch");
 
-  const secondClaim = await request(agent, `/api/handoff/${encodeURIComponent(token)}`, {
+  const secondClaim = await request(onlineAgent, `/api/handoff/${encodeURIComponent(token)}`, {
     redirect: "manual",
+    headers: onlineHeaders,
     expectOk: false
   });
   assert(secondClaim.res.status === 404, "handoff token should be one-time use");
 
-  const after = await request(browser, "/api/state");
+  const after = await request(onlineBrowser, "/api/state", { headers: onlineHeaders });
   assert(after.body.sessions.some((session) => session.id === sessionId), "browser should see session after handoff");
 
-  const agentAfter = await request(agent, "/api/state");
+  const agentAfter = await request(onlineAgent, "/api/state", { headers: onlineHeaders });
   assert(!agentAfter.body.sessions.some((session) => session.id === sessionId), "CLI owner should lose session after browser claims handoff");
 
-  await request(browser, `/api/sessions/${encodeURIComponent(sessionId)}`, { method: "DELETE" });
+  await request(onlineBrowser, `/api/sessions/${encodeURIComponent(sessionId)}`, { method: "DELETE", headers: onlineHeaders });
   sessionId = undefined;
   console.log("handoff smoke passed");
 } catch (error) {

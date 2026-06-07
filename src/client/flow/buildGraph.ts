@@ -83,6 +83,14 @@ const COLUMN_X = {
 
 const ROW_HEIGHT = 240;
 
+function hasTag(asset: Asset | undefined, tag: string) {
+  return Boolean(asset?.tags?.includes(tag));
+}
+
+function isStoryboardAsset(asset: Asset | undefined) {
+  return hasTag(asset, "sub-storyboard");
+}
+
 /**
  * Project session state into a 4-column DAG:
  *
@@ -388,19 +396,22 @@ export function buildSessionGraph(snapshot: StoreSnapshot, session: SessionWithS
     // truth for video generation, even when a storyboard node is visible, so dragging an anchor
     // onto a Shot should leave a visible Shot connection instead of being rerouted upstream.
     // Storyboard-baked historical references are still shown below as dashed audit-only edges.
-    const assetEdgeTargetId = shotNodeId;
+    const assetEdgeTargetId = showStoryboardNode ? storyboardNodeId : shotNodeId;
     const intentIds = (shot.assetIds || []).filter((id) => {
       const a = assetById.get(id);
-      return a && a.type !== "other" && !a.ownerShotId;
+      return a && (isStoryboardAsset(a) || (a.type !== "other" && !a.ownerShotId));
     });
     const auditIds = storyboardAsset?.referenceAssetIds || [];
     const intentSet = new Set(intentIds);
     const auditOnly = auditIds.filter((id) => !intentSet.has(id));
     intentIds.forEach((assetId) => {
-      if (!anchorAssetIds.has(assetId)) return;
+      if (!anchorAssetIds.has(assetId) && !ownerShotByStoryboardAssetId.has(assetId)) return;
+      const sourceNodeId = anchorAssetIds.has(assetId)
+        ? `asset-${assetId}`
+        : `storyboard-${ownerShotByStoryboardAssetId.get(assetId)}`;
       edges.push({
         id: `e-asset-${assetId}-${assetEdgeTargetId}`,
-        source: `asset-${assetId}`,
+        source: sourceNodeId,
         target: assetEdgeTargetId,
         animated: false,
         data: { canDisconnect: true, assetId, shotId: shot.id },
@@ -414,10 +425,13 @@ export function buildSessionGraph(snapshot: StoreSnapshot, session: SessionWithS
     // "+ 启用分镜板" but never clicked "出图" yet).
     if (showStoryboardNode && storyboardAsset) {
       auditOnly.forEach((assetId) => {
-        if (!anchorAssetIds.has(assetId)) return;
+        if (!anchorAssetIds.has(assetId) && !ownerShotByStoryboardAssetId.has(assetId)) return;
+        const sourceNodeId = anchorAssetIds.has(assetId)
+          ? `asset-${assetId}`
+          : `storyboard-${ownerShotByStoryboardAssetId.get(assetId)}`;
         edges.push({
           id: `e-asset-${assetId}-${storyboardNodeId}-audit`,
-          source: `asset-${assetId}`,
+          source: sourceNodeId,
           target: storyboardNodeId,
           animated: false,
           data: { canDisconnect: true, assetId, shotId: shot.id, auditOnly: true, storyboardAssetId: storyboardAsset.id },
@@ -425,6 +439,28 @@ export function buildSessionGraph(snapshot: StoreSnapshot, session: SessionWithS
         });
       });
     }
+  });
+
+  const visualNodeIdForAssetReference = (assetId: string) => {
+    if (anchorAssetIds.has(assetId)) return `asset-${assetId}`;
+    const ownerShotId = ownerShotByStoryboardAssetId.get(assetId);
+    return ownerShotId ? `storyboard-${ownerShotId}` : undefined;
+  };
+
+  anchorAssets.forEach((asset) => {
+    (asset.referenceAssetIds || []).forEach((sourceAssetId) => {
+      if (sourceAssetId === asset.id) return;
+      const sourceNodeId = visualNodeIdForAssetReference(sourceAssetId);
+      if (!sourceNodeId) return;
+      edges.push({
+        id: `${sourceNodeId.startsWith("storyboard-") ? "e-storyboardref" : "e-assetref"}-${sourceAssetId}-${asset.id}`,
+        source: sourceNodeId,
+        target: `asset-${asset.id}`,
+        animated: false,
+        data: { canDisconnectAssetReference: true, sourceAssetId, targetAssetId: asset.id },
+        style: { stroke: "#f59e0b", strokeWidth: 2, strokeDasharray: "5 3" }
+      });
+    });
   });
 
   // Stitch output nodes. Legacy sessions may still have one session-level stitch output; new right-
@@ -455,6 +491,7 @@ export function buildSessionGraph(snapshot: StoreSnapshot, session: SessionWithS
         }
       : undefined;
   const stitchJobs = legacyStitchJob ? [legacyStitchJob] : (session.stitchJobs || []);
+  const audioTrackStitchJobIds = new Set(session.audioTrackStitchJobIds || []);
   stitchJobs.forEach((job, jobIndex) => {
     const middleY = 60 + ((orderedShots.length - 1) * ROW_HEIGHT) / 2 + jobIndex * ROW_HEIGHT;
     const legacy = job.id === "legacy";
@@ -473,19 +510,20 @@ export function buildSessionGraph(snapshot: StoreSnapshot, session: SessionWithS
         position: { x: COLUMN_X.audioTrack, y: middleY },
         data: { kind: "audioTrack", session, job, legacy } satisfies AudioTrackNodeData
       });
-      edges.push({
-        id: `e-audio-${stitchNodeId}-${audioTrackNodeId}`,
-        source: stitchNodeId,
-        target: audioTrackNodeId,
-        animated: session.narrationStatus === "running",
-        deletable: false,
-        data: { audioTrackSource: true, stitchJobId: job.id },
-        style: {
-          stroke: "#f472b6",
-          strokeWidth: 2,
-          ...(job.finalVideoUrl ? {} : { strokeDasharray: "6 4", opacity: 0.6 })
-        }
-      });
+      if (audioTrackStitchJobIds.has(job.id)) {
+        edges.push({
+          id: `e-audio-${stitchNodeId}-${audioTrackNodeId}`,
+          source: stitchNodeId,
+          target: audioTrackNodeId,
+          animated: session.narrationStatus === "running" && session.narrationStitchJobId === job.id,
+          data: { canDisconnectAudioTrack: true, stitchJobId: job.id },
+          style: {
+            stroke: "#f472b6",
+            strokeWidth: 2,
+            ...(job.finalVideoUrl ? {} : { strokeDasharray: "6 4", opacity: 0.6 })
+          }
+        });
+      }
     }
     const explicitShotIds = job.shotIds || [];
     const stitchShotIds = explicitShotIds.length > 0 ? explicitShotIds : orderedShots.map((shot) => shot.id);

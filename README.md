@@ -112,7 +112,7 @@ seereelcli workflow "a one-minute short drama about a courier who discovers tomo
   --json
 ```
 
-Return the `handoffUrl` to the human, not only the raw `webUrl`. Browser sessions and CLI sessions are cookie-scoped separately, so the handoff URL lets the human claim the AI-created workflow in their normal browser.
+On online deployments, return the `handoffUrl` to the human, not only the raw `webUrl`. Browser sessions and CLI sessions are cookie-scoped separately, so the handoff URL lets the human claim the AI-created workflow in their normal browser. On `localhost`, `127.0.0.1`, or `::1`, return the explicit `webUrl` directly; local CLI-created sessions automatically appear in the browser session list across cookie identities and do not need an encrypted handoff token.
 
 Only continue to paid or quota-consuming video generation after the human confirms that Agent Plan access is configured and the workflow looks acceptable:
 

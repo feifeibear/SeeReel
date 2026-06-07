@@ -3,6 +3,7 @@
 
 import {
   splitScriptIntoLines,
+  parseNarrationScriptLines,
   assembleNarrationTimeline,
   buildSrt,
   computeNarrationSignature,
@@ -67,7 +68,28 @@ console.log(
 if (tempoOnlyTimeline.globalTempo <= 1.0) throw new Error("FAIL: expected tempo bump");
 if (tempoOnlyTimeline.droppedLineCount !== 0) throw new Error("FAIL: tempo-only fit must not drop");
 
-// ---------- 5. Timeline that overruns even at max tempo -> trailing lines dropped ----------
+// ---------- 5. Timed narration lines ----------
+const timedScript = `[00:00] 初平三年，中牟县城。\n[00:15] 陈宫弃官同行。\n[00:30] 曹操在吕家说出负天下。\n[00:45] 六年后，二人成敌。\n[01:00] 白门楼上再相见。\n[01:15] 曹操终究不忍地下令。`;
+const timedLines = parseNarrationScriptLines(timedScript);
+const timedTimeline = assembleNarrationTimeline(
+  timedLines.map((line, i) => ({
+    text: line.text,
+    startSec: line.startSec,
+    audioPath: `/tmp/timed-${i}.mp3`,
+    rawDurationSec: 3
+  })),
+  90
+);
+console.log("\n== timeline (timed narration) ==");
+timedTimeline.segments.forEach((seg) =>
+  console.log(`  #${seg.index + 1} [${seg.startSec.toFixed(2)} -> ${seg.endSec.toFixed(2)}] ${seg.text}`)
+);
+if (timedLines[1].text.includes("[00:15]")) throw new Error("FAIL: timed marker must not be spoken");
+if (timedTimeline.segments[1].startSec !== 15) throw new Error("FAIL: second timed line must start at 15s");
+if (timedTimeline.segments[5].startSec !== 75) throw new Error("FAIL: sixth timed line must start at 75s");
+if (timedTimeline.droppedLineCount !== 0) throw new Error("FAIL: timed narration should fit");
+
+// ---------- 6. Timeline that overruns even at max tempo -> trailing lines dropped ----------
 const overrunTimeline = assembleNarrationTimeline(
   cjkLines.map((text, i) => ({ text, audioPath: `/tmp/${i}.mp3`, rawDurationSec: fakeDurations[i] })),
   videoDuration * 0.4,
@@ -84,13 +106,13 @@ if (overrunTimeline.outputDurationSec !== videoDuration * 0.4)
   throw new Error("FAIL: outputDurationSec must equal videoDuration even when truncating");
 if (!overrunTimeline.warning) throw new Error("FAIL: expected warning when dropping");
 
-// ---------- 6. SRT ----------
+// ---------- 7. SRT ----------
 const srt = buildSrt(fitTimeline.segments);
 console.log("\n== buildSrt (first 240 chars) ==");
 console.log(srt.slice(0, 240));
 if (!/\d{2}:\d{2}:\d{2},\d{3}/.test(srt)) throw new Error("FAIL: srt missing timecode format");
 
-// ---------- 7. Signature stability ----------
+// ---------- 8. Signature stability ----------
 const sig1 = computeNarrationSignature({ script: cjkScript, voice: "v1", strategy: "natural", finalVideoSignature: "abc" });
 const sig2 = computeNarrationSignature({ script: cjkScript, voice: "v1", strategy: "natural", finalVideoSignature: "abc" });
 const sig3 = computeNarrationSignature({ script: cjkScript + " more", voice: "v1", strategy: "natural", finalVideoSignature: "abc" });
@@ -100,7 +122,7 @@ if (sig1 !== sig2) throw new Error("FAIL: same input must yield same signature")
 if (sig1 === sig3) throw new Error("FAIL: changed script must yield different signature");
 if (sig1 === sig4) throw new Error("FAIL: changed finalVideoSignature must yield different signature");
 
-// ---------- 8. ffmpeg compatibility ----------
+// ---------- 9. ffmpeg compatibility ----------
 const amix = buildAmixFilter(10);
 console.log(`\n== buildAmixFilter ==\n  ${amix}`);
 if (amix.includes("normalize=")) {

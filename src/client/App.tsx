@@ -1,13 +1,16 @@
 import { Archive, BarChart3, CircleHelp, Copy, Download, FileUp, Github, Images, KeyRound, Loader2, Plus, RefreshCw, ShieldCheck, Trash2, UploadCloud } from "lucide-react";
-import { lazy, memo, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { lazy, memo, Suspense, useCallback, useEffect, useMemo, useRef, useState, type MouseEvent } from "react";
 import { api } from "./api";
 import type { AdminAgentPlanStatus, AdminSecurityStatus, AdminUserAgentPlanCredentialList, AgentPlanCredentialStatus, ApiKeyCredentialStatus, Asset, AssetType, CreateSessionPayload, GalleryItem, Session, SessionPackage, Shot, StandardApiKeyRoute, StitchJob, StoreSnapshot, TokenUsageEvent, TokenUsageModelFamily } from "../shared/types";
 import { PendingGenerationsProvider } from "./flow/PendingGenerations";
 import { useUndoKeyboardShortcut, useUndoStack } from "./flow/useUndoStack";
 import { useI18n } from "./i18n";
 import { resolveSessionDockState } from "./sessionDockState";
+import { nextSessionSelection } from "./sessionMultiSelect";
 import { resolveRefreshSelectedSessionId } from "./sessionSelection";
 import { buildCanvasPath, buildGalleryPath, parseAppRoute, type AppView } from "./routes";
+import { createPendingImageUploadAsset, imageUploadAssetName, imageUploadDescription } from "./uploadPlaceholders";
+import type { UploadImageAssetResult } from "./flow/FlowView";
 
 const FlowView = lazy(() =>
   import("./flow/FlowView").then((module) => ({ default: memo(module.FlowView) }))
@@ -450,12 +453,14 @@ function GalleryPage({
   items,
   busy,
   onCopy,
+  onDelete,
   onOpenCanvas,
   t
 }: {
   items: GalleryItem[];
   busy: string;
   onCopy: (item: GalleryItem) => void;
+  onDelete: (item: GalleryItem) => void;
   onOpenCanvas: () => void;
   t: ReturnType<typeof useI18n>["t"];
 }) {
@@ -500,15 +505,26 @@ function GalleryPage({
                 )}
                 <div className="gallery-card-footer">
                   <span>{item.creatorName || t.app.galleryAnonymous}</span>
-                  <button
-                    type="button"
-                    className="primary"
-                    onClick={() => onCopy(item)}
-                    disabled={busy === `copy-gallery-${item.id}`}
-                  >
-                    {busy === `copy-gallery-${item.id}` ? <Loader2 size={16} className="spin" /> : <Copy size={16} />}
-                    {t.app.galleryCopy}
-                  </button>
+                  <div className="gallery-card-actions">
+                    <button
+                      type="button"
+                      title={t.app.galleryDeleteTitle}
+                      onClick={() => onDelete(item)}
+                      disabled={busy === `delete-gallery-${item.id}` || busy === `copy-gallery-${item.id}`}
+                    >
+                      {busy === `delete-gallery-${item.id}` ? <Loader2 size={16} className="spin" /> : <Trash2 size={16} />}
+                      {t.app.galleryDelete}
+                    </button>
+                    <button
+                      type="button"
+                      className="primary"
+                      onClick={() => onCopy(item)}
+                      disabled={busy === `copy-gallery-${item.id}` || busy === `delete-gallery-${item.id}`}
+                    >
+                      {busy === `copy-gallery-${item.id}` ? <Loader2 size={16} className="spin" /> : <Copy size={16} />}
+                      {t.app.galleryCopy}
+                    </button>
+                  </div>
                 </div>
               </div>
             </article>
@@ -659,6 +675,10 @@ export function App() {
   const latestSession = sessions[0];
   const archivedSessions = sessions.slice(1);
   const selectedSession = sessions.find((session) => session.id === selectedSessionId);
+  const orderedSessionIds = useMemo(() => sessions.map((session) => session.id), [sessions]);
+  const [selectedSessionDeleteIds, setSelectedSessionDeleteIds] = useState<Set<string>>(new Set());
+  const [lastSelectedSessionDeleteId, setLastSelectedSessionDeleteId] = useState<string | undefined>();
+  const selectedDeleteSessions = sessions.filter((session) => selectedSessionDeleteIds.has(session.id));
   const optimisticSession = useMemo<Session | undefined>(() => {
     if (selectedSession || !selectedSessionId) return undefined;
     if (stateLoaded && selectedSessionId !== readRouteFromWindow().sessionId) return undefined;
@@ -888,6 +908,11 @@ export function App() {
     if (!confirmed) return;
     const deletedId = session.id;
     pendingSessionDeletesRef.current.add(deletedId);
+    setSelectedSessionDeleteIds((prev) => {
+      const next = new Set(prev);
+      next.delete(deletedId);
+      return next;
+    });
     setError("");
     setBusy(`delete-session-${deletedId}`);
     setState((prev) => {
@@ -915,6 +940,58 @@ export function App() {
         setBusy((current) => (current === `delete-session-${deletedId}` ? "" : current));
       }
     })();
+  };
+
+  const deleteSessions = (items: Session[]) => {
+    const uniqueItems = items.filter((item, index, arr) => arr.findIndex((candidate) => candidate.id === item.id) === index);
+    if (!uniqueItems.length) return;
+    const confirmed = window.confirm(t.app.deleteSelectedSessionsConfirm(uniqueItems.length));
+    if (!confirmed) return;
+    const deletedIds = uniqueItems.map((item) => item.id);
+    const deleteIdSet = new Set(deletedIds);
+    deletedIds.forEach((id) => pendingSessionDeletesRef.current.add(id));
+    setSelectedSessionDeleteIds(new Set());
+    setLastSelectedSessionDeleteId(undefined);
+    setError("");
+    setBusy("delete-sessions");
+    setState((prev) => {
+      const sessions = prev.sessions.filter((item) => !deleteIdSet.has(item.id));
+      const sessionIds = new Set(sessions.map((item) => item.id));
+      return {
+        ...prev,
+        sessions,
+        shots: prev.shots.filter((shot) => !deleteIdSet.has(shot.sessionId) && sessionIds.has(shot.sessionId)),
+        assets: prev.assets.filter((asset) => !asset.ownerSessionId || !deleteIdSet.has(asset.ownerSessionId))
+      };
+    });
+    setSelectedSessionId((current) => {
+      if (!deleteIdSet.has(current)) return current;
+      return stateRef.current.sessions.find((item) => !deleteIdSet.has(item.id))?.id || "";
+    });
+    void (async () => {
+      try {
+        await api.deleteSessions(deletedIds);
+      } catch (err) {
+        deletedIds.forEach((id) => pendingSessionDeletesRef.current.delete(id));
+        setError(err instanceof Error ? err.message : t.errors.operationFailed);
+        await refresh();
+      } finally {
+        setBusy((current) => (current === "delete-sessions" ? "" : current));
+      }
+    })();
+  };
+
+  const handleSessionRowClick = (event: MouseEvent<HTMLButtonElement>, session: Session) => {
+    const next = nextSessionSelection({
+      orderedSessionIds,
+      selectedSessionIds: selectedSessionDeleteIds,
+      lastSelectedSessionId: lastSelectedSessionDeleteId,
+      clickedSessionId: session.id,
+      shiftKey: event.shiftKey
+    });
+    setSelectedSessionDeleteIds(next.selectedSessionIds);
+    setLastSelectedSessionDeleteId(next.lastSelectedSessionId);
+    if (!event.shiftKey) openStudioSession(session.id);
   };
 
   const promoteSession = (session: Session) =>
@@ -1022,6 +1099,18 @@ export function App() {
         pendingCreates: pendingSessionCreatesRef.current,
         pendingDeletes: pendingSessionDeletesRef.current
       }));
+    });
+  };
+
+  const deleteGalleryItem = (item: GalleryItem) => {
+    if (!window.confirm(t.app.galleryDeleteConfirm(item.title))) return;
+    run(`delete-gallery-${item.id}`, async () => {
+      await api.deleteGalleryItem(item.id);
+      setState((prev) => ({
+        ...prev,
+        gallery: (prev.gallery || []).filter((row) => row.id !== item.id)
+      }));
+      window.dispatchEvent(new CustomEvent<string>("flow-download", { detail: t.app.galleryDeleted(item.title) }));
     });
   };
 
@@ -1622,27 +1711,55 @@ export function App() {
     }));
   });
 
-  const handleUploadImageAsset = useStableEvent(async (file: File, kind: "character" | "scene") => {
+  const handleUploadImageAsset = useStableEvent((file: File, kind: "character" | "scene"): UploadImageAssetResult | undefined => {
     if (!selectedSession) return undefined;
-    const name = file.name.replace(/\.[^/.]+$/, "") || (kind === "character" ? (lang === "en" ? "Uploaded character" : "上传角色") : (lang === "en" ? "Uploaded scene" : "上传场景"));
+    setError("");
+    const objectUrl = URL.createObjectURL(file);
+    const placeholder = createPendingImageUploadAsset({
+      fileName: file.name,
+      kind,
+      sessionId: selectedSession.id,
+      objectUrl,
+      lang
+    });
+    setPendingUploads((prev) => [...prev, placeholder]);
+
+    let placeholderCleaned = false;
+    const cleanupPlaceholder = () => {
+      if (placeholderCleaned) return;
+      placeholderCleaned = true;
+      setPendingUploads((prev) => prev.filter((asset) => asset.id !== placeholder.id));
+      URL.revokeObjectURL(objectUrl);
+    };
+
     const tags = ["anchor", "uploaded", kind];
-    const asset = await api.uploadImageAsset(file, {
-      ownerSessionId: selectedSession.id,
-      name,
-      tags
-    });
-    const uploadedDescription = lang === "en"
-      ? `Image imported from local disk and used as a ${kind === "character" ? "character" : "scene"} anchor`
-      : `从本地拖入的图片，作为${kind === "character" ? "角色" : "场景"}锚使用`;
-    const patched = await api.saveAsset({
-      id: asset.id,
-      type: kind as AssetType,
-      description: uploadedDescription,
-      tags
-    });
-    upsertAssetInState(patched);
-    pushAssetCreateUndo(kind === "character" ? (lang === "en" ? "Upload character image" : "上传角色图") : (lang === "en" ? "Upload scene image" : "上传场景图"), patched);
-    return patched;
+    const completed = (async () => {
+      try {
+        const asset = await api.uploadImageAsset(file, {
+          ownerSessionId: selectedSession.id,
+          name: imageUploadAssetName(file.name, kind, lang),
+          tags
+        });
+        const patched = await api.saveAsset({
+          id: asset.id,
+          type: kind as AssetType,
+          description: imageUploadDescription(kind, lang),
+          tags
+        });
+        upsertAssetInState(patched);
+        pushAssetCreateUndo(kind === "character" ? (lang === "en" ? "Upload character image" : "上传角色图") : (lang === "en" ? "Upload scene image" : "上传场景图"), patched);
+        cleanupPlaceholder();
+        await refresh();
+        return patched;
+      } catch (err) {
+        setError(err instanceof Error ? err.message : t.app.uploadFailed);
+        return undefined;
+      } finally {
+        cleanupPlaceholder();
+      }
+    })();
+
+    return { asset: placeholder, completed };
   });
 
   const handleDeleteCanvasAsset = useStableEvent(deleteCanvasAsset);
@@ -1757,11 +1874,23 @@ export function App() {
         </button>
         <div className="session-dock">
           <div className="session-list">
+            {selectedDeleteSessions.length > 0 && (
+              <button
+                type="button"
+                className="session-bulk-delete danger"
+                onClick={() => deleteSessions(selectedDeleteSessions)}
+                disabled={busy === "delete-sessions"}
+                title={t.app.deleteSelectedSessionsTitle}
+              >
+                {busy === "delete-sessions" ? <Loader2 size={16} className="spin" /> : <Trash2 size={16} />}
+                {t.app.deleteSelectedSessions(selectedDeleteSessions.length)}
+              </button>
+            )}
             {latestSession && (
               <div className="session-row">
                 <button
-                  className={`session ${latestSession.id === selectedSessionId ? "active" : ""}`}
-                  onClick={() => openStudioSession(latestSession.id)}
+                  className={`session ${latestSession.id === selectedSessionId ? "active" : ""} ${selectedSessionDeleteIds.has(latestSession.id) ? "selected-for-delete" : ""}`}
+                  onClick={(event) => handleSessionRowClick(event, latestSession)}
                 >
                   <span>📽</span>
                   <span>{latestSession.title || t.app.unnamed}</span>
@@ -1789,8 +1918,8 @@ export function App() {
             {showArchivedSessions && archivedSessions.map((session) => (
               <div key={session.id} className="session-row">
                 <button
-                  className={`session ${session.id === selectedSessionId ? "active" : ""}`}
-                  onClick={() => openStudioSession(session.id)}
+                  className={`session ${session.id === selectedSessionId ? "active" : ""} ${selectedSessionDeleteIds.has(session.id) ? "selected-for-delete" : ""}`}
+                  onClick={(event) => handleSessionRowClick(event, session)}
                 >
                   <span>📂</span>
                   <span>{session.title || t.app.unnamed}</span>
@@ -2253,6 +2382,7 @@ export function App() {
             items={state.gallery || []}
             busy={busy}
             onCopy={copyGalleryItem}
+            onDelete={deleteGalleryItem}
             onOpenCanvas={openCanvas}
             t={t}
           />

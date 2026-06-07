@@ -208,7 +208,7 @@ export interface Asset {
    *     field — afterwards it behaves like any other global asset and survives session deletion.
    * If both ownerShotId and ownerSessionId are set, ownerShotId wins (it's the more specific
    * private-sketch scope) and ownerSessionId is informational.
-  */
+   */
   ownerSessionId?: string;
   /** Debug metadata for generated images/storyboards: which asset ids were used as visual refs. */
   referenceAssetIds?: string[];
@@ -309,6 +309,7 @@ export interface Shot {
   previousShotClipSec?: number;
   previousShotClipSecOverride?: boolean;
   referenceClipUrl?: string | null;
+  referenceClipTosObjectKey?: string | null;
   referenceAudioUrl?: string | null;
   referenceClipPreviewUrl?: string | null;
   referenceAudioPreviewUrl?: string | null;
@@ -414,6 +415,7 @@ export interface ShotRender {
   previousShotClipSec?: number;
   previousShotClipSecOverride?: boolean;
   referenceClipUrl?: string;
+  referenceClipTosObjectKey?: string;
   referenceAudioUrl?: string;
   referenceClipPreviewUrl?: string;
   referenceAudioPreviewUrl?: string;
@@ -650,6 +652,12 @@ export interface Session {
    * narration was made.
    */
   audioTrackHidden?: boolean;
+  /**
+   * Explicit canvas wiring from stitch nodes into post-production audio-track nodes. Audio-track
+   * nodes are independent workflow nodes; they only participate in the final chain when their
+   * source stitch job id is listed here. Legacy stitch output uses the id "legacy".
+   */
+  audioTrackStitchJobIds?: string[];
   narrationScript?: string;
   narrationVoice?: string;
   narrationStrategy?: NarrationStrategy;
@@ -778,6 +786,7 @@ export interface GalleryPublishPayload {
 
 export interface GalleryItem {
   id: string;
+  ownerUserId?: string;
   sourceSessionId: string;
   title: string;
   description: string;

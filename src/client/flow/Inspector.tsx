@@ -837,19 +837,23 @@ function splitScenePromptForPanels(prompt: string, panelCount: number): string[]
   return result;
 }
 
-function buildStoryboardMentionOptions(shot: Shot, allAssets: Asset[], session: SessionWithShots | undefined): MentionOption[] {
+export function buildStoryboardMentionOptions(shot: Shot, allAssets: Asset[], session: SessionWithShots | undefined): MentionOption[] {
   const handle = (asset: Asset) => asset.name.replace(/\s*\/\s*/g, "/").replace(/\s+/g, "");
   const tagFor = (asset: Asset) => {
     const typeZh: Record<string, string> = { character: "角色", scene: "场景", prop: "道具", style: "风格" };
+    if ((asset.tags || []).includes("sub-storyboard")) return "分镜板";
     return typeZh[asset.type] || "资产";
   };
+  const sessionShotIds = new Set((session?.shots || []).map((item) => item.id));
   const isVisible = (asset: Asset) => {
-    if (asset.ownerShotId && asset.ownerShotId !== shot.id) return false;
+    if (asset.ownerShotId && asset.ownerShotId !== shot.id) {
+      return (asset.tags || []).includes("sub-storyboard") && sessionShotIds.has(asset.ownerShotId);
+    }
     if (asset.ownerSessionId && session && asset.ownerSessionId !== session.id) return false;
     return true;
   };
   const isStoryboardReferenceCandidate = (asset: Asset) =>
-    ["character", "scene", "prop", "style"].includes(asset.type) && isVisible(asset);
+    (["character", "scene", "prop", "style"].includes(asset.type) || (asset.tags || []).includes("sub-storyboard")) && isVisible(asset);
 
   const options: MentionOption[] = [];
   const seen = new Set<string>();
@@ -864,7 +868,6 @@ function buildStoryboardMentionOptions(shot: Shot, allAssets: Asset[], session: 
     .filter((asset): asset is Asset => Boolean(asset))
     .forEach((asset) => add(asset, true));
 
-  allAssets.forEach((asset) => add(asset, false));
   return options;
 }
 
@@ -876,12 +879,25 @@ function StoryboardInspector({ shot, asset, session, allAssets, onMutated, onClo
   onMutated: () => Promise<void> | void;
   onClose: () => void;
 }) {
-  // Anchor candidates: this session's character/scene/style/prop assets (auto-pre-checks wired ones).
-  const anchorCandidates = allAssets.filter((a) =>
-    ["character", "scene", "prop", "style"].includes(a.type) &&
-    !a.ownerShotId &&
-    (!a.ownerSessionId || a.ownerSessionId === session?.id)
-  );
+  // Anchor candidates are strictly the assets already wired to this shot/storyboard. The canvas
+  // edge list is the source of truth; unrelated session assets must not appear as @-referenceable.
+  const sessionShotIds = new Set((session?.shots || []).map((item) => item.id));
+  const wiredStoryboardRefIds = new Set([
+    ...(shot.assetIds || []),
+    ...(asset?.referenceAssetIds || [])
+  ]);
+  const anchorCandidates = Array.from(wiredStoryboardRefIds)
+    .map((id) => allAssets.find((a) => a.id === id))
+    .filter((a): a is Asset => Boolean(a))
+    .filter((a): a is Asset =>
+      (["character", "scene", "prop", "style"].includes(a.type) || (a.tags || []).includes("sub-storyboard")) &&
+      (
+        !a.ownerShotId ||
+        a.ownerShotId === shot.id ||
+        ((a.tags || []).includes("sub-storyboard") && sessionShotIds.has(a.ownerShotId))
+      ) &&
+      (!a.ownerSessionId || a.ownerSessionId === session?.id)
+    );
   const initialRefs = (asset?.referenceAssetIds && asset.referenceAssetIds.length
     ? asset.referenceAssetIds
     : (shot.assetIds || []).filter((id) => anchorCandidates.some((a) => a.id === id))
@@ -1100,11 +1116,11 @@ function StoryboardInspector({ shot, asset, session, allAssets, onMutated, onClo
 
 /**
  * Build the MentionOption list passed into MentionTextarea. Wired references (assets / refvideo /
- * storyboard already connected to this shot via canvas edges) come first and are tagged `wired`;
- * other session-scope visible assets follow so the user can also @-mention something they
- * haven't wired yet (the server's getAssetsForShot will pick it up via name match).
+ * storyboard already connected to this shot via canvas edges) are the only @-mention options.
+ * The canvas graph is the source of truth; session-visible but unwired assets are intentionally
+ * excluded so stale prompt text cannot pull deleted/unrelated assets into generation.
  */
-function buildShotMentionOptions(shot: Shot, allAssets: Asset[], session: SessionWithShots | undefined): MentionOption[] {
+export function buildShotMentionOptions(shot: Shot, allAssets: Asset[], session: SessionWithShots | undefined): MentionOption[] {
   const handle = (asset: Asset) => asset.name.replace(/\s*\/\s*/g, "/").replace(/\s+/g, "");
   const shotHandle = (s: Shot) => (s.title || `Shot${s.index}`).replace(/\s*\/\s*/g, "/").replace(/\s+/g, "");
   const isVisible = (asset: Asset) => {
@@ -1147,21 +1163,6 @@ function buildShotMentionOptions(shot: Shot, allAssets: Asset[], session: Sessio
         });
       }
     }
-  }
-
-  // Append every other visible asset in the session so @-autocomplete reaches the full library.
-  for (const asset of allAssets) {
-    if (seen.has(asset.id)) continue;
-    if (!isVisible(asset)) continue;
-    if (asset.ownerShotId) continue; // shot-scoped sketches / per-shot grids stay private
-    const tagLabel = asset.type === "character" ? "角色"
-      : asset.type === "scene" ? "场景"
-      : asset.type === "prop" ? "道具"
-      : asset.type === "style" ? "风格"
-      : asset.mediaKind === "video" ? "视频"
-      : "其它";
-    options.push({ id: asset.id, handle: handle(asset), label: asset.name, tag: tagLabel, wired: false });
-    seen.add(asset.id);
   }
 
   return options;
@@ -1224,7 +1225,7 @@ function ShotMentionChips({ shot, allAssets, session, onPick }: {
   if (!items.length) {
     return (
       <div className="inspector-mention-chips empty">
-        没有连进来的引用 — 从画布拖一根线到这个 Shot，或者直接 @-mention session 里的资产名。
+        没有连进来的引用 — 从画布拖一根线到这个 Shot 后才可 @ 引用。
       </div>
     );
   }
