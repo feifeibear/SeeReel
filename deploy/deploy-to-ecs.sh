@@ -205,6 +205,10 @@ require_value TOS_BUCKET "$TOS_BUCKET_VALUE"
   --exclude 'node_modules' \
   --exclude 'dist' \
   --exclude 'data' \
+  --exclude 'outputs' \
+  --exclude 'assets/generated' \
+  --exclude 'assets/references' \
+  --exclude '.vscode' \
   --exclude '.env' \
   --exclude '.env.*' \
   --exclude '.claude' \

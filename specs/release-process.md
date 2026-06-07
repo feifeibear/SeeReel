@@ -35,6 +35,7 @@ Define the release path that keeps local, GitHub, Docker, ECS, and production be
 - Before publishing, code changes must be organized, committed, and pushed to GitHub; production deploys must identify the exact Git commit they serve.
 - Agent skills must be effective after release. If `.agents/skills/` or install behavior changes, refresh/install skills and verify the agent-visible skill surface before calling the release done.
 - Docker builds must only copy files that exist in the committed repository or are produced by the build.
+- ECS rsync deploys must exclude local generated or private workspace directories such as `outputs/`, `assets/generated/`, `assets/references/`, `.vscode/`, `data/`, `.env*`, and runtime skill mirrors. Deployment should ship committed source and build/runtime config, not local creative media.
 - Release artifacts, Docker images, logs, and deployment commands must not expose AK/SK, tokens, passwords, API keys, or private keys.
 - Release verification must include local checks, GitHub Actions, deployment to the online site, and online smoke verification when the user asks to publish.
 - If `packages/seereel-cli/`, the CLI bin, CLI docs, or public CLI behavior changes, publish `seereelcli` to npm and verify the published package instead of relying only on the local workspace.
@@ -49,6 +50,7 @@ Define the release path that keeps local, GitHub, Docker, ECS, and production be
 - [ ] `npm ci` succeeds in GitHub Actions without ByteDance VPN or internal DNS.
 - [ ] GitHub Actions runs `npm run verify:offline` successfully.
 - [ ] Docker image build succeeds in GitHub Actions.
+- [ ] ECS deploy rsync excludes local generated media and editor/runtime state.
 - [ ] Code is cleaned up, committed, and pushed to GitHub before production release.
 - [ ] Production deployment can identify the Git commit it is serving, and that commit exists on GitHub.
 - [ ] Agent skills are installed/refreshed and visible to target runtimes when skill files or skill installation logic changed.
@@ -178,6 +180,7 @@ If npm auth is unavailable (`E401`) or the registry rejects publish, do not call
 
 - [ ] `npm run verify:offline`
 - [ ] `npm run verify:release`
+- [ ] `npm run smoke:deploy-excludes`
 - [ ] `gh run list --repo feifeibear/SeeReel --branch main --limit 5`
 - [ ] `gh run view <run-id> --json status,conclusion,url,jobs`
 - [ ] `npm run install:skill -- --agent all` when skills or skill installation changed.
