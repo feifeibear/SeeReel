@@ -10,12 +10,11 @@ import {
   runFfmpegCommand
 } from "./generators";
 import { hasAgentPlanKey } from "./arkCredentials";
-import type { NarrationStrategy, Session } from "../shared/types";
+import type { NarrationStrategy, NarrationSubtitleMode, NarrationSubtitlePosition, Session } from "../shared/types";
 
 // Bumped whenever rendering / timing / TTS request shape changes so cached narration artifacts get
-// re-rendered (signature is part of the output filename). v9 is audio-only: project-wide policy is
-// to never generate sidecar or burned-in subtitles.
-const NARRATION_SIGNATURE_VERSION = "narr-v9-audio-only";
+// re-rendered (signature is part of the output filename).
+const NARRATION_SIGNATURE_VERSION = "narr-v10-audio-subtitle-options";
 
 // V3 single-shot SSE endpoint - emits a stream of `event:/data:` blocks whose `data` JSON
 // contains base64-encoded audio chunks. v1 (api/v1/tts) is intentionally NOT used: it does not
@@ -85,13 +84,21 @@ export function computeNarrationSignature(input: {
   voice: string;
   strategy: NarrationStrategy;
   finalVideoSignature: string;
+  subtitleMode?: NarrationSubtitleMode;
+  subtitlePosition?: NarrationSubtitlePosition;
+  narrationVolume?: number;
+  sourceVolume?: number;
 }) {
   const payload = JSON.stringify({
     version: NARRATION_SIGNATURE_VERSION,
     script: input.script.trim(),
     voice: input.voice,
     strategy: input.strategy,
-    finalVideoSignature: input.finalVideoSignature
+    finalVideoSignature: input.finalVideoSignature,
+    subtitleMode: input.subtitleMode || "none",
+    subtitlePosition: input.subtitlePosition || "bottom",
+    narrationVolume: normalizeVolume(input.narrationVolume, 1.0),
+    sourceVolume: input.sourceVolume === undefined ? undefined : normalizeVolume(input.sourceVolume, 0.25)
   });
   return createHash("sha1").update(payload).digest("hex").slice(0, 12);
 }
@@ -593,7 +600,15 @@ function parseNumberEnv(value: string | undefined, fallback: number): number {
  */
 export async function runNarrationPipeline(
   session: Pick<Session, "id" | "finalVideoUrl" | "finalVideoSignature">,
-  input: { script: string; voice: string; strategy: NarrationStrategy },
+  input: {
+    script: string;
+    voice: string;
+    strategy: NarrationStrategy;
+    subtitleMode?: NarrationSubtitleMode;
+    subtitlePosition?: NarrationSubtitlePosition;
+    narrationVolume?: number;
+    sourceVolume?: number;
+  },
   options: NarrationPipelineOptions = {}
 ): Promise<NarrationPipelineResult> {
   if (!session.finalVideoUrl) {
@@ -619,7 +634,11 @@ export async function runNarrationPipeline(
     script: input.script,
     voice: cfg.voice,
     strategy: input.strategy,
-    finalVideoSignature: session.finalVideoSignature
+    finalVideoSignature: session.finalVideoSignature,
+    subtitleMode: input.subtitleMode,
+    subtitlePosition: input.subtitlePosition,
+    narrationVolume: input.narrationVolume,
+    sourceVolume: input.sourceVolume
   });
   const report = async (phase: string) => {
     console.log(`[narration ${session.id}] ${phase}`);
@@ -634,6 +653,8 @@ export async function runNarrationPipeline(
 
   const outputVideoName = `final-${session.id}-${session.finalVideoSignature}-narrated-${signature}.mp4`;
   const outputVideoPath = path.join(MEDIA_DIR, outputVideoName);
+  const subtitleMode = input.subtitleMode || "none";
+  const subtitlePosition = input.subtitlePosition || "bottom";
 
   // Quick reuse: if the audio-only narrated video already exists on disk for this signature, return
   // without rebuilding.
@@ -685,10 +706,22 @@ export async function runNarrationPipeline(
   );
   if (timeline.warning) await report(timeline.warning);
 
+  let subtitlePath: string | undefined;
+  if (subtitleMode === "burn") {
+    subtitlePath = path.join(MEDIA_DIR, `narr-${session.id}-${signature}.srt`);
+    await writeFile(subtitlePath, buildSrt(timeline.segments));
+    await report(`subtitle burn-in enabled (${subtitlePosition})`);
+  }
+
   await renderFinalNarratedVideo({
     sourceVideoPath,
     timeline,
     outputPath: outputVideoPath,
+    subtitleMode,
+    subtitlePosition,
+    subtitlePath,
+    narrationVolume: input.narrationVolume,
+    sourceVolume: input.sourceVolume,
     report
   });
 
@@ -775,12 +808,20 @@ async function renderFinalNarratedVideo(opts: {
   sourceVideoPath: string;
   timeline: NarrationTimeline;
   outputPath: string;
+  subtitleMode: NarrationSubtitleMode;
+  subtitlePosition: NarrationSubtitlePosition;
+  subtitlePath?: string;
+  narrationVolume?: number;
+  sourceVolume?: number;
   report: (phase: string) => Promise<void>;
 }) {
-  const { sourceVideoPath, timeline, outputPath, report } = opts;
+  const { sourceVideoPath, timeline, outputPath, subtitleMode, subtitlePosition, subtitlePath, report } = opts;
   const hasAudio = await probeHasAudio(sourceVideoPath);
   const ambientDb = parseNumberEnv(process.env.NARRATION_AMBIENT_DB, DEFAULT_AMBIENT_DB);
-  const ambientGain = Math.pow(10, ambientDb / 20); // -12 dB -> ~0.25
+  const ambientGain = opts.sourceVolume === undefined
+    ? Math.pow(10, ambientDb / 20) // -12 dB -> ~0.25
+    : normalizeVolume(opts.sourceVolume, 0.25);
+  const narrationGain = normalizeVolume(opts.narrationVolume, 1.0);
 
   // Build per-segment narration mix: each TTS clip is delayed by its startSec (in ms) and then
   // mixed together. amix's inputs are listed in order [narr_0][narr_1]...[narr_n-1].
@@ -806,7 +847,7 @@ async function renderFinalNarratedVideo(opts: {
     const delayMs = Math.round(segment.startSec * 1000);
     const tempoFilter = timeline.globalTempo !== 1.0 ? `,atempo=${timeline.globalTempo.toFixed(4)}` : "";
     const delayFilter = delayMs > 0 ? `,adelay=${delayMs}|${delayMs}` : "";
-    filterParts.push(`[${inputIdx}:a]aformat=channel_layouts=stereo,volume=1.0${tempoFilter}${delayFilter}[${label}]`);
+    filterParts.push(`[${inputIdx}:a]aformat=channel_layouts=stereo,volume=${narrationGain.toFixed(3)}${tempoFilter}${delayFilter}[${label}]`);
     narrationLabels.push(`[${label}]`);
   });
 
@@ -823,9 +864,13 @@ async function renderFinalNarratedVideo(opts: {
   const ambientSourceLabel = hasAudio ? "[0:a]" : `[${silenceInputIndex}:a]`;
   filterParts.push(`${ambientSourceLabel}aformat=channel_layouts=stereo,volume=${ambientGain.toFixed(3)}[ambient]`);
   filterParts.push(`[ambient][narrmix]${buildAmixFilter(2)}[aout]`);
+  const shouldBurnSubtitles = subtitleMode === "burn" && Boolean(subtitlePath);
+  if (shouldBurnSubtitles && subtitlePath) {
+    filterParts.push(`[0:v]subtitles='${escapeFfmpegFilterArg(subtitlePath)}':force_style='${subtitleForceStyle(subtitlePosition)}'[vout]`);
+  }
 
   ffmpegArgs.push("-filter_complex", filterParts.join(";"));
-  ffmpegArgs.push("-map", "0:v", "-map", "[aout]");
+  ffmpegArgs.push("-map", shouldBurnSubtitles ? "[vout]" : "0:v", "-map", "[aout]");
   ffmpegArgs.push(
     // Keep the output exactly as long as the input video — narration is truncated upstream if it
     // would otherwise extend past videoDurationSec.
@@ -842,7 +887,7 @@ async function renderFinalNarratedVideo(opts: {
     outputPath
   );
 
-  await report(`ffmpeg audio-only narration mix -> ${path.basename(outputPath)}`);
+  await report(`ffmpeg narration mix${shouldBurnSubtitles ? " + burned subtitles" : ""} -> ${path.basename(outputPath)}`);
   const start = Date.now();
   try {
     await runFfmpegCommand(ffmpegArgs, 8192);
@@ -857,4 +902,33 @@ async function renderFinalNarratedVideo(opts: {
 export function buildAmixFilter(inputCount: number) {
   const safeCount = Math.max(1, Math.floor(inputCount));
   return `amix=inputs=${safeCount}:duration=longest`;
+}
+
+function normalizeVolume(value: number | undefined, fallback: number) {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return fallback;
+  return Math.max(0, Math.min(2, parsed));
+}
+
+function escapeFfmpegFilterArg(value: string) {
+  return value
+    .replace(/\\/g, "\\\\")
+    .replace(/:/g, "\\:")
+    .replace(/'/g, "\\'");
+}
+
+function subtitleForceStyle(position: NarrationSubtitlePosition) {
+  const alignment = position === "top" ? 8 : position === "middle" ? 5 : 2;
+  const marginV = position === "middle" ? 0 : 72;
+  return [
+    "FontName=Arial",
+    "FontSize=42",
+    "PrimaryColour=&H00FFFFFF",
+    "OutlineColour=&HAA000000",
+    "BorderStyle=1",
+    "Outline=2",
+    "Shadow=1",
+    `Alignment=${alignment}`,
+    `MarginV=${marginV}`
+  ].join(",");
 }

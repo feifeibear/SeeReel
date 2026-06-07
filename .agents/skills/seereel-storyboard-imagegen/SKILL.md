@@ -145,3 +145,7 @@ When the storyboard is approved, produce or refine the Seedance prompt with:
 - lens/composition behavior
 - pacing and motion detail
 - constraints against subtitles, watermarks, and unwanted text
+
+Use the storyboard as a visual reference, not as the whole Seedance prompt. The Seedance prompt must separately state the shot contract: opening frame, explicit shot size/framing such as WS/MS/CU or 远景/中景/近景/特写, `0-4s / 4-9s / 9-13s / 13-15s` action progression, camera motion, dialogue/sound, exit frame, reference roles, and negative constraints.
+
+If the 3x3 contact sheet is attached as a `reference_image`, explicitly say that it guides composition and action progression only; Seedance must not render panel borders, panel numbers, captions, labels, or a grid layout. When first-frame precision matters, generate or extract a clean keyframe instead of using the contact sheet directly.

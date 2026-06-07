@@ -7,7 +7,11 @@ import type { ReadableStream as WebReadableStream } from "node:stream/web";
 import { fileURLToPath } from "node:url";
 import cors from "cors";
 import express, { type Request, type Response } from "express";
-import type { StandardApiKeyRoute } from "../shared/types";
+import type {
+  NarrationSubtitleMode,
+  NarrationSubtitlePosition,
+  StandardApiKeyRoute
+} from "../shared/types";
 import {
   canUseBytePlusSeedance,
   type BuildSeedancePayloadOpts,
@@ -61,6 +65,7 @@ import { condenseForSeedanceR2V, probeVideo, type CondenseStrategy } from "./vid
 import { buildShotFrameAssignments, generateStoryboardGrid } from "./storyboardGrid";
 import { buildSubStoryboardAssetPayload, generateSubStoryboardGrid, generateSubStoryboardSequential, type SubStoryboardResult } from "./subStoryboard";
 import { analyzeReferenceVideo } from "./videoAnalyze";
+import { getMentionedSessionCastAssets } from "./castReferences";
 import { directoryStats, fileSize, productionPaths, readableFileStatus, snapshotCounts, tokenUsageSummary, writableDirectoryStatus } from "./diagnostics";
 import { incCounter, metricsText, observeHttpRequest, setGauge, setHttpInflight } from "./metrics";
 import { collectVisitorMetrics, visitorMetricsMiddleware } from "./visitorMetrics";
@@ -2925,17 +2930,14 @@ function normalizeContinuityPatch(savedShot: Shot, patch: Partial<Shot>) {
   const previousShot = session?.shots.find((item) => item.index === savedShot.index - 1);
   const selectedPreviousRender = previousShot ? findSelectedRender(previousShot) : undefined;
   const maxDurationSec = getReferenceDurationSec(previousShot, selectedPreviousRender);
+  const explicitOverride = patch.previousShotClipSecOverride ?? savedShot.previousShotClipSecOverride;
+  const requested = explicitOverride
+    ? patch.previousShotClipSec ?? savedShot.previousShotClipSec
+    : patch.previousShotClipSec ?? 2;
   return {
     ...patch,
-    previousShotClipSec: clampPreviousShotClipSec(
-      (patch.previousShotClipSecOverride ?? (patch.usePreviousShotClip === true ? false : savedShot.previousShotClipSecOverride))
-        ? patch.previousShotClipSec ?? savedShot.previousShotClipSec
-        : undefined,
-      maxDurationSec
-    ),
-    previousShotClipSecOverride: Boolean(
-      patch.previousShotClipSecOverride ?? (patch.usePreviousShotClip === true ? false : savedShot.previousShotClipSecOverride)
-    )
+    previousShotClipSec: clampPreviousShotClipSec(requested, maxDurationSec),
+    previousShotClipSecOverride: Boolean(explicitOverride)
   };
 }
 
@@ -3245,30 +3247,8 @@ function buildStoryWithCastCharacters(currentStory: StoryPlan, cast: StoryCharac
   };
 }
 
-function getSessionCastAssets(session: Session | undefined, allAssets: Asset[]) {
-  if (!session?.story?.characters?.length) return [];
-  const assets: Asset[] = [];
-  const seen = new Set<string>();
-  for (const character of session.story.characters) {
-    if (!character.name) continue;
-    if (!character.assetId && !character.assetMention) continue;
-    const match = findExistingCastAsset(
-      {
-        name: character.name,
-        role: character.role,
-        arc: character.arc,
-        assetId: character.assetId,
-        assetMention: normalizeCastAlias(character.assetMention)
-      },
-      allAssets,
-      session.id
-    );
-    if (!match || seen.has(match.id)) continue;
-    if (!isCastAssetVisibleToSession(match, session.id)) continue;
-    seen.add(match.id);
-    assets.push(match);
-  }
-  return assets;
+function getSessionCastAssets(session: Session | undefined, allAssets: Asset[], promptText: string) {
+  return getMentionedSessionCastAssets(session, allAssets, promptText);
 }
 
 function mergeAssetsById(lists: Asset[][]) {
@@ -4308,7 +4288,7 @@ async function dryRunSeedanceComposition(shotId: string) {
   const shotForCompose = { ...shot, rawPrompt: promptText, prompt: promptText };
 
   const mentionedAssets = store.getAssetsForShot({ ...shot, rawPrompt: promptText, prompt: promptText });
-  const castAssets = getSessionCastAssets(session, allAssets);
+  const castAssets = getSessionCastAssets(session, allAssets, promptText);
   // Same @-mention gating as the actual /generate path: wired refvideo doesn't fire reference_video
   // until the user @-mentions it. Dry-run preview should reflect the same payload reality.
   const referencedAssets = mergeAssetsById([
@@ -4408,7 +4388,7 @@ async function submitShotGeneration(shotId: string, body: Partial<Shot>): Promis
     const allAssets = store.snapshot().assets;
     const mentionedAssets = store.getAssetsForShot({ ...shot, rawPrompt: promptText, prompt: promptText });
     const session = store.getSession(shot.sessionId);
-    const castAssets = getSessionCastAssets(session, allAssets);
+    const castAssets = getSessionCastAssets(session, allAssets, promptText);
     // Reference videos are only passed to Seedance when the user explicitly @-mentions them in
     // the prompt. Wiring a RefVideo node to a Shot via canvas registers the relationship
     // (referenceVideoAssetId / referenceClipUrl) but doesn't auto-fire the reference_video field;
@@ -4507,18 +4487,35 @@ async function submitShotGeneration(shotId: string, body: Partial<Shot>): Promis
       const selectedPreviousRender = previousShot ? findSelectedRender(previousShot) : undefined;
       const seedanceReferenceUrl = getContinuityReferenceUrl(previousShot, selectedPreviousRender);
       const maxDurationSec = getReferenceDurationSec(previousShot, selectedPreviousRender);
-      const requestedDurationSec = shot.previousShotClipSecOverride ? shot.previousShotClipSec : undefined;
+      const requestedDurationSec = shot.previousShotClipSecOverride ? shot.previousShotClipSec : 2;
       previousShotClipSec = clampPreviousShotClipSec(requestedDurationSec, maxDurationSec);
       if (previousShot?.videoUrl) {
         previewSource = { videoUrl: previousShot.videoUrl, sourceShotId: previousShot.id };
       }
       if (seedanceReferenceUrl) {
-        referenceClipUrl = seedanceReferenceUrl;
+        const localTailSource = previousShot?.videoUrl || selectedPreviousRender?.videoUrl || selectedPreviousRender?.remoteVideoUrl || seedanceReferenceUrl;
+        const localTailClipUrl = previousShot
+          ? await extractTailVideoClip(localTailSource, shot.id, previousShot.id, previousShotClipSec).catch((err) => {
+              console.warn(`[continuity-tail] tail clip extraction failed for ${shot.id}: ${err instanceof Error ? err.message : err}`);
+              return undefined;
+            })
+          : undefined;
+        referenceClipPreviewUrl = localTailClipUrl;
+        if (localTailClipUrl && hasTosConfig()) {
+          const published = await publishLocalMediaToTos(localTailClipUrl, {
+            keyHint: `${shot.id}-tail-${previousShot?.id || "previous"}-${previousShotClipSec}s`
+          }).catch((err) => {
+            console.warn(`[continuity-tail] TOS publish failed for ${shot.id}: ${err instanceof Error ? err.message : err}`);
+            return undefined;
+          });
+          referenceClipUrl = published?.url || seedanceReferenceUrl;
+        } else {
+          referenceClipUrl = seedanceReferenceUrl;
+        }
       } else {
         referenceClipUrl = undefined;
       }
       referenceAudioUrl = undefined;
-      referenceClipPreviewUrl = undefined;
       referenceAudioPreviewUrl = undefined;
     } else {
       referenceClipUrl = undefined;
@@ -5162,7 +5159,7 @@ app.post("/api/shots/:shotId/poll", async (req, res) => {
                     reviewAttempts: attemptIndex,
                     reviewModel: verdict.model,
                     reviewNote: formatReviewNote(failures, false),
-                    composedPrompt: rewrittenSeedanceText,
+                    composedPrompt: task.composedText,
                     submittedReferenceImageUrls: task.submittedReferenceImageUrls,
                     videoReviewBuiltForPrompt: reviewPrompt
                   });
@@ -6063,21 +6060,51 @@ function computeStitchSignaturePreview(shots: Shot[]): string {
   return createStitchSignature(shots);
 }
 
-// ---------- Narration (voiceover-only) routes ----------
+// ---------- Narration / post-production audio routes ----------
 
 const DEFAULT_NARRATION_STRATEGY: NarrationStrategy = "natural";
 const DEFAULT_NARRATION_VOICE = process.env.VOLC_TTS_VOICE_TYPE || "zh_male_M392_conversation_wvae_bigtts";
+
+function parseNarrationSubtitleMode(value: unknown): NarrationSubtitleMode {
+  return value === "burn" ? "burn" : "none";
+}
+
+function parseNarrationSubtitlePosition(value: unknown): NarrationSubtitlePosition {
+  return value === "top" || value === "middle" || value === "bottom" ? value : "bottom";
+}
+
+function parseNarrationVolume(value: unknown, fallback: number, max = 2) {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return fallback;
+  return Math.max(0, Math.min(max, parsed));
+}
 
 app.post("/api/sessions/:sessionId/narration", async (req, res) => {
   const sessionId = req.params.sessionId;
   const script: string = typeof req.body?.script === "string" ? req.body.script : "";
   const voice: string = typeof req.body?.voice === "string" && req.body.voice.trim() ? req.body.voice.trim() : DEFAULT_NARRATION_VOICE;
   const strategy: NarrationStrategy = req.body?.strategy === "natural" ? "natural" : DEFAULT_NARRATION_STRATEGY;
+  const subtitleMode = parseNarrationSubtitleMode(req.body?.subtitleMode);
+  const subtitlePosition = parseNarrationSubtitlePosition(req.body?.subtitlePosition);
+  const narrationVolume = parseNarrationVolume(req.body?.narrationVolume, 1.0);
+  const sourceVolume = parseNarrationVolume(req.body?.sourceVolume, 0.25, 1);
+  const jobId: string | undefined = typeof req.body?.jobId === "string" && req.body.jobId.trim()
+    ? req.body.jobId.trim()
+    : undefined;
   if (!script.trim()) return res.status(400).json({ error: "Script is required" });
 
   if (!consumeGenerationOr429(res, sessionId, "narration")) return;
 
-  const result = await triggerNarrationJob(sessionId, { script, voice, strategy });
+  const result = await triggerNarrationJob(sessionId, {
+    script,
+    voice,
+    strategy,
+    jobId,
+    subtitleMode,
+    subtitlePosition,
+    narrationVolume,
+    sourceVolume
+  });
   if ("status" in result) return res.status(result.status).json({ error: result.error });
   res.json(result.session);
 });
@@ -6114,11 +6141,20 @@ app.get("/api/sessions/:sessionId/narration/download", async (req, res) => {
  */
 async function triggerNarrationJob(
   sessionId: string,
-  input: { script: string; voice: string; strategy: NarrationStrategy }
+  input: {
+    script: string;
+    voice: string;
+    strategy: NarrationStrategy;
+    jobId?: string;
+    subtitleMode: NarrationSubtitleMode;
+    subtitlePosition: NarrationSubtitlePosition;
+    narrationVolume: number;
+    sourceVolume: number;
+  }
 ): Promise<{ session: ReturnType<CinemaStore["getSession"]> } | { status: number; error: string }> {
   const session = store.getSession(sessionId);
   if (!session) return { status: 404, error: "Session not found" };
-  const resolved = resolveFinalArtifact(session);
+  const resolved = resolveFinalArtifact(session, input.jobId);
   if (resolved.error) {
     return { status: resolved.error.status === 404 ? 400 : resolved.error.status, error: "Final video not ready — please run stitch first." };
   }
@@ -6135,7 +6171,11 @@ async function triggerNarrationJob(
     script: input.script,
     voice: effectiveVoice,
     strategy: input.strategy,
-    finalVideoSignature: finalArtifact.finalVideoSignature
+    finalVideoSignature: finalArtifact.finalVideoSignature,
+    subtitleMode: input.subtitleMode,
+    subtitlePosition: input.subtitlePosition,
+    narrationVolume: input.narrationVolume,
+    sourceVolume: input.sourceVolume
   });
 
   // Reuse already-ready artifacts.
@@ -6172,6 +6212,12 @@ async function triggerNarrationJob(
     narrationScript: input.script,
     narrationVoice: effectiveVoice,
     narrationStrategy: input.strategy,
+    narrationStitchJobId: input.jobId,
+    narrationSubtitleMode: input.subtitleMode,
+    narrationSubtitlePosition: input.subtitlePosition,
+    narrationVolume: input.narrationVolume,
+    narrationSourceVolume: input.sourceVolume,
+    audioTrackHidden: false,
     narrationStatus: "running",
     narrationStartedAt: startedAt,
     narrationUpdatedAt: startedAt,
@@ -6192,7 +6238,16 @@ async function triggerNarrationJob(
 
 async function runNarrationJobInBackground(
   sessionId: string,
-  input: { script: string; voice: string; strategy: NarrationStrategy },
+  input: {
+    script: string;
+    voice: string;
+    strategy: NarrationStrategy;
+    jobId?: string;
+    subtitleMode: NarrationSubtitleMode;
+    subtitlePosition: NarrationSubtitlePosition;
+    narrationVolume: number;
+    sourceVolume: number;
+  },
   signature: string,
   finalArtifact: { finalVideoUrl: string; finalVideoSignature?: string }
 ) {
@@ -6222,6 +6277,11 @@ async function runNarrationJobInBackground(
       narrationSignature: result.narrationSignature,
       // Reflect the voice the pipeline actually used (may have language-swapped from input.voice).
       narrationVoice: result.effectiveVoice,
+      narrationStitchJobId: input.jobId,
+      narrationSubtitleMode: input.subtitleMode,
+      narrationSubtitlePosition: input.subtitlePosition,
+      narrationVolume: input.narrationVolume,
+      narrationSourceVolume: input.sourceVolume,
       narrationBuiltForFinalVideoSignature: finalArtifact.finalVideoSignature,
       narrationStatus: "ready",
       narrationUpdatedAt: new Date().toISOString(),

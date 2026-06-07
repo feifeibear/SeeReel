@@ -8,7 +8,7 @@ import { pipeline } from "node:stream/promises";
 import type { ReadableStream as WebReadableStream } from "node:stream/web";
 import ffmpeg from "@ffmpeg-installer/ffmpeg";
 import type { Asset, AssetImageModel, SessionWithShots, Shot, StoryBeat, StoryPlan } from "../shared/types";
-import { composeSeedanceVideoText, composeSeedreamAssetPrompt, type Lang } from "./promptCompose";
+import { composeSeedanceVideoText, composeSeedreamAssetPrompt, enforceSpokenLanguageInstruction, type Lang } from "./promptCompose";
 import { fetchWithRetry } from "./fetchWithRetry";
 import { arkMissingKeyMessage, BYTEPLUS_ARK_BASE, resolveArkCredential, VOLCENGINE_CN_ARK_BASE, type ArkCredential, type StandardCredentialRouteConfig } from "./arkCredentials";
 import { seedreamWebSearchPayload } from "./seedreamOptions";
@@ -16,7 +16,7 @@ import { seedreamWebSearchPayload } from "./seedreamOptions";
 export interface BuildSeedancePayloadOpts {
   /** Override the assembled text content. Used when the user audited & edited the dryRun preview. */
   prebuiltText?: string;
-  /** Output language for the auto-composed text. Default `"zh"`. Ignored when `prebuiltText` is set. */
+  /** Session spoken language for the submitted text. Default `"zh"`; still enforced when `prebuiltText` is set. */
   lang?: Lang;
   /**
    * Per-shot override for Seedance's `generate_audio` flag. `true` forces audio on, `false`
@@ -1018,7 +1018,7 @@ async function generateShotVideoViaCustomEndpoint(shot: Shot, assets: Asset[], o
   const referenceClipUrl = useFirstFrameMode ? undefined : getSeedanceWebUrl(shot.referenceClipUrl);
   const referenceAudioUrl = useFirstFrameMode ? undefined : getSeedanceWebUrl(shot.referenceAudioUrl);
   const referenceAssets = useFirstFrameMode && firstFrameAsset ? [firstFrameAsset] : assets;
-  const prompt = opts.prebuiltText && opts.prebuiltText.trim().length > 0
+  const promptBase = opts.prebuiltText && opts.prebuiltText.trim().length > 0
     ? opts.prebuiltText.trim()
     : [
         buildVideoPrompt(shot, referenceAssets, {
@@ -1030,6 +1030,7 @@ async function generateShotVideoViaCustomEndpoint(shot: Shot, assets: Asset[], o
       ]
         .filter(Boolean)
         .join("\n");
+  const prompt = enforceSpokenLanguageInstruction(promptBase, opts.lang || "zh");
 
   // Custom Seedance HTTP endpoint — wrapped in fetchWithRetry with idempotent=false so we only
   // retry pre-flight network errors (not server-confirmed timeouts that may have created a task).
@@ -1278,12 +1279,13 @@ async function buildBytePlusSeedancePayload(shot: Shot, assets: Asset[], opts: B
       : [...referenceImages, ...referenceVideos].map((item) => item.asset);
 
   // Compose the text content. Two paths:
-  //   - opts.prebuiltText: caller has the user-edited final prompt (post audit), use it verbatim.
+  //   - opts.prebuiltText: caller has the user-edited final prompt (post audit), then we still
+  //     append the session spoken-language lock before submitting.
   //   - else: run promptCompose.composeSeedanceVideoText with the resolved context + lang.
   // The composer is the single source of truth for the assembled text — same code path drives
   // dryRun preview returned by /api/shots/:id/generate?dryRun=true.
-  const textContent = opts.prebuiltText && opts.prebuiltText.trim().length > 0
-    ? opts.prebuiltText
+  const textContentBase = opts.prebuiltText && opts.prebuiltText.trim().length > 0
+    ? opts.prebuiltText.trim()
     : composeSeedanceVideoText(
         {
           shot,
@@ -1298,6 +1300,7 @@ async function buildBytePlusSeedancePayload(shot: Shot, assets: Asset[], opts: B
         },
         lang
       ).composedPrompt;
+  const textContent = enforceSpokenLanguageInstruction(textContentBase, lang);
 
   return {
     model,

@@ -19,7 +19,7 @@ import "@xyflow/react/dist/style.css";
 import { api } from "../api";
 import type { Asset, AssetImageModel, AssetType, SessionWithShots, Shot, StitchJob, StoreSnapshot } from "../../shared/types";
 import { buildSessionGraph, type FlowNodeData } from "./buildGraph";
-import { AssetNode, ReferenceVideoNode, VideoProcessorNode, StoryboardNode, ShotNode, StitchNode, TailframeNode } from "./nodes";
+import { AssetNode, AudioTrackNode, ReferenceVideoNode, VideoProcessorNode, StoryboardNode, ShotNode, StitchNode, TailframeNode } from "./nodes";
 import { Inspector } from "./Inspector";
 import { DownloadToast } from "./DownloadToast";
 import { CreateNodeMenu, type CreateMenuOption } from "./CreateNodeMenu";
@@ -35,6 +35,7 @@ const nodeTypes = {
   storyboardNode: StoryboardNode,
   shotNode: ShotNode,
   stitchNode: StitchNode,
+  audioTrackNode: AudioTrackNode,
   referenceVideoNode: ReferenceVideoNode,
   videoProcessorNode: VideoProcessorNode,
   tailframeNode: TailframeNode
@@ -995,6 +996,7 @@ export function FlowView({ snapshot, session, visionReviewEnabled, defaultImageM
       if (data.kind === "shot") return data.shot.title || `Shot ${data.shot.index}`;
       if (data.kind === "storyboard") return `分镜板 · ${data.shot.title || `Shot ${data.shot.index}`}`;
       if (data.kind === "stitch") return data.job.name || `拼接节点 ${data.job.id}`;
+      if (data.kind === "audioTrack") return "添加音轨节点";
       return node.id;
     });
     // When deleting nodes, xyflow auto-includes the incident edges (the wires touching the
@@ -1093,6 +1095,15 @@ export function FlowView({ snapshot, session, visionReviewEnabled, defaultImageM
                 redo: async () => { await api.deleteStitchJob(sessionId, job.id); await onMutated(); }
               });
             }
+          } else if (data.kind === "audioTrack") {
+            const sessionId = data.session.id;
+            await api.updateSession(sessionId, { audioTrackHidden: true });
+            ok = true;
+            onPushUndo?.({
+              description: "删除添加音轨节点",
+              undo: async () => { await api.updateSession(sessionId, { audioTrackHidden: false }); await onMutated(); },
+              redo: async () => { await api.updateSession(sessionId, { audioTrackHidden: true }); await onMutated(); }
+            });
           }
           if (!ok) {
             pendingNodeDeletionsRef.current.delete(node.id);

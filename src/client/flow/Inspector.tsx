@@ -1,5 +1,15 @@
 import { useEffect, useRef, useState } from "react";
-import type { Asset, AssetImageModel, Shot, SessionWithShots, StitchJob, ImageReviewVerdict, VideoReviewVerdict } from "../../shared/types";
+import type {
+  Asset,
+  AssetImageModel,
+  NarrationSubtitleMode,
+  NarrationSubtitlePosition,
+  Shot,
+  SessionWithShots,
+  StitchJob,
+  ImageReviewVerdict,
+  VideoReviewVerdict
+} from "../../shared/types";
 import { api } from "../api";
 import type { FlowNodeData } from "./buildGraph";
 import { emitDownloadToast } from "./nodes";
@@ -360,6 +370,9 @@ export function Inspector({ selected, session, allAssets, visionReviewEnabled, d
   }
   if (selected.kind === "stitch") {
     return <StitchInspector session={selected.session} job={selected.job} legacy={selected.legacy} onMutated={onMutated} onSetStitchOrder={onSetStitchOrder} onClose={onClose} />;
+  }
+  if (selected.kind === "audioTrack") {
+    return <AudioTrackInspector session={selected.session} job={selected.job} onMutated={onMutated} onClose={onClose} />;
   }
   if (selected.kind === "referenceVideo") {
     return <ReferenceVideoInspector asset={selected.asset} session={session} onMutated={onMutated} onDeleteCanvasAsset={onDeleteCanvasAsset} onClose={onClose} />;
@@ -1313,6 +1326,7 @@ function ShotInspector({ shot, session, allAssets, visionReviewEnabled, onMutate
     .map((id) => allAssets.find((asset) => asset.id === id))
     .filter((asset): asset is Asset => Boolean(asset && (asset.mediaKind === "image" || asset.imageUrl || asset.mediaUrl)));
   const firstLastModeEnabled = Boolean(shot.firstFrameAssetId || shot.lastFrameAssetId);
+  const canUsePreviousShotClip = (shot.index || 0) > 1;
 
   const saveTitle = async () => {
     const trimmed = title.trim();
@@ -1446,6 +1460,33 @@ function ShotInspector({ shot, session, allAssets, visionReviewEnabled, onMutate
     finally { setBusy(""); }
   };
 
+  const updatePreviousShotClip = async (enabled: boolean, seconds = 2) => {
+    setBusy("save"); setError("");
+    try {
+      await api.updateShot(shot.id, enabled
+        ? {
+            usePreviousShotClip: true,
+            previousShotClipSec: Math.min(Math.max(Math.round(seconds) || 2, 1), 15),
+            previousShotClipSecOverride: seconds !== 2,
+            firstFrameAssetId: "",
+            lastFrameAssetId: "",
+            referenceVideoAssetId: "",
+            referenceVideoFromShotId: "",
+            referenceClipUrl: null,
+            referenceAudioUrl: null
+          }
+        : {
+            usePreviousShotClip: false,
+            referenceClipUrl: null,
+            referenceAudioUrl: null,
+            referenceClipPreviewUrl: null,
+            referenceAudioPreviewUrl: null
+          });
+      await onMutated();
+    } catch (err) { setError(err instanceof Error ? err.message : "设置上一镜尾段参考失败"); }
+    finally { setBusy(""); }
+  };
+
   const status = shot.status;
   const generating = status === "generating";
   const pendingRender = generating
@@ -1548,6 +1589,33 @@ function ShotInspector({ shot, session, allAssets, visionReviewEnabled, onMutate
         <label>{tr("时长 (秒)", "Duration (sec)")}<input type="number" min={1} max={15} value={durationSec} onChange={(e) => setDurationSec(Number(e.target.value) || 12)} /></label>
         <label>{tr("状态", "Status")}<input value={status} disabled /></label>
       </div>
+      {canUsePreviousShotClip && (
+        <label className="continuity-toggle clip-toggle" title={tr("生成时会裁剪上一镜头最后几秒，发布为 Seedance reference_video，帮助降低镜头衔接处的亮度、色系、人物位置和运镜跳变。", "When generating, trim the previous shot's final seconds and publish that tail clip as Seedance reference_video to reduce lighting, color, blocking, and camera-motion jumps at the cut.")}>
+          <input
+            type="checkbox"
+            checked={Boolean(shot.usePreviousShotClip)}
+            disabled={Boolean(busy)}
+            onChange={(e) => { void updatePreviousShotClip(e.target.checked); }}
+          />
+          <span>
+            <strong>{tr("参考上一镜尾段", "Reference previous tail clip")}</strong>
+            <small>{tr("默认裁最后 2 秒；比整段参考更适合缓解拼接感。", "Defaults to the final 2 seconds; better than full-clip reference for softening visible cuts.")}</small>
+          </span>
+          {shot.usePreviousShotClip && (
+            <span className="clip-seconds">
+              <input
+                type="number"
+                min={1}
+                max={15}
+                value={shot.previousShotClipSec || 2}
+                disabled={Boolean(busy)}
+                onChange={(e) => { void updatePreviousShotClip(true, Number(e.target.value) || 2); }}
+              />
+              <small>{tr("秒", "sec")}</small>
+            </span>
+          )}
+        </label>
+      )}
       <div className="inspector-section">
         <label className="vision-review-toggle" title={tr("勾选后，这个视频用 first_frame / last_frame 模式；不勾选则走默认参考图 / 参考视频模式。", "When checked, this video uses first_frame / last_frame mode; unchecked uses default reference-image / reference-video mode.")}>
           <input
@@ -2195,6 +2263,230 @@ function StitchInspector({ session, job, legacy, onMutated, onSetStitchOrder, on
         </details>
       )}
       {job.error && <div className="inspector-error">{job.error}</div>}
+      {error && <div className="inspector-error">{error}</div>}
+    </aside>
+  );
+}
+
+// ============================================================================
+// AudioTrack inspector — post-stitch narration/audio mix and optional burned subtitles.
+// ============================================================================
+
+function AudioTrackInspector({ session, job, onMutated, onClose }: {
+  session: SessionWithShots;
+  job: StitchJob;
+  onMutated: () => Promise<void> | void;
+  onClose: () => void;
+}) {
+  const { lang } = useI18n();
+  const tr = (zh: string, en: string) => (lang === "en" ? en : zh);
+  const [script, setScript] = useState(session.narrationScript || "");
+  const [voice, setVoice] = useState(session.narrationVoice || "");
+  const [subtitleMode, setSubtitleMode] = useState<NarrationSubtitleMode>(session.narrationSubtitleMode || "none");
+  const [subtitlePosition, setSubtitlePosition] = useState<NarrationSubtitlePosition>(session.narrationSubtitlePosition || "bottom");
+  const [narrationVolume, setNarrationVolume] = useState(session.narrationVolume ?? 1.25);
+  const [sourceVolume, setSourceVolume] = useState(session.narrationSourceVolume ?? 0.12);
+  const [busy, setBusy] = useState<"" | "narrate">("");
+  const [error, setError] = useState("");
+  const [progress, setProgress] = useState(session.narrationProgress || "");
+
+  useEffect(() => {
+    setScript(session.narrationScript || "");
+    setVoice(session.narrationVoice || "");
+    setSubtitleMode(session.narrationSubtitleMode || "none");
+    setSubtitlePosition(session.narrationSubtitlePosition || "bottom");
+    setNarrationVolume(session.narrationVolume ?? 1.25);
+    setSourceVolume(session.narrationSourceVolume ?? 0.12);
+    setProgress(session.narrationProgress || "");
+    setError("");
+  }, [session.id, session.narrationSignature, session.narrationUpdatedAt]);
+
+  const isRunning = busy === "narrate" || session.narrationStatus === "running";
+  const hasFinal = Boolean(job.finalVideoUrl);
+  const isStale = Boolean(
+    session.narrationBuiltForFinalVideoSignature
+    && job.finalVideoSignature
+    && session.narrationBuiltForFinalVideoSignature !== job.finalVideoSignature
+  );
+  const jobId = job.id === "legacy" ? undefined : job.id;
+
+  const runNarration = async () => {
+    const trimmed = script.trim();
+    if (!trimmed) {
+      setError(tr("请先填写旁白脚本。", "Write a narration script first."));
+      return;
+    }
+    setBusy("narrate");
+    setError("");
+    setProgress("queued");
+    try {
+      await api.narrate(session.id, {
+        script: trimmed,
+        voice: voice.trim() || undefined,
+        strategy: "natural",
+        jobId,
+        subtitleMode,
+        subtitlePosition,
+        narrationVolume,
+        sourceVolume
+      }, (snapshot) => {
+        setProgress(snapshot.narrationProgress || snapshot.narrationStatus || "");
+      });
+      await onMutated();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : tr("添加音轨失败", "Audio track failed"));
+    } finally {
+      setBusy("");
+    }
+  };
+
+  return (
+    <aside className="inspector">
+      <header>
+        <span className="inspector-tag">{tr("音轨 · 添加旁白", "Audio · Voiceover")}</span>
+        <button onClick={onClose} className="inspector-close" title={tr("关闭", "Close")}>×</button>
+      </header>
+
+      <div className="inspector-section">
+        <strong>{tr("连接来源", "Source")}</strong>
+        <div className="inspector-hint">
+          {hasFinal
+            ? tr(`基于拼接节点「${job.name || "完整视频"}」生成带旁白版本。`, `Generates a narrated version from stitch node "${job.name || "Full video"}".`)
+            : tr("先在左侧拼接节点生成完整视频，再添加音轨。", "Generate the stitched video first, then add the audio track.")}
+        </div>
+      </div>
+
+      <div className="inspector-section">
+        <label>
+          {tr("旁白脚本", "Narration script")}
+          <textarea
+            value={script}
+            onChange={(e) => setScript(e.target.value)}
+            rows={8}
+            placeholder={tr("把要听见的旁白写在这里。脚本会自动切句并压到视频时长内。", "Write the voiceover here. It will be split into lines and fit to the video duration.")}
+            disabled={isRunning}
+          />
+        </label>
+        <label>
+          {tr("声音 ID（可选）", "Voice ID (optional)")}
+          <input
+            value={voice}
+            onChange={(e) => setVoice(e.target.value)}
+            placeholder="zh_male_M392_conversation_wvae_bigtts"
+            disabled={isRunning}
+          />
+        </label>
+      </div>
+
+      <div className="inspector-section">
+        <strong>{tr("混音", "Mix")}</strong>
+        <label className="range-label">
+          <span>{tr("旁白音量", "Voiceover volume")} {narrationVolume.toFixed(2)}x</span>
+          <input
+            type="range"
+            min="0"
+            max="2"
+            step="0.05"
+            value={narrationVolume}
+            disabled={isRunning}
+            onChange={(e) => setNarrationVolume(Number(e.target.value))}
+          />
+        </label>
+        <label className="range-label">
+          <span>{tr("原视频声音", "Original audio")} {sourceVolume.toFixed(2)}x</span>
+          <input
+            type="range"
+            min="0"
+            max="1"
+            step="0.05"
+            value={sourceVolume}
+            disabled={isRunning}
+            onChange={(e) => setSourceVolume(Number(e.target.value))}
+          />
+        </label>
+      </div>
+
+      <div className="inspector-section">
+        <strong>{tr("字幕", "Subtitles")}</strong>
+        <div className="audio-track-segment">
+          {([
+            { id: "none", label: tr("不加字幕", "No subtitles") },
+            { id: "burn", label: tr("烧录字幕到视频", "Burn into video") }
+          ] as Array<{ id: NarrationSubtitleMode; label: string }>).map((option) => (
+            <button
+              key={option.id}
+              type="button"
+              className={subtitleMode === option.id ? "primary" : "ghost-action"}
+              disabled={isRunning}
+              onClick={() => setSubtitleMode(option.id)}
+            >
+              {option.label}
+            </button>
+          ))}
+        </div>
+        {subtitleMode === "burn" && (
+          <div className="audio-track-segment">
+            {([
+              { id: "bottom", label: tr("底部", "Bottom") },
+              { id: "middle", label: tr("中部", "Middle") },
+              { id: "top", label: tr("顶部", "Top") }
+            ] as Array<{ id: NarrationSubtitlePosition; label: string }>).map((option) => (
+              <button
+                key={option.id}
+                type="button"
+                className={subtitlePosition === option.id ? "primary" : "ghost-action"}
+                disabled={isRunning}
+                onClick={() => setSubtitlePosition(option.id)}
+              >
+                {option.label}
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+
+      <div className="inspector-actions">
+        <button onClick={runNarration} disabled={isRunning || !hasFinal} className="primary">
+          {isRunning ? tr("添加音轨中...", "Adding audio...") : session.narrationVideoUrl ? tr("重新添加音轨", "Regenerate audio track") : tr("添加音轨", "Add audio track")}
+        </button>
+      </div>
+
+      {(progress || session.narrationStatus) && (
+        <div className="inspector-hint">
+          {tr("状态：", "Status: ")}
+          <strong>{progress || session.narrationStatus}</strong>
+          {isStale && <span style={{ color: "#fbbf24" }}> {tr("拼接视频已更新，请重新添加音轨。", "The stitched video changed; regenerate the audio track.")}</span>}
+        </div>
+      )}
+
+      {session.narrationVideoUrl && session.narrationStatus === "ready" && (
+        <a
+          className="inspector-download"
+          href={api.downloadNarrationVideoUrl(session.id)}
+          download={`${session.title || session.id}-含旁白.mp4`}
+          onClick={() => emitDownloadToast(`${session.title || session.id}-含旁白.mp4`)}
+        >
+          {tr("⬇ 下载带旁白视频", "⬇ Download narrated video")}
+        </a>
+      )}
+
+      {session.narrationVideoUrl && session.narrationStatus === "ready" && (
+        <details className="inspector-fold" open>
+          <summary>{tr("音轨结果预览", "Audio result preview")}</summary>
+          <ZoomablePreview
+            url={`${session.narrationVideoUrl}?v=${encodeURIComponent(session.narrationUpdatedAt || session.narrationSignature || session.id)}`}
+            mediaKind="video"
+            title={`${session.title || session.id} · ${tr("添加音轨", "Audio track")}`}
+            downloadUrl={api.downloadNarrationVideoUrl(session.id)}
+            downloadFilename={`${session.title || session.id}-含旁白.mp4`}
+            generatedAt={session.narrationUpdatedAt}
+            generatedLabel={tr("音轨生成时间", "Audio generated at")}
+            fallbackAt={session.createdAt}
+          />
+        </details>
+      )}
+
+      {session.narrationError && <div className="inspector-error">{session.narrationError}</div>}
       {error && <div className="inspector-error">{error}</div>}
     </aside>
   );

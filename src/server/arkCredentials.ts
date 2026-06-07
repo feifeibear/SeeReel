@@ -96,7 +96,7 @@ export function hasStandardApiKey() {
 }
 
 export function isUsingAdminTrialAgentPlan() {
-  return Boolean(!hasRequestAgentPlanKey() && hasAdminAgentPlanKey());
+  return Boolean(!hasStandardApiKey() && !hasRequestAgentPlanKey() && hasAdminAgentPlanKey());
 }
 
 export function arkMissingKeyMessage(service: string, existingEnvNames: string[]) {

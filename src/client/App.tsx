@@ -1,4 +1,4 @@
-import { Archive, BarChart3, CircleHelp, Copy, Download, FileUp, Images, KeyRound, Loader2, Plus, RefreshCw, ShieldCheck, Trash2, UploadCloud } from "lucide-react";
+import { Archive, BarChart3, CircleHelp, Copy, Download, FileUp, Github, Images, KeyRound, Loader2, Plus, RefreshCw, ShieldCheck, Trash2, UploadCloud } from "lucide-react";
 import { lazy, memo, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api } from "./api";
 import type { AdminAgentPlanStatus, AdminSecurityStatus, AdminUserAgentPlanCredentialList, AgentPlanCredentialStatus, ApiKeyCredentialStatus, Asset, AssetType, CreateSessionPayload, GalleryItem, Session, SessionPackage, Shot, StandardApiKeyRoute, StitchJob, StoreSnapshot, TokenUsageEvent, TokenUsageModelFamily } from "../shared/types";
@@ -1880,6 +1880,16 @@ export function App() {
             >
               <CircleHelp size={16} />
               AI use me
+            </a>
+            <a
+              className="ai-use-me-link"
+              href="https://github.com/feifeibear/SeeReel"
+              target="_blank"
+              rel="noreferrer"
+              title="Open SeeReel on GitHub"
+            >
+              <Github size={16} />
+              GitHub
             </a>
             <div className="agent-plan-control">
               <button

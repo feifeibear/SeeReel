@@ -1092,6 +1092,7 @@ label {
 
 .clip-toggle {
   grid-template-columns: auto minmax(0, 1fr) auto;
+  flex-wrap: wrap;
 }
 
 .clip-seconds {
@@ -1112,6 +1113,11 @@ label {
 
 .clip-seconds small {
   color: #64748b;
+}
+
+.clip-toggle strong,
+.clip-toggle small {
+  overflow-wrap: anywhere;
 }
 
 .first-frame-row {
@@ -2479,6 +2485,7 @@ label {
 .tag-storyboard { background: rgba(167,139,250,0.22); color: #c4b5fd; }
 .tag-shot { background: rgba(96,165,250,0.20); color: #93c5fd; }
 .tag-stitch { background: rgba(52,211,153,0.20); color: #6ee7b7; }
+.tag-audio { background: rgba(244,114,182,0.20); color: #f9a8d4; }
 
 .flow-node-thumb {
   background: #050709;
@@ -3069,6 +3076,42 @@ label {
 }
 .inspector-actions button:disabled { opacity: 0.5; cursor: not-allowed; }
 
+.range-label {
+  display: grid;
+  gap: 6px;
+}
+
+.range-label span {
+  color: #cbd5e1;
+  font-size: 12px;
+}
+
+.range-label input[type="range"] {
+  width: 100%;
+  accent-color: #f472b6;
+}
+
+.audio-track-segment {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 8px;
+}
+
+.audio-track-segment button {
+  min-height: 32px;
+  border-radius: 6px;
+  border: 1px solid rgba(255,255,255,0.12);
+  padding: 6px 10px;
+  cursor: pointer;
+}
+
+.audio-track-segment button.primary {
+  background: #be185d;
+  border-color: transparent;
+  color: #fff;
+}
+
 .inspector-error {
   background: rgba(248,113,113,0.10);
   border: 1px solid rgba(248,113,113,0.30);
@@ -3390,6 +3433,7 @@ label {
    ============================================================================ */
 .tag-refvideo { background: rgba(244, 114, 182, 0.20); color: #f0abfc; }
 .flow-node.refvideo-node { border-color: rgba(244, 114, 182, 0.32); }
+.flow-node.audio-track-node { border-color: rgba(244, 114, 182, 0.30); }
 
 .ref-shot-list {
   display: flex;
@@ -4138,6 +4182,7 @@ textarea:focus,
 .tag-storyboard { color: #b9a7ef; }
 .tag-shot { color: #6dd7d1; }
 .tag-stitch { color: #7cdea8; }
+.tag-audio { color: #ee8db7; }
 
 .flow-node-thumb,
 .flow-node-thumb.fit-contain {
@@ -5059,6 +5104,7 @@ body {
 .tag-storyboard,
 .tag-shot,
 .tag-stitch,
+.tag-audio,
 .tag-refvideo {
   color: #edf6f7;
 }

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import type { NextFunction, Request, Response } from "express";
-import { ARK_AGENT_PLAN_BASE, resolveArkCredential } from "../src/server/arkCredentials";
+import { ARK_AGENT_PLAN_BASE, isUsingAdminTrialAgentPlan, resolveArkCredential } from "../src/server/arkCredentials";
 import { resolveSeedanceCredential, resolveSeedanceModel, resolveSeedreamCredential } from "../src/server/generators";
 import {
   clearRequestAgentPlanKey,
@@ -24,6 +24,7 @@ const ENV_KEYS = [
   "VISION_REVIEW_AGENT_PLAN_MODEL",
   "REELYAI_VISION_REVIEW_USE_AGENT_PLAN",
   "SEEREEL_DISABLE_ADMIN_AGENT_PLAN",
+  "SEEREEL_ADMIN_AGENT_PLAN_KEY",
   "BP_ARK_API_KEY",
   "BP_SEEDREAM_API_KEY",
   "BP_SEEDREAM_API_BASE",
@@ -111,6 +112,23 @@ try {
 
     await clearRequestAgentPlanKey();
   });
+
+  process.env.SEEREEL_ADMIN_AGENT_PLAN_KEY = "test-admin-trial-plan-key";
+  await withUserRequest(async () => {
+    assert.equal(isUsingAdminTrialAgentPlan(), true);
+    await setRequestApiKey("browser-bp-standard-key", "byteplus");
+    assert.equal(isUsingAdminTrialAgentPlan(), false);
+    await clearRequestApiKey();
+    await setRequestAgentPlanKey("browser-plan-key");
+    assert.equal(isUsingAdminTrialAgentPlan(), false);
+    await clearRequestAgentPlanKey();
+  });
+  process.env.BP_ARK_API_KEY = "test-env-bp-standard-key";
+  await withUserRequest(async () => {
+    assert.equal(isUsingAdminTrialAgentPlan(), false);
+  });
+  delete process.env.BP_ARK_API_KEY;
+  delete process.env.SEEREEL_ADMIN_AGENT_PLAN_KEY;
 
   await withUserRequest(async () => {
     await setRequestAgentPlanKey("browser-plan-key");

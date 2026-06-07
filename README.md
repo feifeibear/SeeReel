@@ -155,6 +155,10 @@ SeeReel is an **agent-operable, human-takeover canvas for filmmaking**:
 - The AI can create, inspect, update, render, review, repair, and stitch through stable commands.
 - The human can interrupt at any point and edit the same session in the web app.
 - The canvas remains the source of truth for scripts, shots, prompts, references, renders, reviews, and final videos.
+- When a user gives a rough script idea, agents should research relevant characters, plot mechanics, and historical background before drafting; then run script review iterations and revise until the review is satisfied. Unless the user asks for interactive discussion, agents should work autonomously and return the review-ready canvas.
+- Agents should prefer full 15-second Seedance shots and pack multiple related beats into one clip when continuity is shared, instead of splitting every beat into a shorter video.
+- Agents should plan camera language before rendering: motivated movement or intentional lock-off, clear blocking and screen direction, and cut bridges through action, eyeline, reaction, inserts/cutaways, sound, previous-tail, or tailframe continuity.
+- Important prompt information should reach the audience through character dialogue or voiceover/narration, backed by visible action or reaction, instead of staying hidden in prompt-only lore or subtitles.
 - Dialogue workflows keep one spoken language across the session and default to natural diegetic sound; agents should not add per-shot music/BGM/score because stitched clips will not share one continuous soundtrack.
 - VLM review is part of the product loop, not an afterthought.
 - It supports public web trials, bring-your-own-token generation, and local source-level customization.

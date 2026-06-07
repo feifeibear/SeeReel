@@ -575,6 +575,8 @@ export interface SessionPackage {
 
 export type NarrationStatus = "idle" | "running" | "ready" | "error";
 export type NarrationStrategy = "natural";
+export type NarrationSubtitleMode = "none" | "burn";
+export type NarrationSubtitlePosition = "bottom" | "middle" | "top";
 
 export interface Session {
   id: string;
@@ -634,20 +636,28 @@ export interface Session {
   stitchRunningSignature?: string;
 
   /**
-   * Auto narration pipeline. Runs *after* a successful stitch and writes a second mp4 with
-   * voiceover audio mixed in. Project policy forbids generated subtitles, so no sidecar .srt or
-   * burned-in subtitle track is produced. Mirrors the stitch lifecycle:
+   * Post-production audio track pipeline. Runs *after* a successful stitch and writes a second
+   * mp4 with voiceover audio mixed in. Video generation still defaults to no subtitles; this
+   * post-production node may optionally burn the narration script into the final mp4 only when
+   * the user explicitly selects `narrationSubtitleMode: "burn"`.
    *   - `running`: background ffmpeg+TTS worker is processing
    *   - `ready`: `narrationVideoUrl` is fresh against the current `finalVideoSignature` (compare
    *     with `narrationSignature` to detect staleness when stitch was redone afterwards)
    *   - `error`: see `narrationError`
    *
-   * `narrationSignature` is `sha1(script + voice + strategy + finalVideoSignature)` so that the
-   * UI can grey out the download buttons when stitch was rebuilt after the narration was made.
+   * `narrationSignature` is `sha1(script + voice + strategy + finalVideoSignature + audio/subtitle
+   * options)` so that the UI can grey out the download buttons when stitch was rebuilt after the
+   * narration was made.
    */
+  audioTrackHidden?: boolean;
   narrationScript?: string;
   narrationVoice?: string;
   narrationStrategy?: NarrationStrategy;
+  narrationStitchJobId?: string;
+  narrationSubtitleMode?: NarrationSubtitleMode;
+  narrationSubtitlePosition?: NarrationSubtitlePosition;
+  narrationVolume?: number;
+  narrationSourceVolume?: number;
   narrationStatus?: NarrationStatus;
   narrationStartedAt?: string;
   narrationUpdatedAt?: string;

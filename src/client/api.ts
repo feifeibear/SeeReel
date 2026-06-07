@@ -11,6 +11,8 @@ import type {
   GalleryItem,
   GalleryPublishPayload,
   NarrationStrategy,
+  NarrationSubtitleMode,
+  NarrationSubtitlePosition,
   PromptComposition,
   SessionWithShots,
   SessionPackage,
@@ -490,7 +492,16 @@ export const api = {
    */
   narrate: async (
     sessionId: string,
-    payload: { script: string; voice?: string; strategy?: NarrationStrategy },
+    payload: {
+      script: string;
+      voice?: string;
+      strategy?: NarrationStrategy;
+      jobId?: string;
+      subtitleMode?: NarrationSubtitleMode;
+      subtitlePosition?: NarrationSubtitlePosition;
+      narrationVolume?: number;
+      sourceVolume?: number;
+    },
     onProgress?: (snapshot: SessionWithShots) => void
   ): Promise<SessionWithShots> => {
     const initial = await request<SessionWithShots>(`/api/sessions/${sessionId}/narration`, {

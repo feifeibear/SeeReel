@@ -29,6 +29,13 @@ export interface StitchNodeData extends Record<string, unknown> {
   legacy?: boolean;
 }
 
+export interface AudioTrackNodeData extends Record<string, unknown> {
+  kind: "audioTrack";
+  session: SessionWithShots;
+  job: StitchJob;
+  legacy?: boolean;
+}
+
 export interface ReferenceVideoNodeData extends Record<string, unknown> {
   kind: "referenceVideo";
   asset: Asset;
@@ -54,6 +61,7 @@ export type FlowNodeData =
   | StoryboardNodeData
   | ShotNodeData
   | StitchNodeData
+  | AudioTrackNodeData
   | ReferenceVideoNodeData
   | VideoProcessorNodeData
   | TailframeNodeData;
@@ -69,7 +77,8 @@ const COLUMN_X = {
   storyboard: 860,
   shot: 1260,
   tailframe: 1660,
-  stitch: 2060
+  stitch: 2060,
+  audioTrack: 2460
 };
 
 const ROW_HEIGHT = 240;
@@ -456,6 +465,28 @@ export function buildSessionGraph(snapshot: StoreSnapshot, session: SessionWithS
       position: { x: COLUMN_X.stitch, y: middleY },
       data: { kind: "stitch", session, job, legacy } satisfies StitchNodeData
     });
+    if (!session.audioTrackHidden) {
+      const audioTrackNodeId = legacy ? `audio-${session.id}` : `audio-${session.id}-${job.id}`;
+      nodes.push({
+        id: audioTrackNodeId,
+        type: "audioTrackNode",
+        position: { x: COLUMN_X.audioTrack, y: middleY },
+        data: { kind: "audioTrack", session, job, legacy } satisfies AudioTrackNodeData
+      });
+      edges.push({
+        id: `e-audio-${stitchNodeId}-${audioTrackNodeId}`,
+        source: stitchNodeId,
+        target: audioTrackNodeId,
+        animated: session.narrationStatus === "running",
+        deletable: false,
+        data: { audioTrackSource: true, stitchJobId: job.id },
+        style: {
+          stroke: "#f472b6",
+          strokeWidth: 2,
+          ...(job.finalVideoUrl ? {} : { strokeDasharray: "6 4", opacity: 0.6 })
+        }
+      });
+    }
     const explicitShotIds = job.shotIds || [];
     const stitchShotIds = explicitShotIds.length > 0 ? explicitShotIds : orderedShots.map((shot) => shot.id);
     const defaultOrder = explicitShotIds.length === 0;

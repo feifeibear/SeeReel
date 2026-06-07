@@ -8,6 +8,7 @@ import { useI18n, type Dictionary } from "../i18n";
 import { assetThumbUrl, tailframeThumbUrl } from "./mediaUrls";
 import type { AssetImageModel, SeedanceVariant, SubStoryboardModel } from "../../shared/types";
 import type {
+  AudioTrackNodeData,
   AssetNodeData,
   ReferenceVideoNodeData,
   StoryboardNodeData,
@@ -86,6 +87,7 @@ type AssetFlowNode = Node<AssetNodeData, "assetNode">;
 type StoryboardFlowNode = Node<StoryboardNodeData, "storyboardNode">;
 type ShotFlowNode = Node<ShotNodeData, "shotNode">;
 type StitchFlowNode = Node<StitchNodeData, "stitchNode">;
+type AudioTrackFlowNode = Node<AudioTrackNodeData, "audioTrackNode">;
 type ReferenceVideoFlowNode = Node<ReferenceVideoNodeData, "referenceVideoNode">;
 type VideoProcessorFlowNode = Node<VideoProcessorNodeData, "videoProcessorNode">;
 type TailframeFlowNode = Node<TailframeNodeData, "tailframeNode">;
@@ -642,6 +644,62 @@ function StitchNodeImpl({ data, selected }: NodeProps<StitchFlowNode>) {
         {final && <small className="flow-review-badge" style={{ color: finalReviewInfo.color }}>{finalReviewInfo.label}</small>}
         <small>{t.nodes.targetDuration(session.targetDurationSec)}</small>
       </div>
+      <Handle type="source" position={Position.Right} id="out" />
+    </div>
+  );
+}
+
+// ============================================================================
+// AudioTrackNode — post-stitch narration / audio-mix output
+// ============================================================================
+
+function AudioTrackNodeImpl({ data, selected }: NodeProps<AudioTrackFlowNode>) {
+  const { session, job } = data;
+  const status = session.narrationStatus || "idle";
+  const isRunning = status === "running";
+  const videoUrl = isRunning ? undefined : session.narrationVideoUrl;
+  const label = status === "ready" ? "音轨已完成" : status === "running" ? "添加音轨中" : status === "error" ? "音轨失败" : "待添加音轨";
+  const color = status === "ready" ? "#34d399" : status === "running" ? "#60a5fa" : status === "error" ? "#f87171" : "#6b7280";
+  const subtitleLabel = session.narrationSubtitleMode === "burn"
+    ? `烧录字幕 · ${session.narrationSubtitlePosition === "top" ? "顶部" : session.narrationSubtitlePosition === "middle" ? "中部" : "底部"}`
+    : "不加字幕";
+  const cacheKey = session.narrationUpdatedAt || session.narrationSignature || session.narrationVideoUrl || session.id;
+  return (
+    <div className={`flow-node audio-track-node ${selected ? "selected" : ""}`} style={{ width: NODE_WIDTH }}>
+      <Handle type="target" position={Position.Left} id="in" />
+      <div className="flow-node-head">
+        <span className="flow-tag tag-audio">音轨</span>
+        <strong className="flow-node-title">添加音轨</strong>
+        {videoUrl && (
+          <DownloadButton
+            href={api.downloadNarrationVideoUrl(session.id)}
+            filename={`${session.title || session.id}-含旁白.mp4`}
+            title="下载带旁白视频"
+            onTriggered={() => emitDownloadToast(`${session.title || session.id}-含旁白.mp4`)}
+          />
+        )}
+      </div>
+      <div className="flow-node-thumb fit-contain">
+        {isRunning ? (
+          <div className="flow-empty flow-empty-generating">
+            <span className="flow-empty-spinner" aria-hidden /> 添加音轨中…
+          </div>
+        ) : videoUrl ? (
+          <RobustVideoThumb
+            streamSrc={`${videoUrl}${videoUrl.includes("?") ? "&" : "?"}v=${encodeURIComponent(cacheKey)}`}
+            downloadUrl={api.downloadNarrationVideoUrl(session.id)}
+            downloadFilename={`${session.title || session.id}-含旁白.mp4`}
+            title={`${session.title || session.id} · 添加音轨`}
+          />
+        ) : (
+          <div className="flow-empty">{job.finalVideoUrl ? "点节点配置旁白与字幕" : "先完成拼接视频"}</div>
+        )}
+      </div>
+      <div className="flow-node-foot">
+        <span className="flow-status" style={{ color }}>● {label}</span>
+        <small>{subtitleLabel}</small>
+        {session.narrationProgress && <small>{session.narrationProgress}</small>}
+      </div>
     </div>
   );
 }
@@ -825,6 +883,12 @@ export const ShotNode = memo(ShotNodeImpl, (prev, next) =>
   prev.selected === next.selected && prev.data.shot === next.data.shot
 );
 export const StitchNode = memo(StitchNodeImpl, (prev, next) =>
+  prev.selected === next.selected
+  && prev.data.session === next.data.session
+  && prev.data.job === next.data.job
+  && prev.data.legacy === next.data.legacy
+);
+export const AudioTrackNode = memo(AudioTrackNodeImpl, (prev, next) =>
   prev.selected === next.selected
   && prev.data.session === next.data.session
   && prev.data.job === next.data.job

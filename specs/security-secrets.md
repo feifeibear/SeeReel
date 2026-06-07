@@ -36,6 +36,7 @@ Protect SeeReel credentials, API keys, access tokens, passwords, AK/SK pairs, pr
 - When showing credential status, display only presence, provider name, last updated metadata, or a short masked suffix when truly needed.
 - Browser and CLI credential-management endpoints may accept standard Ark API keys and Agent Plan keys, but status responses must expose only configured state, credential kind, fingerprint, timestamps, and storage metadata.
 - When both a standard Ark API key and an Agent Plan key are configured for the same local/CLI scope, model generation must prefer the standard API key and fall back to Agent Plan only when no standard key is available.
+- Admin free-trial Agent Plan quota must apply only to requests that actually need the site/admin Agent Plan fallback. Requests with browser-saved or environment BytePlus/CN standard Ark keys must not consume or be blocked by that Agent Plan free-trial quota.
 - If a secret is suspected to have been exposed, rotate it before treating the incident as fixed.
 
 ## Credential Environment Variables
@@ -78,6 +79,7 @@ Model ID variables such as `SEEDREAM_AGENT_PLAN_MODEL`, `SEEDANCE_AGENT_PLAN_MOD
 - [ ] Frontend bundle and default demo content contain no real secrets.
 - [ ] API responses, diagnostics, metrics, logs, and dashboards mask or omit secrets.
 - [ ] The top-bar API Keys panel can save either a standard Ark API key or an Agent Plan key and shows only masked status/fingerprint afterward.
+- [ ] Standard Ark API key requests bypass site/admin Agent Plan free-trial quota while still keeping keys server-side and masked in status surfaces.
 - [ ] The CLI can configure a standard Ark API key without printing it, and local config status reports only whether it is configured.
 - [ ] `KEY`, `ID`, `TOKEN`, and `SECRET` environment variables are documented in this spec before new credential surfaces are added to `.env.example`, deploy scripts, docs, or runtime code.
 - [ ] Secret-related examples use obvious placeholders such as `<YOUR_API_KEY>` or `redacted`.

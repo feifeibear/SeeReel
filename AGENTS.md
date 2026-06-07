@@ -78,9 +78,13 @@ Default CLI behavior is intentionally review-first: create/select the CLI cookie
 ## Operating Model
 
 - The agent chats with the user to shape story, casting, locations, assets, storyboards, shot prompts, and generation strategy.
+- When the user gives only a script idea, research relevant characters, plot mechanisms, and historical background before the first draft; then run script review iterations and revise until the review is satisfied before building the final review canvas. Unless the user explicitly asks for interactive discussion, work autonomously instead of stopping for preference questions.
 - The app stores and displays scripts, beats, shots, prompts, assets, sketches, renders, stitch state, and final videos.
 - The user can take over in the web UI at any point. Treat manual UI edits as source of truth.
 - Keep generated intermediate results visible in the app; avoid private scratch artifacts unless they are imported afterward.
+- Prefer full 15-second Seedance shots and pack multiple related beats inside one clip when continuity is shared; do not split every beat into a shorter video unless the story needs a real cut.
+- Plan cinematic shot language before rendering: camera movement needs a story reason, blocking and screen direction must be clear, and adjacent shots should bridge through action, eyeline, reaction, insert/cutaway, sound, previous-tail, or tailframe continuity instead of feeling like unrelated clips.
+- Move story-critical prompt information into audience-facing delivery: important facts should be spoken through character dialogue or voiceover/narration, with visible action or reaction as backup, rather than hidden in prompt-only lore or subtitles.
 - For dialogue videos, keep one spoken language across the whole session. Default to normal diegetic sound such as dialogue, ambience, footsteps, props, and crowd noise; do not add per-shot music/BGM/score because separately generated music will not stitch continuously.
 - Prefer SeeReel APIs and persisted canvas state over manual filesystem work. If an existing endpoint can create, import, publish, generate, poll, stitch, cache, or wire an artifact, use it. Manual downloads, `ffmpeg`, or file patches are recovery steps only; immediately write the result back through SeeReel APIs/state so graph edges, Inspector data, `stitchShotIds`, `referenceVideoFromShotId`, `firstFrameAssetId`, `assetIds`, renders, and `finalVideoUrl` stay auditable in the UI.
 

@@ -21,6 +21,31 @@ export function resolveLang(value: unknown): Lang {
   return value === "en" ? "en" : "zh";
 }
 
+export function composeSpokenLanguageInstruction(lang: Lang): string {
+  return lang === "en"
+    ? [
+        "SESSION SPOKEN-LANGUAGE LOCK:",
+        "All audible character dialogue in this video must be spoken in English only.",
+        "Do not generate Mandarin, Chinese dialects, bilingual dialogue, translated repeats, or random foreign-language words unless the user explicitly wrote multilingual dialogue in the prompt.",
+        "Technical prompt text may mention other languages as descriptions, but any performed spoken line must remain English."
+      ].join("\n")
+    : [
+        "会话口语语言锁定：",
+        "本视频中所有可听见的人物对白必须只说中文普通话。",
+        "不要生成英语对白、英中双语对白、英文复述、随机英文口号或外语夹杂，除非用户 prompt 明确要求多语言角色。",
+        "技术提示词可以用英文描述镜头，但角色实际说出口的台词必须保持中文普通话。"
+      ].join("\n");
+}
+
+export function enforceSpokenLanguageInstruction(prompt: string, lang: Lang): string {
+  const trimmed = (prompt || "").trim();
+  const instruction = composeSpokenLanguageInstruction(lang);
+  if (!trimmed) return instruction;
+  const hasLanguageLock = /SESSION SPOKEN-LANGUAGE LOCK|会话口语语言锁定/.test(trimmed);
+  if (hasLanguageLock) return trimmed;
+  return `${trimmed}\n${instruction}`;
+}
+
 // ============================================================================
 // Seedance — video text content
 // ============================================================================
@@ -60,6 +85,7 @@ export function composeSeedanceVideoText(ctx: SeedanceTextContext, lang: Lang = 
   const globalContinuity = composeGlobalContinuityInstruction(ctx.referencedAssets, lang);
   if (globalContinuity) parts.globalContinuity = globalContinuity;
 
+  parts.spokenLanguage = composeSpokenLanguageInstruction(lang);
   parts.noTextOverlay = NO_TEXT_OVERLAY_INSTRUCTION[lang];
 
   parts.duration = lang === "zh" ? `生成时长：${duration} 秒。` : `Generation duration: ${duration}s.`;
@@ -85,6 +111,7 @@ export function composeSeedanceVideoText(ctx: SeedanceTextContext, lang: Lang = 
     "raw",
     "assetReferences",
     "globalContinuity",
+    "spokenLanguage",
     "noTextOverlay",
     "duration",
     "resolution",
