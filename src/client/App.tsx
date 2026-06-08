@@ -11,6 +11,7 @@ import { resolveRefreshSelectedSessionId } from "./sessionSelection";
 import { buildCanvasPath, buildGalleryPath, parseAppRoute, type AppView } from "./routes";
 import { createPendingImageUploadAsset, imageUploadAssetName, imageUploadDescription } from "./uploadPlaceholders";
 import type { UploadImageAssetResult } from "./flow/FlowView";
+import { hasActiveShotGeneration } from "../shared/shotGenerationState";
 
 const FlowView = lazy(() =>
   import("./flow/FlowView").then((module) => ({ default: memo(module.FlowView) }))
@@ -395,9 +396,6 @@ function mergeStateForDisplay({
   };
 }
 
-const hasPendingShotRender = (shot: Shot) =>
-  shot.status === "generating" || (shot.renders || []).some((r) => r.status === "generating");
-
 function readRouteFromWindow() {
   if (typeof window === "undefined") return { view: "studio" as AppView, sessionId: "" };
   return parseAppRoute(window.location);
@@ -740,7 +738,7 @@ export function App() {
   const pollInflightRef = useRef<Set<string>>(new Set());
   const generatingIdsKey = useMemo(
     () => state.shots
-      .filter((shot) => hasPendingShotRender(shot) || Boolean(shot.generationTaskId))
+      .filter((shot) => hasActiveShotGeneration(shot))
       .map((shot) => shot.id)
       .sort()
       .join(","),

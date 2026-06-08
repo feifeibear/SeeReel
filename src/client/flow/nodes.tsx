@@ -6,6 +6,7 @@ import { Lightbox } from "./Lightbox";
 import { usePendingGeneration } from "./PendingGenerations";
 import { useI18n, type Dictionary } from "../i18n";
 import { assetThumbUrl, tailframeThumbUrl } from "./mediaUrls";
+import { selectedShotPendingRender } from "../../shared/shotGenerationState";
 import type { AssetImageModel, SeedanceVariant, SubStoryboardModel } from "../../shared/types";
 import type {
   AudioTrackNodeData,
@@ -505,9 +506,7 @@ function ShotNodeImpl({ data, selected }: NodeProps<ShotFlowNode>) {
   // Live elapsed-since-submit label for the in-flight render. Falls back to the shot's own
   // generationStartedAt when the latest pending render hasn't been picked yet (e.g. immediately
   // after submission, before the first /poll lands and stamps the render row).
-  const pendingRender = isGenerating
-    ? (shot.renders || []).find((r) => r.status === "generating" || Boolean(r.generationTaskId))
-    : undefined;
+  const pendingRender = selectedShotPendingRender(shot);
   const videoCacheKey = selectedRender?.id || videoUrl;
   const review = selectedRender?.videoReview || shot.videoReview;
   const reviewStatus = selectedRender?.videoReviewStatus || shot.videoReviewStatus;

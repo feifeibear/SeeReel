@@ -18,6 +18,7 @@ import { MentionTextarea, type MentionOption } from "./MentionTextarea";
 import { usePendingGenerationActions } from "./PendingGenerations";
 import { useI18n } from "../i18n";
 import { resolveNodeReviewEnabled } from "../../shared/reviewSettings";
+import { selectedShotPendingRender } from "../../shared/shotGenerationState";
 
 /**
  * Click-to-zoom preview for use inside Inspector. The thumbnail is rendered as a button so
@@ -1490,9 +1491,7 @@ function ShotInspector({ shot, session, allAssets, visionReviewEnabled, onMutate
 
   const status = shot.status;
   const generating = status === "generating";
-  const pendingRender = generating
-    ? (shot.renders || []).find((r) => r.status === "generating" || Boolean(r.generationTaskId))
-    : undefined;
+  const pendingRender = selectedShotPendingRender(shot);
   const generatingLabel = seedancePhaseLabel(pendingRender?.seedancePhase || shot.seedancePhase);
   const generatingElapsed = useInspectorElapsedLabel(
     pendingRender?.generationStartedAt || shot.generationStartedAt || undefined,

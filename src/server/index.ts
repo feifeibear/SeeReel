@@ -72,6 +72,7 @@ import { incCounter, metricsText, observeHttpRequest, setGauge, setHttpInflight 
 import { collectVisitorMetrics, visitorMetricsMiddleware } from "./visitorMetrics";
 import { cleanupDeletedSessionArtifacts, collectDeletedSessionArtifacts, collectDeletedSessionsArtifacts } from "./sessionCleanup";
 import { resolveNodeReviewEnabled } from "../shared/reviewSettings";
+import { selectedShotPendingRender } from "../shared/shotGenerationState";
 import {
   composeSeedanceVideoText,
   composeSeedreamAssetPrompt,
@@ -5520,7 +5521,7 @@ function friendlyApiError(err: unknown, fallback = "请求失败"): string {
 }
 
 function findPendingRender(shot: Shot) {
-  return (shot.renders || []).find((render) => render.status === "generating" || Boolean(render.generationTaskId));
+  return selectedShotPendingRender(shot);
 }
 
 function renderPromptForReview(render: ShotRender | undefined, shot: Shot) {
