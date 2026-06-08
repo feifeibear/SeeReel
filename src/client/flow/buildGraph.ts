@@ -114,6 +114,11 @@ export function buildSessionGraph(snapshot: StoreSnapshot, session: SessionWithS
   const edges: Edge[] = [];
   const defaultImageModel = snapshot.runtime?.seedreamDefaultModel;
   const assetById = new Map(snapshot.assets.map((asset) => [asset.id, asset]));
+  const savedPositions = session.canvasNodePositions || {};
+  const positionFor = (nodeId: string, fallback: { x: number; y: number }) => {
+    const saved = savedPositions[nodeId];
+    return Number.isFinite(saved?.x) && Number.isFinite(saved?.y) ? { x: saved.x, y: saved.y } : fallback;
+  };
 
   const sessionAssets = snapshot.assets.filter((asset) => {
     if (asset.ownerShotId) return false; // shot-scoped (sketches / sub-storyboards) handled separately
@@ -153,7 +158,7 @@ export function buildSessionGraph(snapshot: StoreSnapshot, session: SessionWithS
     nodes.push({
       id: `asset-${asset.id}`,
       type: "assetNode",
-      position: { x: COLUMN_X.asset, y: 60 + index * ROW_HEIGHT },
+      position: positionFor(`asset-${asset.id}`, { x: COLUMN_X.asset, y: 60 + index * ROW_HEIGHT }),
       data: { kind: "asset", asset, defaultImageModel } satisfies AssetNodeData
     });
   });
@@ -163,7 +168,7 @@ export function buildSessionGraph(snapshot: StoreSnapshot, session: SessionWithS
     nodes.push({
       id: `refvideo-${asset.id}`,
       type: "referenceVideoNode",
-      position: { x: COLUMN_X.asset, y: 60 + (anchorAssets.length + index) * ROW_HEIGHT },
+      position: positionFor(`refvideo-${asset.id}`, { x: COLUMN_X.asset, y: 60 + (anchorAssets.length + index) * ROW_HEIGHT }),
       data: { kind: "referenceVideo", asset } satisfies ReferenceVideoNodeData
     });
   });
@@ -186,10 +191,10 @@ export function buildSessionGraph(snapshot: StoreSnapshot, session: SessionWithS
     nodes.push({
       id: procNodeId,
       type: "videoProcessorNode",
-      position: {
+      position: positionFor(procNodeId, {
         x: COLUMN_X.videoProcessor,
         y: 60 + (anchorAssets.length + yIndex) * ROW_HEIGHT
-      },
+      }),
       data: { kind: "videoProcessor", asset, sourceAsset } satisfies VideoProcessorNodeData
     });
     if (sourceAsset) {
@@ -246,7 +251,7 @@ export function buildSessionGraph(snapshot: StoreSnapshot, session: SessionWithS
     nodes.push({
       id: tailframeNodeId,
       type: "tailframeNode",
-      position: { x: COLUMN_X.tailframe, y: 60 + yIndex * ROW_HEIGHT },
+      position: positionFor(tailframeNodeId, { x: COLUMN_X.tailframe, y: 60 + yIndex * ROW_HEIGHT }),
       data: { kind: "tailframe", asset, sourceShot, targetShots } satisfies TailframeNodeData
     });
     if (sourceShot) {
@@ -281,7 +286,7 @@ export function buildSessionGraph(snapshot: StoreSnapshot, session: SessionWithS
       nodes.push({
         id: storyboardNodeId,
         type: "storyboardNode",
-        position: { x: COLUMN_X.storyboard, y: 60 + index * ROW_HEIGHT },
+        position: positionFor(storyboardNodeId, { x: COLUMN_X.storyboard, y: 60 + index * ROW_HEIGHT }),
         data: { kind: "storyboard", shot, asset: storyboardAsset, defaultImageModel } satisfies StoryboardNodeData,
         deletable: true
       });
@@ -291,7 +296,7 @@ export function buildSessionGraph(snapshot: StoreSnapshot, session: SessionWithS
     nodes.push({
       id: shotNodeId,
       type: "shotNode",
-      position: { x: COLUMN_X.shot, y: 60 + index * ROW_HEIGHT },
+      position: positionFor(shotNodeId, { x: COLUMN_X.shot, y: 60 + index * ROW_HEIGHT }),
       data: { kind: "shot", shot } satisfies ShotNodeData,
       deletable: shot.status !== "generating"
     });
@@ -499,7 +504,7 @@ export function buildSessionGraph(snapshot: StoreSnapshot, session: SessionWithS
     nodes.push({
       id: stitchNodeId,
       type: "stitchNode",
-      position: { x: COLUMN_X.stitch, y: middleY },
+      position: positionFor(stitchNodeId, { x: COLUMN_X.stitch, y: middleY }),
       data: { kind: "stitch", session, job, legacy } satisfies StitchNodeData
     });
     if (!session.audioTrackHidden) {
@@ -507,7 +512,7 @@ export function buildSessionGraph(snapshot: StoreSnapshot, session: SessionWithS
       nodes.push({
         id: audioTrackNodeId,
         type: "audioTrackNode",
-        position: { x: COLUMN_X.audioTrack, y: middleY },
+        position: positionFor(audioTrackNodeId, { x: COLUMN_X.audioTrack, y: middleY }),
         data: { kind: "audioTrack", session, job, legacy } satisfies AudioTrackNodeData
       });
       if (audioTrackStitchJobIds.has(job.id)) {

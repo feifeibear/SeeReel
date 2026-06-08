@@ -41,9 +41,13 @@ Use `seereel-cli` or `seereel-agent-session` only as transport/control surfaces.
 - Only enter paid video generation after canvas-review passes and the human explicitly approves continuing.
 - Seedance workers need public or signed `http(s)` references. Publish local storyboard/reference media to TOS before using them as Seedance references.
 - Generate adjacent narrative shots serially when they share characters, location, time, lighting, color grade, screen direction, or camera motion. Use previous-tail clips, tailframes, or first-frame anchors when continuity needs them.
+- Do not use previous-tail clips or cross-shot video references across different locations, time jumps, or unrelated scene functions. Cross-scene video continuity can smear locations, costumes, props, and blocking; use explicit character `assetIds` instead.
+- Wire `assetIds` by clear on-screen role. A shot should reference every recurring character who is clearly visible, speaking, or story-critical in that shot, but should not reference offscreen or intentionally blurred characters merely because they exist elsewhere in the film.
+- Treat maps, flags, placards, signboards, scrolls, bamboo slips, papers, seals, UI-like panels, and any flat writable prop as high-risk when the user forbids subtitles or screen text. Replace them with physical blocking, firelight, footsteps, silhouettes, empty stone/wood surfaces, or spoken dialogue.
+- When a two-character power scene repeatedly swaps identity or position, split the shot into explicit single-character beats before returning to a two-shot: character A alone, character B alone, action insert, then a simple wide reaction.
 - Keep one spoken dialogue language across the whole session. Use natural diegetic sound by default; no per-shot music/BGM/score unless explicitly requested as a session-level music plan.
 - Treat foreground-speech clarity as blocking. Dialogue shots need an explicit allowed speaker list; characters outside that list, bystanders, vendors, crowds, witnesses, and narrators must not produce intelligible foreground speech during that shot.
-- If a real Seedance task is slow, keep polling until terminal success/failure unless the user asks for recovery.
+- If a real Seedance task is slow, keep polling until terminal success/failure unless the user asks for recovery. If VLM self-review repeatedly rejects the same render for a structural prompt issue, delete or retire that pending render through the API, simplify the prompt, and regenerate only the affected shot.
 
 ## Fallback Routing
 

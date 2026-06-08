@@ -49,6 +49,8 @@ Define how SeeReel creates, edits, reviews, retries, and stitches generated medi
 - Generated video workflows do not emit subtitle files or burn subtitles by default. The post-stitch audio-track node is the only allowed subtitle surface: it may either add no subtitles or burn the narration script into the narrated mp4 when the user explicitly selects that option and position.
 - Audio-track nodes are independent optional post-production nodes. Stitch nodes must not auto-connect to audio tracks; the canvas persists `stitch -> audio` edges only when the user/agent explicitly wires them or when the user runs audio-track generation from that node.
 - The canvas right-click create menu must be able to create a visible storyboard node. Because storyboard nodes are shot-scoped, this action creates a new shot and enables its sub-storyboard state without submitting paid generation.
+- The canvas right-click create menu must stay usable near viewport edges: bottom/right clicks flip the menu into view, and small viewports make the node list scroll inside the menu instead of clipping options off-screen.
+- Manual canvas node placement is part of session state. After a user drags nodes into a custom layout, refreshes and snapshot polling must preserve the saved positions instead of returning to the automatic column layout.
 - Character, scene, prop/style, and storyboard image nodes may reference each other for future image generation. Canvas edges between these visual nodes must persist to `referenceAssetIds` or the target storyboard shot's reference list so Seedream generation can use the same references the graph displays.
 - Dropping or picking a local character/scene image must create a visible pending canvas node immediately, with a local preview and the user's intended canvas placement, before the server upload finishes. Once upload succeeds, the pending node must be replaced by the persisted cloud asset without losing the placement; if upload fails, the pending node must be removed and the user must see the upload error.
 - `@` mention suggestions and generation-time reference resolution must be graph-wired only. A session-visible asset that is not connected to the target shot/storyboard/asset must not appear in the `@` list and must not be pulled into Seedream/Seedance merely because stale prompt text still contains its old name.
@@ -61,6 +63,7 @@ Define how SeeReel creates, edits, reviews, retries, and stitches generated medi
 - The video-node UI must expose "previous tail clip" continuity as a first-class control for shot 2+, with a 2-second default and editable seconds. This control is mutually exclusive with first/last-frame mode and explicit reference-video wiring.
 - If a provider request has not been submitted, prompt edits must affect the next submission.
 - If a provider request has already been submitted, UI must make clear whether the current render uses the old prompt and whether retry/regeneration will use the new prompt.
+- While a shot is still generating, transient poll failures such as bare 500/502/503/504 gateway responses or network disconnects must not immediately show a global error. The UI should keep polling and surface the failure only after repeated consecutive failures for the same shot; provider terminal errors and non-transient configuration errors should remain visible immediately.
 - Review controls must be interactive and must not be hard-coded differently between local and production.
 - CLI and browser identities are isolated by `seereel_user_id` cookies on online deployments. A raw online CLI `webUrl` must not be described as browser-visible handoff; agents should return a one-time `handoffUrl` when a human needs to claim and edit the workflow.
 - `localhost`, `127.0.0.1`, and `::1` CLI workflows should return the explicit session `webUrl` directly and must not create an encrypted handoff token for ordinary local review. Local requests are a shared review workbench: sessions created by the CLI under one cookie identity must automatically appear in browser `/api/state`, the session list, and `/canvas/:sessionId` for other local cookie identities.
@@ -139,9 +142,11 @@ Define how SeeReel creates, edits, reviews, retries, and stitches generated medi
 - [ ] The UI clearly distinguishes saved prompt from submitted prompt when they differ.
 - [ ] Retry and regeneration use the current saved prompt unless the user explicitly selects an older render.
 - [ ] A ready or errored shot with stale historical `generating` render rows is not treated as actively generating; it does not keep the UI poller alive and does not block `/api/shots/:id/generate` from creating a new render.
+- [ ] Transient shot poll failures during an active generation are suppressed for the first two consecutive failures per shot, reset after a successful poll, and become visible if they keep repeating.
 - [ ] Generated shot videos and stitched final videos publish their local cache to TOS/CDN when configured, persist playback/download URL metadata, and same-origin playback/download API routes redirect to accelerated remote URLs instead of proxying large video bytes through Node.
 - [ ] Review toggle behavior is the same in local and production builds.
 - [ ] Stitching only uses ready shots and records the connected order in visible state.
+- [ ] Manually moved canvas nodes persist their positions in the session and refresh back into the same layout.
 - [ ] Shot and storyboard `@` mention menus list only graph-wired references, and server-side Seedream/Seedance reference resolution ignores unconnected `@` names even when stale prompt text still contains them.
 - [ ] Connected references are resolved by asset id at generation time, so updating an asset changes what dependent nodes use on their next generation without reconnecting the edge.
 - [ ] `npm run smoke:session-asset-scope` passes and proves script/storyboard planning does not import unrelated global assets into a new session, while preserving session-owned assets and explicitly wired global assets.
@@ -204,7 +209,10 @@ Define how SeeReel creates, edits, reviews, retries, and stitches generated medi
 - [ ] Run `npm run smoke:tailframe-strict` when tail-frame extraction or first-frame chaining changes.
 - [ ] Run `npm run smoke:shot-tail-clip-asset` when tail-clip extraction or reference-video continuity node behavior changes.
 - [ ] Run `npm run smoke:shot-generation-state` when shot status, render history, polling, or regeneration blocking behavior changes.
+- [ ] Run `npm run smoke:shot-poll-errors` when shot polling error display or retry tolerance changes.
 - [ ] Run `npm run smoke:video-delivery` when shot/final video playback, download, TOS/CDN metadata, or redirect behavior changes.
+- [ ] Run `npm run smoke:canvas-node-layout` when canvas node positioning, graph projection, or drag persistence changes.
+- [ ] Run `npm run smoke:create-node-menu-position` when right-click create-menu placement or sizing changes.
 - [ ] Run `npm run smoke:seereel-director-skill` and `npm run smoke:specs` when previous-tail continuity guidance or UI behavior changes.
 - [ ] Run `npm run smoke:seedance-language-lock` when Seedance prompt composition, session language handling, or user-edited composed prompt submission changes.
 - [ ] Use the local app to edit a rendering or queued video node prompt and confirm persisted state.

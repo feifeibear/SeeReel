@@ -1,6 +1,7 @@
-import { useCallback, useEffect, useRef, type ReactElement } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactElement } from "react";
 import { Film, Globe, Image as ImageIcon, Mountain, Music2, Plus, Scissors, Upload, User } from "lucide-react";
 import { useI18n } from "../i18n";
+import { resolveCreateNodeMenuLayout } from "./createNodeMenuPosition";
 
 export type CreateMenuOption = "character" | "scene" | "storyboard" | "shot" | "stitch" | "audioTrack" | "uploadCharacter" | "uploadScene" | "uploadVideo";
 
@@ -30,6 +31,11 @@ export function CreateNodeMenu({ x, y, onPick, onClose }: CreateNodeMenuProps) {
   const { t } = useI18n();
   const ref = useRef<HTMLDivElement | null>(null);
   const pickedRef = useRef(false);
+  const [menuSize, setMenuSize] = useState({ width: 320, height: 560 });
+  const [viewportSize, setViewportSize] = useState(() => ({
+    width: typeof window === "undefined" ? 1024 : window.innerWidth,
+    height: typeof window === "undefined" ? 768 : window.innerHeight
+  }));
 
   const safePick = useCallback((option: CreateMenuOption) => {
     if (pickedRef.current) return;
@@ -77,9 +83,31 @@ export function CreateNodeMenu({ x, y, onPick, onClose }: CreateNodeMenuProps) {
     };
   }, [safeClose, safePick]);
 
-  // Clamp to viewport so the menu doesn't get cut off near the right/bottom edge.
-  const left = Math.min(x, window.innerWidth - 240);
-  const top = Math.min(y, window.innerHeight - 320);
+  useEffect(() => {
+    const onResize = () => setViewportSize({ width: window.innerWidth, height: window.innerHeight });
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, []);
+
+  useLayoutEffect(() => {
+    const node = ref.current;
+    if (!node) return;
+    const rect = node.getBoundingClientRect();
+    const width = Math.ceil(rect.width);
+    const height = Math.ceil(node.scrollHeight || rect.height);
+    if (width && height && (Math.abs(width - menuSize.width) > 1 || Math.abs(height - menuSize.height) > 1)) {
+      setMenuSize({ width, height });
+    }
+  }, [menuSize.height, menuSize.width, viewportSize.width]);
+
+  const layout = useMemo(() => resolveCreateNodeMenuLayout({
+    anchorX: x,
+    anchorY: y,
+    viewportWidth: viewportSize.width,
+    viewportHeight: viewportSize.height,
+    menuWidth: menuSize.width,
+    menuHeight: menuSize.height
+  }), [menuSize.height, menuSize.width, viewportSize.height, viewportSize.width, x, y]);
 
   const items: Array<{ key: CreateMenuOption; icon: ReactElement; label: string; hint: string; tag: string }> = [
     { key: "character", icon: <User size={14} />, label: t.menu.character, hint: t.menu.characterHint, tag: "C" },
@@ -97,7 +125,9 @@ export function CreateNodeMenu({ x, y, onPick, onClose }: CreateNodeMenuProps) {
     <div
       ref={ref}
       className="create-node-menu"
-      style={{ left, top }}
+      style={{ left: layout.left, top: layout.top, maxHeight: layout.maxHeight }}
+      data-placement-x={layout.placementX}
+      data-placement-y={layout.placementY}
       role="menu"
       aria-label={t.menu.aria}
       onClick={(e) => e.stopPropagation()}

@@ -12,6 +12,7 @@ import { buildCanvasPath, buildGalleryPath, parseAppRoute, type AppView } from "
 import { createPendingImageUploadAsset, imageUploadAssetName, imageUploadDescription } from "./uploadPlaceholders";
 import type { UploadImageAssetResult } from "./flow/FlowView";
 import { hasActiveShotGeneration } from "../shared/shotGenerationState";
+import { clearShotPollFailure, recordShotPollFailure, shouldSurfaceShotPollError } from "./shotPollErrors";
 
 const FlowView = lazy(() =>
   import("./flow/FlowView").then((module) => ({ default: memo(module.FlowView) }))
@@ -736,6 +737,7 @@ export function App() {
 
   const pollShotIdsRef = useRef<string[]>([]);
   const pollInflightRef = useRef<Set<string>>(new Set());
+  const pollFailuresRef = useRef<Map<string, number>>(new Map());
   const generatingIdsKey = useMemo(
     () => state.shots
       .filter((shot) => hasActiveShotGeneration(shot))
@@ -759,9 +761,13 @@ export function App() {
         api
           .pollShot(shotId)
           .then((shot) => {
+            clearShotPollFailure(pollFailuresRef.current, shotId);
             setState((prev) => ({ ...prev, shots: prev.shots.map((item) => (item.id === shot.id ? shot : item)) }));
           })
-          .catch((err: Error) => setError(err.message))
+          .catch((err: Error) => {
+            const failure = recordShotPollFailure(pollFailuresRef.current, shotId, err);
+            if (shouldSurfaceShotPollError(failure)) setError(failure.message);
+          })
           .finally(() => pollInflightRef.current.delete(shotId));
       });
     };

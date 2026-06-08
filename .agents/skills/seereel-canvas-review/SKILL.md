@@ -28,13 +28,15 @@ Inspect the visible canvas, not private notes:
 1. Initial idea alignment: tone, POV, protagonist, premise, required facts, and ending still match the user's request.
 2. StoryPlan alignment: every shot exists to serve a locked beat; no shot introduces a new plot, old premise, wrong character, or missing payoff.
 3. Character consistency: recurring visible/speaking/featured roles have approved `assetIds` or intentional exceptions.
-4. Scene/prop consistency: assets match the StoryPlan, style bible, period/material rules, and intended scene function.
-5. Prompt consistency: every `rawPrompt`/`prompt` matches its beat, audienceDelivery, dialogue language, sound rules, camera grammar, and negative constraints.
-6. Edge/reference consistency: node links, `assetIds`, first-frame assets, previous-tail clips, `referenceVideoFromShotId`, storyboard references, and TOS-published URLs agree with the visible graph.
-7. Storyboard quality: declared grid, complete movie-still panels, filmable action/reaction/object/camera progression, no concept-board output.
-8. Continuity: adjacent shots bridge through action, eyeline, reaction, insert/cutaway, sound, previous-tail, tailframe, or a named hard cut.
-9. Audience comprehension: story-critical prompt facts are delivered through dialogue/voiceover and visible action/reaction, not only hidden in prompt lore or subtitles.
-10. Render readiness: local `/media/...` references that will be used by Seedance are published to TOS; video generation is still blocked until approval.
+4. Asset-to-shot relationship: each shot references exactly the clear on-screen roles it needs. Missing recurring character refs are a FAIL; stale off-session refs, extra clear-character refs for intentionally blurred/offscreen roles, and wrong-scene refs are also a FAIL.
+5. Scene/prop consistency: assets match the StoryPlan, style bible, period/material rules, and intended scene function.
+6. Text-risk props: when the user forbids subtitles/screen text, flag maps, flags, placards, signboards, scrolls, bamboo slips, papers, seals, UI-like panels, and any flat writable prop unless the prompt explicitly replaces them with non-text physical action.
+7. Prompt consistency: every `rawPrompt`/`prompt` matches its beat, audienceDelivery, dialogue language, sound rules, camera grammar, and negative constraints.
+8. Edge/reference consistency: node links, `assetIds`, first-frame assets, previous-tail clips, `referenceVideoFromShotId`, storyboard references, and TOS-published URLs agree with the visible graph. Cross-scene previous-tail/video references across different locations or time jumps are a FAIL unless explicitly justified.
+9. Storyboard quality: declared grid, complete movie-still panels, filmable action/reaction/object/camera progression, no concept-board output.
+10. Continuity: adjacent shots bridge through action, eyeline, reaction, insert/cutaway, sound, previous-tail, tailframe, or a named hard cut.
+11. Audience comprehension: story-critical prompt facts are delivered through dialogue/voiceover and visible action/reaction, not only hidden in prompt lore or subtitles.
+12. Render readiness: local `/media/...` references that will be used by Seedance are published to TOS; video generation is still blocked until approval.
 
 ## Verdict Format
 

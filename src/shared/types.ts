@@ -596,6 +596,11 @@ export type NarrationStrategy = "natural";
 export type NarrationSubtitleMode = "none" | "burn";
 export type NarrationSubtitlePosition = "bottom" | "middle" | "top";
 
+export interface CanvasNodePosition {
+  x: number;
+  y: number;
+}
+
 export interface Session {
   id: string;
   /** Anonymous demo owner. Used by public deployments to keep visitors' sessions isolated. */
@@ -713,6 +718,8 @@ export interface Session {
 
   /** Per-session model token usage events, grouped by canvas/node id in the UI. */
   tokenUsageEvents?: TokenUsageEvent[];
+  /** User-adjusted canvas node positions keyed by ReactFlow node id. */
+  canvasNodePositions?: Record<string, CanvasNodePosition>;
 
   updatedAt: string;
   createdAt: string;

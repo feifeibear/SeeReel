@@ -203,6 +203,17 @@ export function FlowView({ snapshot, session, visionReviewEnabled, defaultImageM
       return nextNodes;
     });
   }, []);
+  const persistCanvasNodePositions = useCallback(() => {
+    if (!session) return;
+    const canvasNodePositions = Object.fromEntries(
+      nodesRef.current.map((node) => [node.id, { x: node.position.x, y: node.position.y }])
+    );
+    void api.updateSession(session.id, { canvasNodePositions })
+      .then(() => { void onMutated(); })
+      .catch((error: Error) => {
+        window.alert(`${lang === "en" ? "Layout save failed" : "布局保存失败"}：${error.message}`);
+      });
+  }, [lang, onMutated, session]);
   const onEdgesChange = useCallback<OnEdgesChange>((changes) => {
     setEdges((eds) => applyEdgeChanges(changes, eds));
   }, []);
@@ -1501,6 +1512,7 @@ export function FlowView({ snapshot, session, visionReviewEnabled, defaultImageM
             nodes={nodes}
             edges={edges}
             onNodesChange={onNodesChange}
+            onNodeDragStop={persistCanvasNodePositions}
             onEdgesChange={onEdgesChange}
             nodeTypes={nodeTypes}
             onNodeClick={onNodeClick}

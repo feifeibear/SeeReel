@@ -3347,7 +3347,7 @@ label {
 .create-node-menu {
   position: fixed;
   z-index: 60;
-  width: 240px;
+  width: min(320px, calc(100vw - 24px));
   background: #11161e;
   border: 1px solid rgba(255,255,255,0.10);
   border-radius: 8px;
@@ -3356,19 +3356,33 @@ label {
   display: flex;
   flex-direction: column;
   gap: 2px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
   animation: cnm-in 0.12s ease-out;
+}
+.create-node-menu::-webkit-scrollbar {
+  width: 8px;
+}
+.create-node-menu::-webkit-scrollbar-thumb {
+  background: rgba(255,255,255,0.16);
+  border: 2px solid #11161e;
+  border-radius: 999px;
 }
 @keyframes cnm-in {
   from { opacity: 0; transform: translateY(-4px) scale(0.98); }
   to   { opacity: 1; transform: translateY(0) scale(1); }
 }
 .create-node-menu header {
+  position: sticky;
+  top: -6px;
+  z-index: 1;
   display: flex;
   align-items: center;
   gap: 6px;
   padding: 6px 8px;
   border-bottom: 1px solid rgba(255,255,255,0.06);
   margin-bottom: 4px;
+  background: #11161e;
   color: rgba(255,255,255,0.7);
   font-size: 11px;
   font-weight: 600;
