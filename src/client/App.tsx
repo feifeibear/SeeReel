@@ -505,15 +505,17 @@ function GalleryPage({
                 <div className="gallery-card-footer">
                   <span>{item.creatorName || t.app.galleryAnonymous}</span>
                   <div className="gallery-card-actions">
-                    <button
-                      type="button"
-                      title={t.app.galleryDeleteTitle}
-                      onClick={() => onDelete(item)}
-                      disabled={busy === `delete-gallery-${item.id}` || busy === `copy-gallery-${item.id}`}
-                    >
-                      {busy === `delete-gallery-${item.id}` ? <Loader2 size={16} className="spin" /> : <Trash2 size={16} />}
-                      {t.app.galleryDelete}
-                    </button>
+                    {item.canDelete && (
+                      <button
+                        type="button"
+                        title={t.app.galleryDeleteTitle}
+                        onClick={() => onDelete(item)}
+                        disabled={busy === `delete-gallery-${item.id}` || busy === `copy-gallery-${item.id}`}
+                      >
+                        {busy === `delete-gallery-${item.id}` ? <Loader2 size={16} className="spin" /> : <Trash2 size={16} />}
+                        {t.app.galleryDelete}
+                      </button>
+                    )}
                     <button
                       type="button"
                       className="primary"

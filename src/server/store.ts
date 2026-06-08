@@ -44,7 +44,7 @@ export class CinemaStore {
   snapshotForLocalReview(): StoreSnapshot {
     return structuredClone({
       ...this.data,
-      gallery: (this.data.gallery || []).map(sanitizeGalleryItemForPublic)
+      gallery: (this.data.gallery || []).map((item) => sanitizeGalleryItemForPublic(item, { canDelete: true }))
     });
   }
 
@@ -62,7 +62,14 @@ export class CinemaStore {
       if (asset.ownerUserId) return asset.ownerUserId === ownerUserId;
       return includeLegacyPublic;
     });
-    return structuredClone({ sessions, shots, assets, gallery: (this.data.gallery || []).map(sanitizeGalleryItemForPublic) });
+    return structuredClone({
+      sessions,
+      shots,
+      assets,
+      gallery: (this.data.gallery || []).map((item) => sanitizeGalleryItemForPublic(item, {
+        canDelete: canDeleteGalleryItem(item, ownerUserId)
+      }))
+    });
   }
 
   private ownerUserIdForAssetScope(asset: Partial<Asset>) {
@@ -306,8 +313,10 @@ export class CinemaStore {
     return true;
   }
 
-  listGalleryItems() {
-    return structuredClone((this.data.gallery || []).map(sanitizeGalleryItemForPublic));
+  listGalleryItems(ownerUserId?: string, allowAnyOwner = false) {
+    return structuredClone((this.data.gallery || []).map((item) => sanitizeGalleryItemForPublic(item, {
+      canDelete: allowAnyOwner || canDeleteGalleryItem(item, ownerUserId)
+    })));
   }
 
   getGalleryItem(galleryId: string) {
@@ -349,10 +358,10 @@ export class CinemaStore {
     return structuredClone(sanitizeGalleryItemForPublic(item));
   }
 
-  async deleteGalleryItem(galleryId: string, ownerUserId?: string) {
+  async deleteGalleryItem(galleryId: string, ownerUserId?: string, allowAnyOwner = false) {
     const item = (this.data.gallery || []).find((row) => row.id === galleryId);
     if (!item) return false;
-    if (item.ownerUserId && item.ownerUserId !== ownerUserId) return false;
+    if (!allowAnyOwner && !canDeleteGalleryItem(item, ownerUserId)) return false;
     this.data.gallery = (this.data.gallery || []).filter((row) => row.id !== galleryId);
     await this.save();
     return true;
@@ -1067,10 +1076,15 @@ function sanitizeGallerySession(session: Session): Session {
   return clone;
 }
 
-function sanitizeGalleryItemForPublic(item: GalleryItem): GalleryItem {
+function sanitizeGalleryItemForPublic(item: GalleryItem, opts: { canDelete?: boolean } = {}): GalleryItem {
   const clone = structuredClone(item);
   clone.ownerUserId = undefined;
+  clone.canDelete = opts.canDelete === true;
   return clone;
+}
+
+function canDeleteGalleryItem(item: GalleryItem, ownerUserId?: string) {
+  return !item.ownerUserId || item.ownerUserId === ownerUserId;
 }
 
 function sanitizePortableSession(session: Session): Session {

@@ -398,8 +398,8 @@ app.get("/api/state", async (_req, res) => {
   res.json({ ...snapshotForCurrentUser(), runtime: runtimeInfo() });
 });
 
-app.get("/api/gallery", async (_req, res) => {
-  res.json({ items: store.listGalleryItems() });
+app.get("/api/gallery", async (req, res) => {
+  res.json({ items: store.listGalleryItems(userIdForRequest(), localSessionReviewEnabled() || isAdminRequest(req)) });
 });
 
 app.post("/api/gallery", async (req, res) => {
@@ -418,8 +418,10 @@ app.get("/api/gallery/:galleryId", async (req, res) => {
 });
 
 app.delete("/api/gallery/:galleryId", async (req, res) => {
-  const deleted = await store.deleteGalleryItem(req.params.galleryId, userIdForRequest());
-  if (!deleted) return res.status(404).json({ error: "Gallery item not found" });
+  const item = store.getGalleryItem(req.params.galleryId);
+  if (!item) return res.status(404).json({ error: "Gallery item not found" });
+  const deleted = await store.deleteGalleryItem(req.params.galleryId, userIdForRequest(), localSessionReviewEnabled() || isAdminRequest(req));
+  if (!deleted) return res.status(403).json({ error: "You can only delete Gallery items you published." });
   res.json({ ok: true, galleryId: req.params.galleryId });
 });
 

@@ -45,6 +45,7 @@ SeeReel Gallery is the creator sharing surface. It lets users publish a complete
 - The copied session is selected immediately so the visitor can continue creating without hunting through history.
 - Deleting a Gallery item removes only the public Gallery item. It must not delete the original session, copied sessions, assets, media files, or existing remixes.
 - Gallery items published after this rule carry the publishing owner internally so other current-owner visitors cannot delete them. Legacy items without an owner may still be removed to keep old local data manageable.
+- Gallery API responses expose a viewer-scoped `canDelete` affordance. The web app must show the delete button only when `canDelete` is true; localhost shared-review/admin mode may delete any visible Gallery item for local cleanup.
 
 ## Acceptance Criteria
 
@@ -58,6 +59,7 @@ SeeReel Gallery is the creator sharing surface. It lets users publish a complete
 - [ ] The web app copy action selects the newly copied session for editing.
 - [ ] Deleting a Gallery item through `DELETE /api/gallery/:galleryId` removes it from `GET /api/gallery` and prevents future copies.
 - [ ] The web app Gallery card exposes a delete action that confirms before deletion and removes the card after success.
+- [ ] The web app Gallery card hides the delete action for items the current viewer cannot delete, while localhost shared-review/admin Gallery cards remain deletable.
 - [ ] A Gallery item owned by another current owner cannot be deleted.
 - [ ] Deleting the source session after publishing does not prevent the Gallery item from being copied.
 

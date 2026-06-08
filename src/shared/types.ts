@@ -814,6 +814,8 @@ export interface GalleryPublishPayload {
 export interface GalleryItem {
   id: string;
   ownerUserId?: string;
+  /** True when the current viewer can remove this item from Gallery. */
+  canDelete?: boolean;
   sourceSessionId: string;
   title: string;
   description: string;
