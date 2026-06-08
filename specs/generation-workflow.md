@@ -139,6 +139,7 @@ Define how SeeReel creates, edits, reviews, retries, and stitches generated medi
 - [ ] The UI clearly distinguishes saved prompt from submitted prompt when they differ.
 - [ ] Retry and regeneration use the current saved prompt unless the user explicitly selects an older render.
 - [ ] A ready or errored shot with stale historical `generating` render rows is not treated as actively generating; it does not keep the UI poller alive and does not block `/api/shots/:id/generate` from creating a new render.
+- [ ] Generated shot videos and stitched final videos publish their local cache to TOS/CDN when configured, persist playback/download URL metadata, and same-origin playback/download API routes redirect to accelerated remote URLs instead of proxying large video bytes through Node.
 - [ ] Review toggle behavior is the same in local and production builds.
 - [ ] Stitching only uses ready shots and records the connected order in visible state.
 - [ ] Shot and storyboard `@` mention menus list only graph-wired references, and server-side Seedream/Seedance reference resolution ignores unconnected `@` names even when stale prompt text still contains them.
@@ -203,6 +204,7 @@ Define how SeeReel creates, edits, reviews, retries, and stitches generated medi
 - [ ] Run `npm run smoke:tailframe-strict` when tail-frame extraction or first-frame chaining changes.
 - [ ] Run `npm run smoke:shot-tail-clip-asset` when tail-clip extraction or reference-video continuity node behavior changes.
 - [ ] Run `npm run smoke:shot-generation-state` when shot status, render history, polling, or regeneration blocking behavior changes.
+- [ ] Run `npm run smoke:video-delivery` when shot/final video playback, download, TOS/CDN metadata, or redirect behavior changes.
 - [ ] Run `npm run smoke:seereel-director-skill` and `npm run smoke:specs` when previous-tail continuity guidance or UI behavior changes.
 - [ ] Run `npm run smoke:seedance-language-lock` when Seedance prompt composition, session language handling, or user-edited composed prompt submission changes.
 - [ ] Use the local app to edit a rendering or queued video node prompt and confirm persisted state.

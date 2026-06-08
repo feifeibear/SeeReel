@@ -73,6 +73,7 @@ import { collectVisitorMetrics, visitorMetricsMiddleware } from "./visitorMetric
 import { cleanupDeletedSessionArtifacts, collectDeletedSessionArtifacts, collectDeletedSessionsArtifacts } from "./sessionCleanup";
 import { resolveNodeReviewEnabled } from "../shared/reviewSettings";
 import { selectedShotPendingRender } from "../shared/shotGenerationState";
+import { resolveVideoDeliveryUrl, shouldRedirectVideoDelivery, type VideoDeliveryInput } from "../shared/videoDelivery";
 import {
   composeSeedanceVideoText,
   composeSeedreamAssetPrompt,
@@ -1976,7 +1977,9 @@ app.get("/api/shots/:shotId/download", async (req, res) => {
   if (!shot.videoUrl) return res.status(404).json({ error: "Shot video not ready" });
 
   const filename = `${sanitizeDownloadName(`${String(shot.index).padStart(2, "0")}-${shot.title || shot.id}`)}.mp4`;
-  return sendVideoDownload(res, shot.videoUrl, filename);
+  const source = resolveShotVideoDeliveryForRequest(shot, req, "download");
+  if (!source) return res.status(404).json({ error: "Shot video not ready" });
+  return sendVideoDownload(res, source, filename);
 });
 
 // Lazy poster (first-frame JPEG) for video nodes. Generated on demand the first time the URL is
@@ -1998,7 +2001,7 @@ app.get("/api/shots/:shotId/poster.jpg", async (req, res) => {
 // The route serves the bytes inline (no Content-Disposition: attachment) so `<video>` plays them.
 app.get("/api/shots/:shotId/stream.mp4", async (req, res) => {
   const shot = store.getShot(req.params.shotId);
-  const source = resolveShotVideoForRequest(shot, req);
+  const source = resolveShotVideoDeliveryForRequest(shot, req, "playback");
   if (!source) return res.status(404).json({ error: "Shot video not ready" });
   return streamVideoInline(req, res, source);
 });
@@ -2009,7 +2012,9 @@ app.get("/api/sessions/:sessionId/stream.mp4", async (req, res) => {
   const jobId = typeof req.query.jobId === "string" ? req.query.jobId : undefined;
   const resolved = resolveFinalArtifact(session, jobId);
   if (resolved.error) return res.status(resolved.error.status).json({ error: resolved.error.message });
-  return streamVideoInline(req, res, resolved.artifact.finalVideoUrl);
+  const source = resolveFinalArtifactDelivery(resolved.artifact, "playback");
+  if (!source) return res.status(404).json({ error: "Final video not ready" });
+  return streamVideoInline(req, res, source);
 });
 
 app.get("/api/assets/:assetId/stream.mp4", async (req, res) => {
@@ -2471,7 +2476,9 @@ app.get("/api/sessions/:sessionId/download", async (req, res) => {
   if (resolved.error) return res.status(resolved.error.status).json({ error: resolved.error.message });
 
   const filename = `${sanitizeDownloadName(`${session.title || session.id}-${resolved.artifact.name || "完整视频"}`)}.mp4`;
-  return sendVideoDownload(res, resolved.artifact.finalVideoUrl, filename);
+  const source = resolveFinalArtifactDelivery(resolved.artifact, "download");
+  if (!source) return res.status(404).json({ error: "Final video not ready" });
+  return sendVideoDownload(res, source, filename);
 });
 
 app.post("/api/assets/:assetId/generate", async (req, res) => {
@@ -3618,6 +3625,20 @@ function resolveShotVideoForRequest(shot: Shot | undefined, req: Request) {
   return shot.videoUrl;
 }
 
+function resolveShotVideoDeliveryForRequest(shot: Shot | undefined, req: Request, mode: "playback" | "download") {
+  if (!shot) return undefined;
+  const version = typeof req.query.v === "string" ? req.query.v : undefined;
+  const render = version
+    ? (shot.renders || []).find((item) => item.id === version)
+    : findSelectedRender(shot);
+  return resolveVideoDeliveryUrl({
+    videoUrl: render?.videoUrl || shot.videoUrl,
+    remoteVideoUrl: render?.remoteVideoUrl,
+    playbackVideoUrl: render?.playbackVideoUrl || shot.playbackVideoUrl,
+    downloadVideoUrl: render?.downloadVideoUrl || shot.downloadVideoUrl
+  }, mode);
+}
+
 /**
  * Inline streaming for `<video>` elements. Same idea as sendVideoDownload but no `attachment` —
  * the browser plays inline. Forwards the client's `Range` header upstream so seeking works on
@@ -3629,6 +3650,10 @@ function resolveShotVideoForRequest(shot: Shot | undefined, req: Request) {
  *   - 4xx/5xx from upstream propagates as the user sees, not as a silent black box
  */
 async function streamVideoInline(req: Request, res: Response, videoUrl: string) {
+  if (shouldRedirectVideoDelivery(videoUrl)) {
+    res.setHeader("Cache-Control", "private, max-age=30");
+    return res.redirect(302, videoUrl);
+  }
   const localMediaPath = resolveLocalMediaPath(videoUrl);
   if (localMediaPath) {
     res.type("video/mp4");
@@ -3668,6 +3693,11 @@ async function streamVideoInline(req: Request, res: Response, videoUrl: string) 
 }
 
 async function sendVideoDownload(res: Response, videoUrl: string, filename: string) {
+  if (shouldRedirectVideoDelivery(videoUrl)) {
+    res.setHeader("Cache-Control", "private, max-age=30");
+    res.setHeader("Content-Disposition", contentDispositionAttachment(filename));
+    return res.redirect(302, videoUrl);
+  }
   const localMediaPath = resolveLocalMediaPath(videoUrl);
   if (localMediaPath) return res.download(localMediaPath, filename);
 
@@ -3687,6 +3717,11 @@ async function sendVideoDownload(res: Response, videoUrl: string, filename: stri
     if (res.headersSent) return res.destroy(error instanceof Error ? error : undefined);
     return res.status(500).json({ error: friendlyApiError(error, "Video download failed") });
   }
+}
+
+function contentDispositionAttachment(filename: string) {
+  const fallback = filename.replace(/[^\x20-\x7e]+/g, "-").replace(/["\\]/g, "");
+  return `attachment; filename="${fallback}"; filename*=UTF-8''${encodeURIComponent(filename)}`;
 }
 
 /**
@@ -4797,6 +4832,10 @@ async function submitShotGeneration(shotId: string, body: Partial<Shot>): Promis
       ...pendingRender,
       videoUrl: cachedVideo.videoUrl,
       remoteVideoUrl: cachedVideo.remoteVideoUrl,
+      playbackVideoUrl: cachedVideo.playbackVideoUrl,
+      downloadVideoUrl: cachedVideo.downloadVideoUrl,
+      videoTosObjectKey: cachedVideo.videoTosObjectKey,
+      videoTosPublishedAt: cachedVideo.videoTosPublishedAt,
       status: "ready",
       videoGeneratedAt: completedAt,
       error: undefined,
@@ -4806,6 +4845,10 @@ async function submitShotGeneration(shotId: string, body: Partial<Shot>): Promis
       status: 200,
       body: await store.updateShot(shot.id, {
         videoUrl: cachedVideo.videoUrl,
+        playbackVideoUrl: cachedVideo.playbackVideoUrl,
+        downloadVideoUrl: cachedVideo.downloadVideoUrl,
+        videoTosObjectKey: cachedVideo.videoTosObjectKey,
+        videoTosPublishedAt: cachedVideo.videoTosPublishedAt,
         videoGeneratedAt: completedAt,
         renders: [render, ...(shot.renders || []).filter((item) => item.id !== pendingRender.id)],
         status: "ready",
@@ -5225,7 +5268,7 @@ app.post("/api/shots/:shotId/poll", async (req, res) => {
             const verdict = await reviewVideoDetailed({
               scope: "shot",
               prompt: reviewPrompt,
-              videoUrl: cachedVideo.videoUrl,
+              videoUrl: cachedVideo.videoUrl || result.videoUrl,
               referenceUrls,
               frameCount: 8
             });
@@ -5324,6 +5367,10 @@ app.post("/api/shots/:shotId/poll", async (req, res) => {
                     status: "generating",
                     videoUrl: undefined,
                     remoteVideoUrl: undefined,
+                    playbackVideoUrl: undefined,
+                    downloadVideoUrl: undefined,
+                    videoTosObjectKey: undefined,
+                    videoTosPublishedAt: undefined,
                     generationTaskId: task.taskId,
                     generationStartedAt: new Date().toISOString(),
                     error: undefined,
@@ -5394,6 +5441,10 @@ app.post("/api/shots/:shotId/poll", async (req, res) => {
             status: "ready",
             videoUrl: cachedVideo.videoUrl,
             remoteVideoUrl: cachedVideo.remoteVideoUrl,
+            playbackVideoUrl: cachedVideo.playbackVideoUrl,
+            downloadVideoUrl: cachedVideo.downloadVideoUrl,
+            videoTosObjectKey: cachedVideo.videoTosObjectKey,
+            videoTosPublishedAt: cachedVideo.videoTosPublishedAt,
             videoGeneratedAt: completedAt,
             generationTaskId: undefined,
             generationStartedAt: undefined,
@@ -5411,7 +5462,7 @@ app.post("/api/shots/:shotId/poll", async (req, res) => {
       const shouldSelectCompletedRender = Boolean(pendingRender) || !shot.videoUrl || completedRenderStillCurrent;
       return res.json(
         await store.updateShot(shot.id, {
-          ...(shouldSelectCompletedRender ? shotPatchFromCompletedRender(nextShot, pendingRender?.id, cachedVideo.videoUrl) : {}),
+          ...(shouldSelectCompletedRender ? shotPatchFromCompletedRender(nextShot, pendingRender?.id, cachedVideo.videoUrl || result.videoUrl) : {}),
           status: shouldSelectCompletedRender ? "ready" : shot.status,
           generationTaskId: undefined,
           generationStartedAt: undefined,
@@ -5591,16 +5642,57 @@ function getContinuityReferenceUrl(previousShot: Shot | undefined, selectedRende
 async function cacheVideoOrKeepRemote(
   videoUrl: string,
   renderId: string
-): Promise<{ videoUrl: string; remoteVideoUrl?: string; warning?: string }> {
+): Promise<VideoDeliveryInput & { videoTosObjectKey?: string; videoTosPublishedAt?: string; warning?: string }> {
   try {
-    return { ...(await cacheGeneratedVideo(videoUrl, renderId)), warning: undefined };
+    const cached = await cacheGeneratedVideo(videoUrl, renderId);
+    return await publishVideoForAcceleratedDelivery(cached, `shot-render-${renderId}`);
   } catch (error) {
     const message = error instanceof Error ? error.message : "unknown error";
+    const remote = shouldRedirectVideoDelivery(videoUrl) ? videoUrl : undefined;
     return {
       videoUrl,
+      playbackVideoUrl: remote,
+      downloadVideoUrl: remote,
       warning: `本地缓存失败，当前保留远程视频 URL：${message}`
     };
   }
+}
+
+async function publishVideoForAcceleratedDelivery(
+  source: VideoDeliveryInput,
+  keyHint: string
+): Promise<VideoDeliveryInput & { videoTosObjectKey?: string; videoTosPublishedAt?: string; warning?: string }> {
+  if (source.playbackVideoUrl || source.downloadVideoUrl) return source;
+  if (source.videoUrl?.startsWith("/media/") && hasTosConfig()) {
+    try {
+      const published = await publishLocalMediaToTos(source.videoUrl, { keyHint });
+      const publishedAt = new Date().toISOString();
+      return {
+        ...source,
+        playbackVideoUrl: published.url,
+        downloadVideoUrl: published.url,
+        videoTosObjectKey: published.key,
+        videoTosPublishedAt: publishedAt
+      };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      const remote = shouldRedirectVideoDelivery(source.remoteVideoUrl) ? source.remoteVideoUrl : undefined;
+      return {
+        ...source,
+        playbackVideoUrl: remote,
+        downloadVideoUrl: remote,
+        warning: `TOS/CDN 发布失败，已保留远程直链或本地缓存：${message}`
+      };
+    }
+  }
+  const remote = shouldRedirectVideoDelivery(source.remoteVideoUrl)
+    ? source.remoteVideoUrl
+    : shouldRedirectVideoDelivery(source.videoUrl) ? source.videoUrl : undefined;
+  return {
+    ...source,
+    playbackVideoUrl: remote,
+    downloadVideoUrl: remote
+  };
 }
 
 function appendCacheWarning(note: string | undefined, warning: string | undefined) {
@@ -5765,6 +5857,10 @@ function shotPatchFromCompletedRender(shot: Shot, renderId: string | undefined, 
     prompt: render.editedPrompt || render.editedRawPrompt || render.prompt,
     debugNote: render.note || "",
     videoUrl,
+    playbackVideoUrl: render.playbackVideoUrl,
+    downloadVideoUrl: render.downloadVideoUrl,
+    videoTosObjectKey: render.videoTosObjectKey,
+    videoTosPublishedAt: render.videoTosPublishedAt,
     videoGeneratedAt: render.videoGeneratedAt || render.createdAt,
     usePreviousShotClip: render.usePreviousShotClip,
     previousShotClipSec: render.previousShotClipSec,
@@ -5797,6 +5893,10 @@ type FinalArtifact = {
   job?: StitchJob;
   name?: string;
   finalVideoUrl: string;
+  finalVideoPlaybackUrl?: string;
+  finalVideoDownloadUrl?: string;
+  finalVideoTosObjectKey?: string;
+  finalVideoTosPublishedAt?: string;
   finalVideoSignature?: string;
   finalVideoGeneratedAt?: string;
   finalVideoReview?: VideoReviewVerdict;
@@ -5829,6 +5929,10 @@ function resolveFinalArtifact(
       source: "legacy",
       name: "完整视频",
       finalVideoUrl: session.finalVideoUrl,
+      finalVideoPlaybackUrl: session.finalVideoPlaybackUrl,
+      finalVideoDownloadUrl: session.finalVideoDownloadUrl,
+      finalVideoTosObjectKey: session.finalVideoTosObjectKey,
+      finalVideoTosPublishedAt: session.finalVideoTosPublishedAt,
       finalVideoSignature: session.finalVideoSignature,
       finalVideoGeneratedAt: session.finalVideoGeneratedAt,
       finalVideoReview: session.finalVideoReview,
@@ -5848,6 +5952,10 @@ function stitchJobFinalArtifact(job: StitchJob): FinalArtifact {
     job,
     name: job.name || "完整视频",
     finalVideoUrl: job.finalVideoUrl || "",
+    finalVideoPlaybackUrl: job.finalVideoPlaybackUrl,
+    finalVideoDownloadUrl: job.finalVideoDownloadUrl,
+    finalVideoTosObjectKey: job.finalVideoTosObjectKey,
+    finalVideoTosPublishedAt: job.finalVideoTosPublishedAt,
     finalVideoSignature: job.finalVideoSignature,
     finalVideoGeneratedAt: job.finalVideoGeneratedAt,
     finalVideoReview: job.finalVideoReview,
@@ -5855,6 +5963,14 @@ function stitchJobFinalArtifact(job: StitchJob): FinalArtifact {
     updatedAt: job.updatedAt,
     createdAt: job.createdAt
   };
+}
+
+function resolveFinalArtifactDelivery(artifact: FinalArtifact, mode: "playback" | "download") {
+  return resolveVideoDeliveryUrl({
+    videoUrl: artifact.finalVideoUrl,
+    playbackVideoUrl: artifact.finalVideoPlaybackUrl,
+    downloadVideoUrl: artifact.finalVideoDownloadUrl
+  }, mode);
 }
 
 function compareFinalArtifacts(a: FinalArtifact, b: FinalArtifact) {
@@ -6174,9 +6290,20 @@ async function runStitchJobInBackground(
       }
     });
     const completedAt = new Date().toISOString();
+    const acceleratedFinal = await publishVideoForAcceleratedDelivery(
+      { videoUrl: result.finalVideoUrl },
+      `final-${options.jobId ? `${sessionId}-${options.jobId}` : sessionId}`
+    );
+    if (acceleratedFinal.warning) {
+      console.warn(`[stitch ${inflightKey}] ${acceleratedFinal.warning}`);
+    }
     if (options.jobId) {
       await store.updateStitchJob(sessionId, options.jobId, {
         finalVideoUrl: result.finalVideoUrl,
+        finalVideoPlaybackUrl: acceleratedFinal.playbackVideoUrl,
+        finalVideoDownloadUrl: acceleratedFinal.downloadVideoUrl,
+        finalVideoTosObjectKey: acceleratedFinal.videoTosObjectKey,
+        finalVideoTosPublishedAt: acceleratedFinal.videoTosPublishedAt,
         finalVideoGeneratedAt: completedAt,
         finalVideoSignature: result.signature,
         status: "ready",
@@ -6188,6 +6315,10 @@ async function runStitchJobInBackground(
     } else {
       await store.updateSession(sessionId, {
         finalVideoUrl: result.finalVideoUrl,
+        finalVideoPlaybackUrl: acceleratedFinal.playbackVideoUrl,
+        finalVideoDownloadUrl: acceleratedFinal.downloadVideoUrl,
+        finalVideoTosObjectKey: acceleratedFinal.videoTosObjectKey,
+        finalVideoTosPublishedAt: acceleratedFinal.videoTosPublishedAt,
         finalVideoGeneratedAt: completedAt,
         finalVideoSignature: result.signature,
         stitchStatus: "ready",
