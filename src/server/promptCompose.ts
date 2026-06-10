@@ -65,68 +65,12 @@ export interface SeedanceTextContext {
 }
 
 export function composeSeedanceVideoText(ctx: SeedanceTextContext, lang: Lang = DEFAULT_LANG): PromptComposition {
-  const duration = clampDuration(ctx.shot.durationSec);
-  const resolution = ctx.resolution || "16:9";
+  void lang;
   const raw = (ctx.shot.rawPrompt || ctx.shot.prompt || "").trim();
   const parts: Record<string, string> = {};
 
   if (raw) parts.raw = raw;
-
-  const refText = composeAssetReferenceTable(
-    ctx.referencedAssets,
-    {
-      firstFrameAsset: ctx.firstFrameAsset,
-      continuityVideoFirst: Boolean(ctx.hasContinuityVideo)
-    },
-    lang
-  );
-  if (refText) parts.assetReferences = refText;
-
-  const globalContinuity = composeGlobalContinuityInstruction(ctx.referencedAssets, lang);
-  if (globalContinuity) parts.globalContinuity = globalContinuity;
-
-  parts.spokenLanguage = composeSpokenLanguageInstruction(lang);
-  parts.noTextOverlay = NO_TEXT_OVERLAY_INSTRUCTION[lang];
-
-  parts.duration = lang === "zh" ? `生成时长：${duration} 秒。` : `Generation duration: ${duration}s.`;
-  parts.resolution = lang === "zh" ? `分辨率 / 画幅比：${resolution}。` : `Resolution / aspect ratio: ${resolution}.`;
-  parts.systemAuthority = lang === "zh"
-    ? "以上时长与画幅比来自系统设置，是权威值。如果前文出现冲突的时长或画幅比，请忽略前文。"
-    : "The duration and resolution values above come from the UI/system settings and are authoritative. If any earlier text mentions conflicting duration or resolution, ignore it.";
-
-  if (ctx.hasContinuityVideo || ctx.hasContinuityAudio) {
-    parts.continuity = composeContinuityInstruction(lang);
-  }
-
-  if (ctx.subShotAsset && ctx.subShotPanelCount && ctx.subShotPanelCount > 1) {
-    parts.subShotSequence = composeSubShotSequenceInstruction(ctx.subShotPanelCount, lang);
-  } else if (ctx.firstFrameAsset && ctx.lastFrameAsset) {
-    parts.firstLastFrame = composeFirstLastFrameInstruction(ctx.firstFrameAsset, ctx.lastFrameAsset, lang);
-  } else if (ctx.firstFrameAsset) {
-    parts.firstFrame = composeFirstFrameInstruction(ctx.firstFrameAsset, lang);
-  }
-
-  // Final assembly order matches the legacy buildVideoPrompt + per-mode appendix.
-  const order: Array<keyof typeof parts> = [
-    "raw",
-    "assetReferences",
-    "globalContinuity",
-    "spokenLanguage",
-    "noTextOverlay",
-    "duration",
-    "resolution",
-    "systemAuthority",
-    "continuity",
-    "subShotSequence",
-    "firstLastFrame",
-    "firstFrame"
-  ];
-  const composedPrompt = order
-    .map((key) => parts[key as string])
-    .filter((value): value is string => Boolean(value && value.trim()))
-    .join("\n");
-
-  return { composedPrompt, parts, lang };
+  return { composedPrompt: raw, parts, lang };
 }
 
 function clampDuration(value?: number) {
@@ -358,12 +302,22 @@ export function composeSeedreamAssetPrompt(
   hasReference: boolean,
   lang: Lang = DEFAULT_LANG
 ): PromptComposition {
+  void hasReference;
   const parts: Record<string, string> = {};
   const raw = (asset.prompt || asset.description || asset.name || "").trim();
   parts.raw = raw;
+  return { composedPrompt: raw, parts, lang };
 
   if (lang === "zh") {
-    if (asset.type === "character") {
+    if (asset.type === "image") {
+      parts.intent = `图片节点 / image reference：${asset.name || "图片"}。16:9 横构图，生成一张可被下游图片编辑、分镜和视频引用的清晰电影级图片。`;
+      parts.purpose = "**用途声明**：这张图是 SeeReel 画布里的通用图片节点。它可以作为角色、场景、道具、风格、moodboard 或局部编辑结果使用。请严格执行用户原始描述；如果附带参考图，则把参考图当作编辑输入，保留其主体身份、构图、色彩和关键材质，只按用户描述修改需要变化的部分。";
+      parts.cinematography = "ARRI Alexa Mini LF + 50mm prime，35mm 胶片质感；主体清晰，构图干净，材质细节明确，光线可读。";
+      parts.editing = hasReference
+        ? "已连接上游图片节点：把上游图片当作 image-to-image 编辑参考。保持被引用图片的核心主体、轮廓、布局、透视、材质和色彩关系；只改变用户描述要求改变的元素。"
+        : "无上游图片参考：按用户描述生成一张可继续被其它图片节点引用的基准图。";
+      parts.negative = "**STRICT NEGATIVE**：不要文字、字幕、水印、UI、二维码；不要 HDR halo；不要无关主体；不要低清、虚焦、motion blur；不要改变已连接参考图的主体身份。";
+    } else if (asset.type === "character") {
       parts.intent = `电影角色设定参考表（character lookbook turnaround）：${asset.name || "电影角色"}。**输出一张** 16:9 横构图，**真实真人照片级 photoreal live-action** 角色参考图，画面内只能出现一个真实成年人角色；画面内**横向并排展示同一角色三个全身视图**——左：正面 / 中:三分之四侧面 / 右:背面。三个视图全身从头到脚完整入画，**不要裁切头顶或鞋底**。`;
       parts.purpose = "**用途声明**：这张图是**下游 Seedance 视频生成的角色参考底板**，不是单图作品。Seedance 会在不同分镜里反复读取这张图以保持角色身份。因此本图必须满足参考底板的硬约束：**中性表情**（嘴自然闭合，眼平视镜头，无笑无怒无嘟嘴无瞪眼无眨眼），**中性手势**（双手自然下垂或微贴大腿，不抱胸不插兜不指向不持物 except 提示词显式列出的随身道具），**中性身姿**（站直自然，无奔跑无下蹲无跳跃），**均匀中性光**（不要硬阴影、不要单方向强光、不要彩色 gel），便于 Seedance 在任何镜头光线下重新打光。";
       parts.identity = "三个视图必须是同一个角色：人物比例、五官、肤色、发型与发色、瞳色、表情、服装款式与配色、配饰、随身道具、鞋款必须**像素级一致**。";
@@ -403,11 +357,19 @@ export function composeSeedreamAssetPrompt(
       parts.negative = "**STRICT NEGATIVE**：不要文字、字幕、水印、UI；不要 HDR halo。";
     }
 
-    if (hasReference) {
+    if (hasReference && asset.type !== "image") {
       parts.reference = "已附参考图：尽可能保留原参考的主体身份（同一动物 / 人物 / 物体），同样的轮廓、姿态、表情、视线方向、头部角度、配色与质感、构图都保留。如参考图分辨率低或模糊，请增强清晰度、还原细节、干净放大、消除压缩 artifact，但**不要改变主体身份**。";
     }
   } else {
-    if (asset.type === "character") {
+    if (asset.type === "image") {
+      parts.intent = `Image node / image reference for "${asset.name || "image"}". Output one clear cinematic 16:9 image usable as an editable image node, storyboard reference, or video reference.`;
+      parts.purpose = "This is a generic SeeReel canvas Image node. It may represent a character, scene, prop, style, moodboard, or image-edit result. Follow the user's description exactly. If reference images are attached, treat them as image-to-image editing inputs: preserve their subject identity, layout, perspective, material, color relationships, and composition unless the user explicitly asks to change them.";
+      parts.cinematography = "ARRI Alexa Mini LF + 50mm prime, 35mm film texture, clean composition, readable lighting, sharp subject detail, accurate materials.";
+      parts.editing = hasReference
+        ? "Connected upstream image node(s): use them as editing references. Keep the referenced image's core subject, silhouette, layout, perspective, materials, and palette; change only the elements requested by the user."
+        : "No upstream image reference: generate a clean baseline image that can be referenced by downstream image nodes.";
+      parts.negative = "**STRICT NEGATIVE**: no text, subtitles, watermarks, UI, QR codes; no HDR halos; no unrelated subjects; no low resolution, soft focus, or motion blur; do not alter connected reference-image identity.";
+    } else if (asset.type === "character") {
       parts.intent = `Cinematic character lookbook turnaround for "${asset.name || "film character"}". **Output a single 16:9 horizontal photoreal live-action image** containing only one real adult character shown as **three full-body views of the SAME character side by side**: left = front, center = three-quarter, right = back. Full body head-to-toe in frame for every view. **Do not crop the head or feet.**`;
       parts.identity = "All three views must depict the SAME character at **pixel-level identity**: identical proportions, facial features, skin tone, hairstyle, hair color, eye color, expression, wardrobe style and color, accessories, hand-held props, and footwear.";
       parts.pose = "Relaxed natural A-pose. Front view: facing the lens at eye level. Three-quarter view: body slightly turned to reveal side facial profile and the side seam of garments. Back view: showing back silhouette, hair shape from behind, and rear garment construction. **Ankle baseline aligned across all three views.**";

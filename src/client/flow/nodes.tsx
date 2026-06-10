@@ -2,12 +2,11 @@ import { memo, useEffect, useRef, useState } from "react";
 import { Download } from "lucide-react";
 import { Handle, Position, type Node, type NodeProps } from "@xyflow/react";
 import { api } from "../api";
-import { Lightbox } from "./Lightbox";
 import { usePendingGeneration } from "./PendingGenerations";
 import { useI18n, type Dictionary } from "../i18n";
 import { assetThumbUrl, tailframeThumbUrl } from "./mediaUrls";
 import { selectedShotPendingRender } from "../../shared/shotGenerationState";
-import type { AssetImageModel, SeedanceVariant, SubStoryboardModel } from "../../shared/types";
+import type { SubStoryboardModel } from "../../shared/types";
 import type {
   AudioTrackNodeData,
   AssetNodeData,
@@ -16,6 +15,7 @@ import type {
   ShotNodeData,
   StitchNodeData,
   TailframeNodeData,
+  VideoAssetNodeData,
   VideoProcessorNodeData
 } from "./buildGraph";
 
@@ -52,31 +52,12 @@ function NodeModelPicker<T extends string>({ value, options, onChange, title }: 
   );
 }
 
-const ASSET_MODEL_OPTIONS: Array<{ value: AssetImageModel; label: string }> = [
-  { value: "seedream-4-5", label: "Seedream 4.5" },
-  { value: "seedream-5-lite", label: "Seedream 5 Lite (Agent Plan)" },
-  { value: "seedream-4", label: "Seedream 4" },
-  { value: "gpt-image-2", label: "GPT-Image-2" }
-];
 const STORYBOARD_MODEL_OPTIONS: Array<{ value: SubStoryboardModel; label: string }> = [
   { value: "seedream-4-5", label: "Seedream 4.5" },
   { value: "seedream-5-lite", label: "Seedream 5 Lite (Agent Plan)" },
   { value: "seedream-4", label: "Seedream 4" }
 ];
-const SEEDANCE_OPTIONS: Array<{ value: SeedanceVariant; label: string }> = [
-  { value: "standard", label: "Seedance 2.0" },
-  { value: "fast", label: "Seedance 2.0 Fast" }
-];
-
-function effectiveAssetImageModel(asset: { generationModel?: AssetImageModel; generationModelActual?: string }, fallback?: AssetImageModel): AssetImageModel | undefined {
-  const actual = asset?.generationModelActual;
-  if (actual?.includes("seedream-5.0-lite") || actual?.includes("seedream-5-lite")) return "seedream-5-lite";
-  if (actual?.includes("seedream-4-5")) return "seedream-4-5";
-  if (actual?.includes("seedream-4-0") || actual?.includes("seedream-4")) return "seedream-4";
-  return asset.generationModel || fallback;
-}
-
-function effectiveSubStoryboardModel(asset: { generationModel?: string; generationModelActual?: string } | undefined, shotModel?: SubStoryboardModel, fallback?: AssetImageModel): SubStoryboardModel | undefined {
+function effectiveSubStoryboardModel(asset: { generationModel?: string; generationModelActual?: string } | undefined, shotModel?: SubStoryboardModel, fallback?: string): SubStoryboardModel | undefined {
   const actual = asset?.generationModelActual;
   if (actual?.includes("seedream-5.0-lite") || actual?.includes("seedream-5-lite")) return "seedream-5-lite";
   if (actual?.includes("seedream-4-5")) return "seedream-4-5";
@@ -84,12 +65,13 @@ function effectiveSubStoryboardModel(asset: { generationModel?: string; generati
   return shotModel || (fallback === "seedream-5-lite" ? "seedream-5-lite" : undefined);
 }
 
-type AssetFlowNode = Node<AssetNodeData, "assetNode">;
+type AssetFlowNode = Node<AssetNodeData, "assetNode" | "imageNode" | "moodboardNode">;
 type StoryboardFlowNode = Node<StoryboardNodeData, "storyboardNode">;
 type ShotFlowNode = Node<ShotNodeData, "shotNode">;
 type StitchFlowNode = Node<StitchNodeData, "stitchNode">;
 type AudioTrackFlowNode = Node<AudioTrackNodeData, "audioTrackNode">;
 type ReferenceVideoFlowNode = Node<ReferenceVideoNodeData, "referenceVideoNode">;
+type VideoAssetFlowNode = Node<VideoAssetNodeData, "videoAssetNode">;
 type VideoProcessorFlowNode = Node<VideoProcessorNodeData, "videoProcessorNode">;
 type TailframeFlowNode = Node<TailframeNodeData, "tailframeNode">;
 
@@ -147,30 +129,28 @@ function DownloadButton({ href, filename, title, onTriggered }: { href: string; 
 }
 
 /**
- * In-node video thumbnail preview. Clicking the thumbnail selects the node and opens the
- * Inspector on the right; only the bottom-right ▶ button opens the full-page Lightbox player.
+ * In-node video player. The node itself still opens the Inspector from non-player chrome, while
+ * the player area opts out of canvas drag/pan so the user can play, pause, and scrub directly in
+ * the canvas.
  *
- * Prefetch: once the thumbnail is in viewport for ~800 ms, upgrade preload to "auto" so the
- * lightbox play button feels instant when the user asks for playback.
+ * Prefetch: once the player is in viewport for ~800 ms, upgrade preload to "auto" so playback
+ * feels instant when the user asks for it.
  */
 function RobustVideoThumb({ streamSrc, posterSrc, downloadUrl, downloadFilename, title }: {
   streamSrc: string;
   posterSrc?: string;
-  /** Used by the lightbox download button. Defaults to streamSrc when not given. */
   downloadUrl?: string;
   downloadFilename?: string;
-  /** Lightbox header title. */
   title?: string;
 }) {
   const { t } = useI18n();
   const [errored, setErrored] = useState(false);
-  const [open, setOpen] = useState(false);
-  // Promote preload from metadata → auto once we're confident the user will likely play. Driven
+  void downloadUrl;
+  void downloadFilename;
+  // Promote preload from metadata to auto once we're confident the user will likely play. Driven
   // by an IntersectionObserver-with-debounce so off-screen thumbs don't burn bandwidth.
   const [eager, setEager] = useState(false);
-  const [resumeFromSec, setResumeFromSec] = useState(0);
   const wrapperRef = useRef<HTMLDivElement | null>(null);
-  const videoRef = useRef<HTMLVideoElement | null>(null);
 
   useEffect(() => {
     if (!wrapperRef.current || eager) return;
@@ -194,68 +174,41 @@ function RobustVideoThumb({ streamSrc, posterSrc, downloadUrl, downloadFilename,
 
   useEffect(() => {
     setErrored(false);
-    setResumeFromSec(0);
   }, [streamSrc, posterSrc]);
 
-  const openLightbox = (e: React.MouseEvent) => {
-    e.preventDefault();
-    const v = videoRef.current;
-    if (v) {
-      setResumeFromSec(Number.isFinite(v.currentTime) ? v.currentTime : 0);
-      try { v.pause(); } catch { /* ignore */ }
-    }
-    setOpen(true);
-  };
+  const stopCanvasGesture = (e: React.MouseEvent | React.PointerEvent) => e.stopPropagation();
+
   return (
-    <>
-      <div
-        ref={wrapperRef}
-        className="flow-thumb-preview"
-        onMouseEnter={() => setEager(true)}
-      >
-        {errored ? (
-          posterSrc ? (
-            <img src={posterSrc} alt={title || "video poster"} loading="lazy" decoding="async" />
-          ) : (
-            <div className="flow-empty">{t.nodes.clickNodeForInspector}</div>
-          )
+    <div
+      ref={wrapperRef}
+      className="flow-thumb-preview flow-video-player"
+      title={title || t.nodes.playVideoTitle}
+      onMouseEnter={() => setEager(true)}
+    >
+      {errored ? (
+        posterSrc ? (
+          <img src={posterSrc} alt={title || "video poster"} loading="lazy" decoding="async" />
         ) : (
-          <video
-            key={streamSrc}
-            ref={videoRef}
-            src={streamSrc}
-            muted
-            preload={eager ? "auto" : "metadata"}
-            playsInline
-            controls={false}
-            poster={posterSrc}
-            onError={() => setErrored(true)}
-          />
-        )}
-        <button
-          type="button"
-          className="flow-thumb-play"
-          title={t.nodes.playVideoTitle}
-          aria-label={t.nodes.playVideoTitle}
-          onClick={openLightbox}
+          <div className="flow-empty">{t.nodes.clickNodeForInspector}</div>
+        )
+      ) : (
+        <video
+          className="flow-video-element nodrag nopan"
+          key={streamSrc}
+          src={streamSrc}
+          muted
+          preload={eager ? "auto" : "metadata"}
+          playsInline
+          controls
+          poster={posterSrc}
           onMouseDown={(e) => e.stopPropagation()}
-          onPointerDown={(e) => e.stopPropagation()}
-        >
-          ▶
-        </button>
-      </div>
-      {open && (
-        <Lightbox
-          url={streamSrc}
-          mediaKind="video"
-          title={title}
-          downloadUrl={downloadUrl || streamSrc}
-          downloadFilename={downloadFilename}
-          startTimeSec={resumeFromSec > 0.5 ? resumeFromSec : undefined}
-          onClose={() => setOpen(false)}
+          onPointerDown={stopCanvasGesture}
+          onClick={stopCanvasGesture}
+          onDoubleClick={stopCanvasGesture}
+          onError={() => setErrored(true)}
         />
       )}
-    </>
+    </div>
   );
 }
 
@@ -345,18 +298,22 @@ function useElapsedLabel(startedAt: string | null | undefined, active: boolean):
 
 function AssetNodeImpl({ data, selected }: NodeProps<AssetFlowNode>) {
   const { asset } = data;
+  const referenceAssets = (data.referenceAssets || []).filter((item) => tailframeThumbUrl(item));
   const thumb = tailframeThumbUrl(asset);
   const { active: isGenerating, elapsed: pendingElapsed } = usePendingGeneration(asset.id);
   const { t } = useI18n();
   const typeLabel = t.nodes.assetTypes as Record<string, string>;
-  const tag = typeLabel[asset.type] ?? asset.type;
+  const isMoodboard = asset.tags?.includes("moodboard");
+  const tagKey = isMoodboard ? "moodboard" : asset.type;
+  const tag = typeLabel[tagKey] ?? tagKey;
   const reviewInfo = reviewBadge(t, asset.imageReviewStatus, asset.imageReview?.score);
   const showReviewBadge = asset.imageReviewStatus === "running" || asset.imageReviewStatus === "error" || Boolean(asset.imageReview);
   const isUploading = asset.tags?.includes("client-pending-upload");
   return (
     <div className={`flow-node asset-node ${selected ? "selected" : ""} ${(isGenerating || isUploading) ? "generating" : ""}`} style={{ width: NODE_WIDTH }}>
+      <Handle type="target" position={Position.Left} id="in" />
       <div className="flow-node-head">
-        <span className={`flow-tag tag-${asset.type}`}>{tag}</span>
+        <span className={`flow-tag tag-${tagKey}`}>{tag}</span>
         <strong className="flow-node-title" title={asset.name}>{asset.name}</strong>
         {isUploading && (
           <span className="flow-node-pending-badge" title={t.app.pendingUpload}>
@@ -404,15 +361,6 @@ function AssetNodeImpl({ data, selected }: NodeProps<AssetFlowNode>) {
         )}
       </div>
       <div className="flow-node-foot">
-        <NodeModelPicker<AssetImageModel>
-          value={effectiveAssetImageModel(asset, data.defaultImageModel)}
-          options={ASSET_MODEL_OPTIONS}
-          onChange={async (model) => {
-            await api.saveAsset({ id: asset.id, generationModel: model });
-            emitFlowMutated();
-          }}
-          title={t.nodes.nextAssetModelTitle}
-        />
         {showReviewBadge && (
           <small className="flow-review-badge" style={{ color: reviewInfo.color }}>{reviewInfo.label}</small>
         )}
@@ -420,6 +368,16 @@ function AssetNodeImpl({ data, selected }: NodeProps<AssetFlowNode>) {
           <small className="flow-node-warn">{t.nodes.reviewAttempts(asset.reviewAttempts)}</small>
         ) : null}
       </div>
+      {referenceAssets.length > 0 && (
+        <div className="flow-node-reference-strip" title="可 @ 引用的连线参考图">
+          <span>可 @</span>
+          {referenceAssets.slice(0, 4).map((reference) => {
+            const url = tailframeThumbUrl(reference) as string;
+            return <img key={reference.id} src={url} alt={reference.name} loading="lazy" decoding="async" />;
+          })}
+          {referenceAssets.length > 4 && <small>+{referenceAssets.length - 4}</small>}
+        </div>
+      )}
       <Handle type="source" position={Position.Right} id="out" />
     </div>
   );
@@ -496,7 +454,6 @@ function StoryboardNodeImpl({ data, selected }: NodeProps<StoryboardFlowNode>) {
 function ShotNodeImpl({ data, selected }: NodeProps<ShotFlowNode>) {
   const { t } = useI18n();
   const { shot } = data;
-  const status = statusBadge(shot.status, shot.seedancePhase, t);
   // While a generation is in flight (status === "generating") the previous successful video
   // would visually "pretend" the new render is already done. Hide the old preview during the
   // generation window so the user sees a clear "renewing" state.
@@ -508,9 +465,6 @@ function ShotNodeImpl({ data, selected }: NodeProps<ShotFlowNode>) {
   // after submission, before the first /poll lands and stamps the render row).
   const pendingRender = selectedShotPendingRender(shot);
   const videoCacheKey = selectedRender?.id || videoUrl;
-  const review = selectedRender?.videoReview || shot.videoReview;
-  const reviewStatus = selectedRender?.videoReviewStatus || shot.videoReviewStatus;
-  const reviewInfo = reviewBadge(t, reviewStatus, review?.score);
   const startedAt = pendingRender?.generationStartedAt || shot.generationStartedAt || undefined;
   const elapsed = useElapsedLabel(startedAt, isGenerating);
   return (
@@ -519,44 +473,6 @@ function ShotNodeImpl({ data, selected }: NodeProps<ShotFlowNode>) {
       <div className="flow-node-head">
         <span className="flow-tag tag-shot">{t.nodes.video}</span>
         <strong className="flow-node-title" title={shot.title}>{shot.title || `Shot ${shot.index}`}</strong>
-        {videoUrl && (
-          <ReviewButton
-            label="VLM"
-            title={t.nodes.reviewShotTitle}
-            onClick={async () => {
-              await api.reviewShotVideo(shot.id);
-              emitFlowMutated();
-            }}
-          />
-        )}
-        {videoUrl && (
-          <DownloadButton
-            href={api.downloadShotUrl(shot.id)}
-            filename={`${shot.title || `shot-${shot.index}`}.mp4`}
-            title={t.nodes.downloadShot}
-            onTriggered={() => emitDownloadToast(`${shot.title || `shot-${shot.index}`}.mp4`)}
-          />
-        )}
-        {videoUrl && (
-          <ReviewButton
-            label={t.nodes.tailframe}
-            title={t.nodes.tailframeTitle}
-            onClick={async () => {
-              await api.createShotTailFrame(shot.id, { publishToTos: true, canvasNode: true });
-              emitFlowMutated();
-            }}
-          />
-        )}
-        {videoUrl && (
-          <ReviewButton
-            label={t.nodes.tailClip}
-            title={t.nodes.tailClipTitle}
-            onClick={async () => {
-              await api.createShotTailClip(shot.id, { durationSec: 2, publishToTos: true });
-              emitFlowMutated();
-            }}
-          />
-        )}
       </div>
       <div className="flow-node-thumb fit-contain">
         {isGenerating ? (
@@ -568,29 +484,11 @@ function ShotNodeImpl({ data, selected }: NodeProps<ShotFlowNode>) {
           <RobustVideoThumb
             streamSrc={api.shotStreamUrl(shot.id, videoCacheKey)}
             posterSrc={api.shotPosterUrl(shot.id, videoCacheKey)}
-            downloadUrl={api.downloadShotUrl(shot.id)}
-            downloadFilename={`${shot.title || `shot-${shot.index}`}.mp4`}
             title={shot.title || `Shot ${shot.index}`}
           />
         ) : (
           <div className="flow-empty">{t.nodes.notGenerated}</div>
         )}
-      </div>
-      <div className="flow-node-foot">
-        <NodeModelPicker<SeedanceVariant>
-          value={shot.seedanceVariant}
-          options={SEEDANCE_OPTIONS}
-          onChange={async (variant) => {
-            await api.updateShot(shot.id, { seedanceVariant: variant });
-            emitFlowMutated();
-          }}
-          title={t.nodes.nextSeedanceModelTitle}
-        />
-        <span className="flow-status" style={{ color: status.color }}>
-          ● {status.label}{isGenerating && elapsed ? ` · ${elapsed}` : ""}
-        </span>
-        {videoUrl && <small className="flow-review-badge" style={{ color: reviewInfo.color }}>{reviewInfo.label}</small>}
-        <small>{shot.durationSec || 0}s</small>
       </div>
       <Handle type="source" position={Position.Right} id="out" />
     </div>
@@ -679,9 +577,14 @@ function AudioTrackNodeImpl({ data, selected }: NodeProps<AudioTrackFlowNode>) {
   const status = session.narrationStatus || "idle";
   const isRunning = status === "running";
   const videoUrl = isRunning ? undefined : session.narrationVideoUrl;
+  const isMusic = session.audioTrackMode === "music";
+  const resultSuffix = isMusic ? "含音乐" : "含旁白";
+  const resultTitle = isMusic ? "下载带音乐视频" : "下载带旁白视频";
   const label = status === "ready" ? "音轨已完成" : status === "running" ? "添加音轨中" : status === "error" ? "音轨失败" : "待添加音轨";
   const color = status === "ready" ? "#34d399" : status === "running" ? "#60a5fa" : status === "error" ? "#f87171" : "#6b7280";
-  const subtitleLabel = session.narrationSubtitleMode === "burn"
+  const subtitleLabel = isMusic
+    ? (session.musicTaskId ? `音乐任务 · ${session.musicTaskId}` : "音乐模式")
+    : session.narrationSubtitleMode === "burn"
     ? `烧录字幕 · ${session.narrationSubtitlePosition === "top" ? "顶部" : session.narrationSubtitlePosition === "middle" ? "中部" : "底部"}`
     : "不加字幕";
   const cacheKey = session.narrationUpdatedAt || session.narrationSignature || session.narrationVideoUrl || session.id;
@@ -694,9 +597,9 @@ function AudioTrackNodeImpl({ data, selected }: NodeProps<AudioTrackFlowNode>) {
         {videoUrl && (
           <DownloadButton
             href={api.downloadNarrationVideoUrl(session.id)}
-            filename={`${session.title || session.id}-含旁白.mp4`}
-            title="下载带旁白视频"
-            onTriggered={() => emitDownloadToast(`${session.title || session.id}-含旁白.mp4`)}
+            filename={`${session.title || session.id}-${resultSuffix}.mp4`}
+            title={resultTitle}
+            onTriggered={() => emitDownloadToast(`${session.title || session.id}-${resultSuffix}.mp4`)}
           />
         )}
       </div>
@@ -709,11 +612,11 @@ function AudioTrackNodeImpl({ data, selected }: NodeProps<AudioTrackFlowNode>) {
           <RobustVideoThumb
             streamSrc={`${videoUrl}${videoUrl.includes("?") ? "&" : "?"}v=${encodeURIComponent(cacheKey)}`}
             downloadUrl={api.downloadNarrationVideoUrl(session.id)}
-            downloadFilename={`${session.title || session.id}-含旁白.mp4`}
+            downloadFilename={`${session.title || session.id}-${resultSuffix}.mp4`}
             title={`${session.title || session.id} · 添加音轨`}
           />
         ) : (
-          <div className="flow-empty">{job.finalVideoUrl ? "点节点配置旁白与字幕" : "先完成拼接视频"}</div>
+          <div className="flow-empty">{job.finalVideoUrl ? "点节点配置旁白或音乐" : "先完成完整视频"}</div>
         )}
       </div>
       <div className="flow-node-foot">
@@ -776,6 +679,48 @@ function ReferenceVideoNodeImpl({ data, selected }: NodeProps<ReferenceVideoFlow
       <div className="flow-node-foot">
         <span className="flow-status" style={{ color }}>● {label}</span>
         <small>{t.nodes.applyParsedHint}</small>
+      </div>
+      <Handle type="source" position={Position.Right} id="out" />
+    </div>
+  );
+}
+
+// ============================================================================
+// VideoAssetNode — standalone video asset, e.g. the final 2s tail video from a Shot.
+// ============================================================================
+
+function VideoAssetNodeImpl({ data, selected }: NodeProps<VideoAssetFlowNode>) {
+  const { t } = useI18n();
+  const { asset } = data;
+  const videoUrl = asset.mediaUrl || asset.imageUrl;
+  const posterHref = videoUrl ? api.assetPosterUrl(asset.id, asset.updatedAt || asset.id) : undefined;
+  return (
+    <div className={`flow-node shot-node ${selected ? "selected" : ""}`} style={{ width: NODE_WIDTH }}>
+      <Handle type="target" position={Position.Left} id="in" />
+      <div className="flow-node-head">
+        <span className="flow-tag tag-shot">{t.nodes.video}</span>
+        <strong className="flow-node-title" title={asset.name}>{asset.name}</strong>
+        {videoUrl && (
+          <DownloadButton
+            href={api.downloadAssetUrl(asset.id)}
+            filename={`${asset.name}.mp4`}
+            title={t.nodes.downloadReferenceVideo}
+            onTriggered={() => emitDownloadToast(`${asset.name}.mp4`)}
+          />
+        )}
+      </div>
+      <div className="flow-node-thumb fit-contain">
+        {videoUrl ? (
+          <RobustVideoThumb
+            streamSrc={api.assetStreamUrl(asset.id, asset.updatedAt || asset.id)}
+            posterSrc={posterHref}
+            downloadUrl={api.downloadAssetUrl(asset.id)}
+            downloadFilename={`${asset.name}.mp4`}
+            title={asset.name}
+          />
+        ) : (
+          <div className="flow-empty">{t.nodes.notGenerated}</div>
+        )}
       </div>
       <Handle type="source" position={Position.Right} id="out" />
     </div>
@@ -848,8 +793,9 @@ function VideoProcessorNodeImpl({ data, selected }: NodeProps<VideoProcessorFlow
 
 function TailframeNodeImpl({ data, selected }: NodeProps<TailframeFlowNode>) {
   const { t } = useI18n();
-  const { asset, sourceShot, targetShots } = data;
+  const { asset, sourceShot, targetShots, frameRole } = data;
   const thumb = assetThumbUrl(asset);
+  const label = frameRole === "first" ? t.nodes.firstFrame : t.nodes.tailframe;
   const targetLabel = targetShots.length
     ? t.nodes.usedBy(targetShots.map((shot) => shot.title || `Shot ${shot.index}`).join("、"))
     : t.nodes.dragToVideo;
@@ -857,7 +803,7 @@ function TailframeNodeImpl({ data, selected }: NodeProps<TailframeFlowNode>) {
     <div className={`flow-node asset-node ${selected ? "selected" : ""}`} style={{ width: NODE_WIDTH }}>
       <Handle type="target" position={Position.Left} id="in" />
       <div className="flow-node-head">
-        <span className="flow-tag tag-scene">{t.nodes.tailframe}</span>
+        <span className="flow-tag tag-scene">{label}</span>
         <strong className="flow-node-title" title={asset.name}>{asset.name}</strong>
         {thumb && (
           <DownloadButton
@@ -916,6 +862,9 @@ export const AudioTrackNode = memo(AudioTrackNodeImpl, (prev, next) =>
   && prev.data.legacy === next.data.legacy
 );
 export const ReferenceVideoNode = memo(ReferenceVideoNodeImpl, (prev, next) =>
+  prev.selected === next.selected && prev.data.asset === next.data.asset
+);
+export const VideoAssetNode = memo(VideoAssetNodeImpl, (prev, next) =>
   prev.selected === next.selected && prev.data.asset === next.data.asset
 );
 export const VideoProcessorNode = memo(VideoProcessorNodeImpl, (prev, next) =>

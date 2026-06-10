@@ -1,11 +1,13 @@
 import type { Edge, Node } from "@xyflow/react";
 import type { Asset, AssetImageModel, Shot, SessionWithShots, StitchJob, StoreSnapshot } from "../../shared/types";
+import { deriveConnectedShotOrder } from "./stitchOrder";
 
-export type AssetNodeKind = "character" | "scene" | "prop" | "style" | "other";
+export type AssetNodeKind = "image" | "other";
 
 export interface AssetNodeData extends Record<string, unknown> {
-  kind: "asset";
+  kind: "image" | "asset";
   asset: Asset;
+  referenceAssets?: Asset[];
   defaultImageModel?: AssetImageModel;
 }
 
@@ -41,6 +43,11 @@ export interface ReferenceVideoNodeData extends Record<string, unknown> {
   asset: Asset;
 }
 
+export interface VideoAssetNodeData extends Record<string, unknown> {
+  kind: "videoAsset";
+  asset: Asset;
+}
+
 export interface VideoProcessorNodeData extends Record<string, unknown> {
   kind: "videoProcessor";
   /** The derivative asset (i.e. the clipped output). */
@@ -52,6 +59,7 @@ export interface VideoProcessorNodeData extends Record<string, unknown> {
 export interface TailframeNodeData extends Record<string, unknown> {
   kind: "tailframe";
   asset: Asset;
+  frameRole: "first" | "tail";
   sourceShot?: Shot;
   targetShots: Shot[];
 }
@@ -63,6 +71,7 @@ export type FlowNodeData =
   | StitchNodeData
   | AudioTrackNodeData
   | ReferenceVideoNodeData
+  | VideoAssetNodeData
   | VideoProcessorNodeData
   | TailframeNodeData;
 
@@ -91,6 +100,39 @@ function isStoryboardAsset(asset: Asset | undefined) {
   return hasTag(asset, "sub-storyboard");
 }
 
+function legacyAudioSourceJobForSession(session: SessionWithShots): StitchJob {
+  return {
+    id: "legacy",
+    name: "完整视频",
+    shotIds: session.stitchShotIds || [],
+    status: session.stitchStatus,
+    progress: session.stitchProgress,
+    error: session.stitchError,
+    finalVideoUrl: session.finalVideoUrl,
+    finalVideoSignature: session.finalVideoSignature,
+    finalVideoGeneratedAt: session.finalVideoGeneratedAt,
+    finalVideoReviewStatus: session.finalVideoReviewStatus,
+    finalVideoReview: session.finalVideoReview,
+    finalVideoReviewError: session.finalVideoReviewError,
+    finalVideoReviewUpdatedAt: session.finalVideoReviewUpdatedAt,
+    finalVideoReviewRunningSignature: session.finalVideoReviewRunningSignature,
+    finalVideoReviewBuiltForSignature: session.finalVideoReviewBuiltForSignature,
+    runningSignature: session.stitchRunningSignature,
+    startedAt: session.stitchStartedAt,
+    updatedAt: session.stitchUpdatedAt,
+    createdAt: session.createdAt
+  };
+}
+
+export function isMoodboardAsset(asset: Asset | undefined) {
+  return asset?.type === "style" && hasTag(asset, "moodboard");
+}
+
+export function visualNodeIdForAsset(asset: Asset | undefined) {
+  if (!asset) return undefined;
+  return `image-${asset.id}`;
+}
+
 /**
  * Project session state into a 4-column DAG:
  *
@@ -115,8 +157,8 @@ export function buildSessionGraph(snapshot: StoreSnapshot, session: SessionWithS
   const defaultImageModel = snapshot.runtime?.seedreamDefaultModel;
   const assetById = new Map(snapshot.assets.map((asset) => [asset.id, asset]));
   const savedPositions = session.canvasNodePositions || {};
-  const positionFor = (nodeId: string, fallback: { x: number; y: number }) => {
-    const saved = savedPositions[nodeId];
+  const positionFor = (nodeId: string, fallback: { x: number; y: number }, legacyNodeIds: string[] = []) => {
+    const saved = savedPositions[nodeId] || legacyNodeIds.map((id) => savedPositions[id]).find(Boolean);
     return Number.isFinite(saved?.x) && Number.isFinite(saved?.y) ? { x: saved.x, y: saved.y } : fallback;
   };
 
@@ -138,13 +180,15 @@ export function buildSessionGraph(snapshot: StoreSnapshot, session: SessionWithS
   // into their own column as videoProcessor nodes — they represent a transformation step in
   // the pipeline rather than a top-level reference.
   const isReferenceVideo = (asset: Asset) => (asset.tags || []).includes("reference-video");
-  const isTailframe = (asset: Asset) => (asset.tags || []).includes("tailframe");
+  const isTailClipVideo = (asset: Asset) => (asset.tags || []).includes("tail-clip");
+  const isFrameAnchor = (asset: Asset) => (asset.tags || []).includes("frame-anchor") || (asset.tags || []).includes("tailframe");
   const sourceShotIdForTailframe = (asset: Asset) =>
     (asset.tags || []).find((tag) => tag.startsWith("source-shot:"))?.slice("source-shot:".length) || asset.ownerShotId;
   const isDerivedClip = (asset: Asset) => Boolean(asset.derivedFromAssetId);
-  const anchorAssets = sessionAssets.filter((asset) => asset.type !== "other" && !isReferenceVideo(asset) && !isTailframe(asset));
-  const tailframeAssets = sessionAssets.filter(isTailframe);
-  const referenceVideoAssets = sessionAssets.filter((a) => isReferenceVideo(a) && !isDerivedClip(a));
+  const anchorAssets = sessionAssets.filter((asset) => asset.type !== "other" && !isReferenceVideo(asset) && !isFrameAnchor(asset));
+  const frameAnchorAssets = sessionAssets.filter(isFrameAnchor);
+  const tailClipVideoAssets = sessionAssets.filter((a) => isReferenceVideo(a) && isTailClipVideo(a) && !isDerivedClip(a));
+  const referenceVideoAssets = sessionAssets.filter((a) => isReferenceVideo(a) && !isTailClipVideo(a) && !isDerivedClip(a));
   const derivedClipAssets = sessionAssets.filter((a) => isReferenceVideo(a) && isDerivedClip(a));
   const anchorAssetIds = new Set(anchorAssets.map((asset) => asset.id));
   anchorAssets.sort((a, b) => {
@@ -155,11 +199,19 @@ export function buildSessionGraph(snapshot: StoreSnapshot, session: SessionWithS
     return new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime();
   });
   anchorAssets.forEach((asset, index) => {
+    const nodeId = visualNodeIdForAsset(asset) || `asset-${asset.id}`;
+    const referenceAssets = (asset.referenceAssetIds || [])
+      .map((assetId) => assetById.get(assetId))
+      .filter((item): item is Asset => Boolean(item))
+      .filter((item) => item.ownerSessionId === session.id || !item.ownerSessionId);
     nodes.push({
-      id: `asset-${asset.id}`,
-      type: "assetNode",
-      position: positionFor(`asset-${asset.id}`, { x: COLUMN_X.asset, y: 60 + index * ROW_HEIGHT }),
-      data: { kind: "asset", asset, defaultImageModel } satisfies AssetNodeData
+      id: nodeId,
+      type: "imageNode",
+      position: positionFor(nodeId, { x: COLUMN_X.asset, y: 60 + index * ROW_HEIGHT }, [
+        `asset-${asset.id}`,
+        `moodboard-${asset.id}`
+      ]),
+      data: { kind: "image", asset, referenceAssets, defaultImageModel } satisfies AssetNodeData
     });
   });
   // Stack reference-video nodes below the anchor list. They have no edges by default — they live
@@ -170,6 +222,16 @@ export function buildSessionGraph(snapshot: StoreSnapshot, session: SessionWithS
       type: "referenceVideoNode",
       position: positionFor(`refvideo-${asset.id}`, { x: COLUMN_X.asset, y: 60 + (anchorAssets.length + index) * ROW_HEIGHT }),
       data: { kind: "referenceVideo", asset } satisfies ReferenceVideoNodeData
+    });
+  });
+  tailClipVideoAssets.forEach((asset, index) => {
+    nodes.push({
+      id: `video-${asset.id}`,
+      type: "videoAssetNode",
+      position: positionFor(`video-${asset.id}`, { x: COLUMN_X.shot, y: 60 + ((session.shots?.length || 0) + index) * ROW_HEIGHT }, [
+        `refvideo-${asset.id}`
+      ]),
+      data: { kind: "videoAsset", asset } satisfies VideoAssetNodeData
     });
   });
 
@@ -239,31 +301,24 @@ export function buildSessionGraph(snapshot: StoreSnapshot, session: SessionWithS
   });
 
   const shotIndexById = new Map(orderedShots.map((shot, index) => [shot.id, index]));
-  const tailframeById = new Map(tailframeAssets.map((asset) => [asset.id, asset]));
+  const frameAnchorById = new Map(frameAnchorAssets.map((asset) => [asset.id, asset]));
 
-  tailframeAssets.forEach((asset, index) => {
+  frameAnchorAssets.forEach((asset, index) => {
     const sourceShotId = sourceShotIdForTailframe(asset);
     const sourceShot = sourceShotId ? orderedShots.find((shot) => shot.id === sourceShotId) : undefined;
     const sourceIndex = sourceShot ? shotIndexById.get(sourceShot.id) : undefined;
-    const targetShots = orderedShots.filter((shot) => shot.firstFrameAssetId === asset.id);
+    const targetShots = orderedShots.filter((shot) => shot.firstFrameAssetId === asset.id || shot.lastFrameAssetId === asset.id);
     const yIndex = sourceIndex ?? index;
-    const tailframeNodeId = `tailframe-${asset.id}`;
+    const frameAnchorNodeId = `frame-anchor-${asset.id}`;
+    const frameRole = (asset.tags || []).includes("firstframe") ? "first" : "tail";
     nodes.push({
-      id: tailframeNodeId,
+      id: frameAnchorNodeId,
       type: "tailframeNode",
-      position: positionFor(tailframeNodeId, { x: COLUMN_X.tailframe, y: 60 + yIndex * ROW_HEIGHT }),
-      data: { kind: "tailframe", asset, sourceShot, targetShots } satisfies TailframeNodeData
+      position: positionFor(frameAnchorNodeId, { x: COLUMN_X.tailframe, y: 60 + yIndex * ROW_HEIGHT }, [
+        `tailframe-${asset.id}`
+      ]),
+      data: { kind: "tailframe", asset, frameRole, sourceShot, targetShots } satisfies TailframeNodeData
     });
-    if (sourceShot) {
-      edges.push({
-        id: `e-tailframe-source-${sourceShot.id}-${asset.id}`,
-        source: `shot-${sourceShot.id}`,
-        target: tailframeNodeId,
-        animated: false,
-        data: { tailframeSource: true, sourceShotId: sourceShot.id, tailframeAssetId: asset.id },
-        style: { stroke: "#38bdf8", strokeWidth: 2, strokeDasharray: "5 3" }
-      });
-    }
   });
 
   // Per-shot Storyboard + Video nodes.
@@ -342,9 +397,13 @@ export function buildSessionGraph(snapshot: StoreSnapshot, session: SessionWithS
       const fromDerived = !fromRefvideo
         ? derivedClipAssets.find((a) => a.id === shot.referenceVideoAssetId)
         : undefined;
+      const fromTailClipVideo = !fromRefvideo && !fromDerived
+        ? tailClipVideoAssets.find((a) => a.id === shot.referenceVideoAssetId)
+        : undefined;
       const sourceNodeId = fromRefvideo
         ? `refvideo-${fromRefvideo.id}`
-        : fromDerived ? `videoproc-${fromDerived.id}` : undefined;
+        : fromDerived ? `videoproc-${fromDerived.id}`
+          : fromTailClipVideo ? `video-${fromTailClipVideo.id}` : undefined;
       if (sourceNodeId) {
         edges.push({
           id: `e-${sourceNodeId}-${shotNodeId}`,
@@ -379,11 +438,11 @@ export function buildSessionGraph(snapshot: StoreSnapshot, session: SessionWithS
     // Tailframe → Shot edge (`shot.firstFrameAssetId`). Tailframe nodes are generated from an
     // upstream video and then dragged into a downstream shot to become its Seedance first_frame.
     if (shot.firstFrameAssetId) {
-      const tailframe = tailframeById.get(shot.firstFrameAssetId);
+      const tailframe = frameAnchorById.get(shot.firstFrameAssetId);
       if (tailframe) {
         edges.push({
           id: `e-tailframe-${tailframe.id}-${shot.id}`,
-          source: `tailframe-${tailframe.id}`,
+          source: `frame-anchor-${tailframe.id}`,
           target: shotNodeId,
           animated: shot.status === "generating",
           data: { canDisconnectFirstFrame: true, tailframeAssetId: tailframe.id, targetShotId: shot.id },
@@ -412,8 +471,9 @@ export function buildSessionGraph(snapshot: StoreSnapshot, session: SessionWithS
     intentIds.forEach((assetId) => {
       if (!anchorAssetIds.has(assetId) && !ownerShotByStoryboardAssetId.has(assetId)) return;
       const sourceNodeId = anchorAssetIds.has(assetId)
-        ? `asset-${assetId}`
+        ? visualNodeIdForAsset(assetById.get(assetId))
         : `storyboard-${ownerShotByStoryboardAssetId.get(assetId)}`;
+      if (!sourceNodeId) return;
       edges.push({
         id: `e-asset-${assetId}-${assetEdgeTargetId}`,
         source: sourceNodeId,
@@ -432,8 +492,9 @@ export function buildSessionGraph(snapshot: StoreSnapshot, session: SessionWithS
       auditOnly.forEach((assetId) => {
         if (!anchorAssetIds.has(assetId) && !ownerShotByStoryboardAssetId.has(assetId)) return;
         const sourceNodeId = anchorAssetIds.has(assetId)
-          ? `asset-${assetId}`
+          ? visualNodeIdForAsset(assetById.get(assetId))
           : `storyboard-${ownerShotByStoryboardAssetId.get(assetId)}`;
+        if (!sourceNodeId) return;
         edges.push({
           id: `e-asset-${assetId}-${storyboardNodeId}-audit`,
           source: sourceNodeId,
@@ -447,7 +508,7 @@ export function buildSessionGraph(snapshot: StoreSnapshot, session: SessionWithS
   });
 
   const visualNodeIdForAssetReference = (assetId: string) => {
-    if (anchorAssetIds.has(assetId)) return `asset-${assetId}`;
+    if (anchorAssetIds.has(assetId)) return visualNodeIdForAsset(assetById.get(assetId));
     const ownerShotId = ownerShotByStoryboardAssetId.get(assetId);
     return ownerShotId ? `storyboard-${ownerShotId}` : undefined;
   };
@@ -460,7 +521,7 @@ export function buildSessionGraph(snapshot: StoreSnapshot, session: SessionWithS
       edges.push({
         id: `${sourceNodeId.startsWith("storyboard-") ? "e-storyboardref" : "e-assetref"}-${sourceAssetId}-${asset.id}`,
         source: sourceNodeId,
-        target: `asset-${asset.id}`,
+        target: visualNodeIdForAsset(asset) || `asset-${asset.id}`,
         animated: false,
         data: { canDisconnectAssetReference: true, sourceAssetId, targetAssetId: asset.id },
         style: { stroke: "#f59e0b", strokeWidth: 2, strokeDasharray: "5 3" }
@@ -468,95 +529,32 @@ export function buildSessionGraph(snapshot: StoreSnapshot, session: SessionWithS
     });
   });
 
-  // Stitch output nodes. Legacy sessions may still have one session-level stitch output; new right-
-  // click-created nodes live in session.stitchJobs and each carries its own playlist/result.
-  const legacyStitchJob: StitchJob | undefined = (!session.stitchJobs?.length
-    && (orderedShots.length >= 2 || Boolean(session.finalVideoUrl) || Boolean(session.stitchShotIds))
-    && !session.stitchHidden)
-      ? {
-          id: "legacy",
-          name: "完整视频",
-          shotIds: session.stitchShotIds || [],
-          status: session.stitchStatus,
-          progress: session.stitchProgress,
-          error: session.stitchError,
-          finalVideoUrl: session.finalVideoUrl,
-          finalVideoSignature: session.finalVideoSignature,
-          finalVideoGeneratedAt: session.finalVideoGeneratedAt,
-          finalVideoReviewStatus: session.finalVideoReviewStatus,
-          finalVideoReview: session.finalVideoReview,
-          finalVideoReviewError: session.finalVideoReviewError,
-          finalVideoReviewUpdatedAt: session.finalVideoReviewUpdatedAt,
-          finalVideoReviewRunningSignature: session.finalVideoReviewRunningSignature,
-          finalVideoReviewBuiltForSignature: session.finalVideoReviewBuiltForSignature,
-          runningSignature: session.stitchRunningSignature,
-          startedAt: session.stitchStartedAt,
-          updatedAt: session.stitchUpdatedAt,
-          createdAt: session.createdAt
-        }
-      : undefined;
-  const stitchJobs = legacyStitchJob ? [legacyStitchJob] : (session.stitchJobs || []);
-  const audioTrackStitchJobIds = new Set(session.audioTrackStitchJobIds || []);
-  stitchJobs.forEach((job, jobIndex) => {
-    const middleY = 60 + ((orderedShots.length - 1) * ROW_HEIGHT) / 2 + jobIndex * ROW_HEIGHT;
-    const legacy = job.id === "legacy";
-    const stitchNodeId = legacy ? `stitch-${session.id}` : `stitch-${session.id}-${job.id}`;
-    nodes.push({
-      id: stitchNodeId,
-      type: "stitchNode",
-      position: positionFor(stitchNodeId, { x: COLUMN_X.stitch, y: middleY }),
-      data: { kind: "stitch", session, job, legacy } satisfies StitchNodeData
-    });
-    if (!session.audioTrackHidden) {
-      const audioTrackNodeId = legacy ? `audio-${session.id}` : `audio-${session.id}-${job.id}`;
-      nodes.push({
-        id: audioTrackNodeId,
-        type: "audioTrackNode",
-        position: positionFor(audioTrackNodeId, { x: COLUMN_X.audioTrack, y: middleY }),
-        data: { kind: "audioTrack", session, job, legacy } satisfies AudioTrackNodeData
-      });
-      if (audioTrackStitchJobIds.has(job.id)) {
-        edges.push({
-          id: `e-audio-${stitchNodeId}-${audioTrackNodeId}`,
-          source: stitchNodeId,
-          target: audioTrackNodeId,
-          animated: session.narrationStatus === "running" && session.narrationStitchJobId === job.id,
-          data: { canDisconnectAudioTrack: true, stitchJobId: job.id },
-          style: {
-            stroke: "#f472b6",
-            strokeWidth: 2,
-            ...(job.finalVideoUrl ? {} : { strokeDasharray: "6 4", opacity: 0.6 })
-          }
-        });
-      }
-    }
-    const explicitShotIds = job.shotIds || [];
-    const stitchShotIds = explicitShotIds.length > 0 ? explicitShotIds : orderedShots.map((shot) => shot.id);
-    const defaultOrder = explicitShotIds.length === 0;
-    stitchShotIds.forEach((shotId, orderIndex) => {
-      const shot = orderedShots.find((item) => item.id === shotId);
-      if (!shot) return;
-      edges.push({
-        id: defaultOrder
-          ? `e-stitch-default-${shot.id}-${session.id}-${job.id}`
-          : `e-stitch-${shot.id}-${session.id}-${job.id}`,
-        source: `shot-${shot.id}`,
-        target: stitchNodeId,
-        animated: job.status === "running",
-        deletable: !defaultOrder,
-        data: defaultOrder
-          ? { derivedDefaultStitch: true, stitchShotId: shot.id, stitchJobId: job.id, stitchOrderIndex: orderIndex }
-          : { canDisconnectStitch: true, stitchShotId: shot.id, stitchJobId: job.id, stitchOrderIndex: orderIndex },
-        label: String(orderIndex + 1),
-        style: {
-          stroke: "#34d399",
-          strokeWidth: defaultOrder ? 1.5 : 2,
-          opacity: defaultOrder ? 0.45 : 1,
-          ...(defaultOrder ? { strokeDasharray: "7 5" } : shot.videoUrl ? {} : { strokeDasharray: "4 3", opacity: 0.65 })
-        }
-      });
-    });
+  const connectedOrder = deriveConnectedShotOrder(orderedShots);
+  connectedOrder.forEach((shotId, index) => {
+    const nextShotId = connectedOrder[index + 1];
+    if (!nextShotId) return;
+    const existing = edges.find((edge) => edge.id === `e-shotref-${shotId}-${nextShotId}`);
+    if (existing) existing.label = String(index + 1);
   });
+
+  const shouldShowAudioTrack = session.audioTrackHidden === false || Boolean(session.narrationVideoUrl);
+  if (shouldShowAudioTrack) {
+    const nodeId = "audio-legacy";
+    nodes.push({
+      id: nodeId,
+      type: "audioTrackNode",
+      position: positionFor(nodeId, {
+        x: COLUMN_X.audioTrack,
+        y: 60
+      }),
+      data: {
+        kind: "audioTrack",
+        session,
+        job: legacyAudioSourceJobForSession(session),
+        legacy: true
+      } satisfies AudioTrackNodeData
+    });
+  }
 
   return { nodes, edges };
 }

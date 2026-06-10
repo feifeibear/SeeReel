@@ -254,6 +254,15 @@ TOS_KEY_PREFIX=cinema-agent/storyboards
 TOS_PRESIGN_EXPIRES_SEC=604800
 ```
 
+Volcengine `doubao-music` is a separate OpenAPI service for the post-stitch audio-track node. It does not use Ark `/api/v3` or Agent Plan credentials:
+
+```bash
+VOLC_MUSIC_ACCESS_KEY_ID=<AK>
+VOLC_MUSIC_SECRET_ACCESS_KEY=<SK>
+VOLC_MUSIC_BILLING_MODE=postpaid
+VOLC_MUSIC_MODEL_VERSION=v5.0
+```
+
 Fallback and optional providers:
 
 | Capability | Environment |
@@ -265,6 +274,7 @@ Fallback and optional providers:
 | Agent Plan | `ARK_AGENT_PLAN_KEY` |
 | Optional script generation | `OPENAI_API_KEY` / `OAI_KEY` |
 | Optional narration | `VOLC_TTS_APPID` / `VOLC_TTS_TOKEN` |
+| Optional music generation | `VOLC_MUSIC_ACCESS_KEY_ID` / `VOLC_MUSIC_SECRET_ACCESS_KEY` |
 | Public media fallback | non-localhost `PUBLIC_MEDIA_BASE_URL` |
 
 ## Public Deployment

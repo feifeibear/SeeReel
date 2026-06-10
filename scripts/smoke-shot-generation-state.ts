@@ -18,6 +18,7 @@ const readyShotWithStaleHistory = {
   prompt: "fly forward",
   status: "ready",
   videoUrl: "/media/ready.mp4",
+  generationTaskId: "external_libtv_history",
   assetIds: [],
   createdAt: "",
   updatedAt: "",

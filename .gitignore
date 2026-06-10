@@ -18,6 +18,7 @@ data/
 # Local demo/test media should not be committed. Configure public examples through admin/runtime data.
 fixtures/
 outputs/
+ark_outputs/
 assets/generated/
 assets/references/
 .vscode/

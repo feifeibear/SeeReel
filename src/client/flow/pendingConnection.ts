@@ -21,12 +21,22 @@ export function buildPendingConnectEdge(input: PendingConnectInput): Edge | unde
   const source = input.connection.source || "";
   const target = input.connection.target || "";
   if (!source || !target) return undefined;
+  const isFrameAnchorNode = (nodeId: string) => nodeId.startsWith("frame-anchor-") || nodeId.startsWith("tailframe-");
+  const isVisualNode = (nodeId: string) => nodeId.startsWith("image-") || nodeId.startsWith("asset-") || nodeId.startsWith("moodboard-") || isFrameAnchorNode(nodeId);
+  const assetIdFromVisualNode = (nodeId: string) => {
+    if (nodeId.startsWith("frame-anchor-")) return nodeId.slice("frame-anchor-".length);
+    if (nodeId.startsWith("tailframe-")) return nodeId.slice("tailframe-".length);
+    if (nodeId.startsWith("image-")) return nodeId.slice("image-".length);
+    if (nodeId.startsWith("asset-")) return nodeId.slice("asset-".length);
+    if (nodeId.startsWith("moodboard-")) return nodeId.slice("moodboard-".length);
+    return "";
+  };
 
-  if ((source.startsWith("asset-") || source.startsWith("storyboard-")) && (target.startsWith("asset-") || target.startsWith("storyboard-"))) {
+  if ((isVisualNode(source) || source.startsWith("storyboard-")) && (isVisualNode(target) || target.startsWith("storyboard-"))) {
     const sourceAsset = resolveVisualReferenceSourceAssetId(source, input.session);
     if (!sourceAsset) return undefined;
-    if (target.startsWith("asset-")) {
-      const targetAssetId = target.slice("asset-".length);
+    if (isVisualNode(target)) {
+      const targetAssetId = assetIdFromVisualNode(target);
       const targetAsset = input.snapshot.assets.find((asset) => asset.id === targetAssetId);
       if (!targetAsset || targetAsset.id === sourceAsset.id) return undefined;
       return {
@@ -51,8 +61,8 @@ export function buildPendingConnectEdge(input: PendingConnectInput): Edge | unde
     };
   }
 
-  if (source.startsWith("asset-") && (target.startsWith("storyboard-") || target.startsWith("shot-"))) {
-    const assetId = source.slice("asset-".length);
+  if (isVisualNode(source) && (target.startsWith("storyboard-") || target.startsWith("shot-"))) {
+    const assetId = assetIdFromVisualNode(source);
     const targetShotId = target.startsWith("storyboard-")
       ? target.slice("storyboard-".length)
       : target.slice("shot-".length);
@@ -103,10 +113,12 @@ export function buildPendingConnectEdge(input: PendingConnectInput): Edge | unde
     };
   }
 
-  if ((source.startsWith("refvideo-") || source.startsWith("videoproc-")) && target.startsWith("shot-")) {
+  if ((source.startsWith("refvideo-") || source.startsWith("videoproc-") || source.startsWith("video-")) && target.startsWith("shot-")) {
     const refAssetId = source.startsWith("refvideo-")
       ? source.slice("refvideo-".length)
-      : source.slice("videoproc-".length);
+      : source.startsWith("videoproc-")
+        ? source.slice("videoproc-".length)
+        : source.slice("video-".length);
     const refAsset = input.snapshot.assets.find((asset) => asset.id === refAssetId);
     const targetShotId = target.slice("shot-".length);
     const targetShot = input.session.shots?.find((shot) => shot.id === targetShotId);
@@ -121,8 +133,8 @@ export function buildPendingConnectEdge(input: PendingConnectInput): Edge | unde
     };
   }
 
-  if (source.startsWith("tailframe-") && target.startsWith("shot-")) {
-    const tailframeAssetId = source.slice("tailframe-".length);
+  if (isFrameAnchorNode(source) && target.startsWith("shot-")) {
+    const tailframeAssetId = assetIdFromVisualNode(source);
     const targetShotId = target.slice("shot-".length);
     const targetShot = input.session.shots?.find((shot) => shot.id === targetShotId);
     if (!targetShot) return undefined;
@@ -199,7 +211,9 @@ function hasTag(asset: Asset, tag: string) {
 }
 
 function resolveVisualReferenceSourceAssetId(nodeId: string, session: SessionWithShots): { id: string } | undefined {
+  if (nodeId.startsWith("image-")) return { id: nodeId.slice("image-".length) };
   if (nodeId.startsWith("asset-")) return { id: nodeId.slice("asset-".length) };
+  if (nodeId.startsWith("moodboard-")) return { id: nodeId.slice("moodboard-".length) };
   if (!nodeId.startsWith("storyboard-")) return undefined;
   const shotId = nodeId.slice("storyboard-".length);
   const shot = session.shots?.find((item) => item.id === shotId);

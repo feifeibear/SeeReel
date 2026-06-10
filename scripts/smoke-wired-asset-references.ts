@@ -1,5 +1,5 @@
 import { strict as assert } from "node:assert";
-import { buildShotMentionOptions, buildStoryboardMentionOptions } from "../src/client/flow/Inspector";
+import { buildAssetMentionOptions, buildShotMentionOptions, buildStoryboardMentionOptions } from "../src/client/flow/Inspector";
 import { CinemaStore } from "../src/server/store";
 import type { Asset, SessionWithShots, Shot, StoreSnapshot } from "../src/shared/types";
 
@@ -77,6 +77,20 @@ const session: SessionWithShots = {
 
 const assets = [updatedConnectedAsset, unconnectedAsset];
 
+const imageEditAsset: Asset = {
+  id: "asset_image_edit",
+  name: "Editable Image",
+  type: "image",
+  mediaKind: "image",
+  description: "",
+  prompt: "Only @ConnectedActor should appear in the image prompt popup. @DeletedLookingAsset is stale text.",
+  ownerSessionId: "ses_refs",
+  referenceAssetIds: [connectedAsset.id],
+  tags: [],
+  createdAt: now,
+  updatedAt: now
+};
+
 const shotOptions = buildShotMentionOptions(shot, assets, session);
 assert.deepEqual(
   shotOptions.map((option) => option.id),
@@ -89,6 +103,13 @@ assert.deepEqual(
   storyboardOptions.map((option) => option.id),
   [connectedAsset.id],
   "storyboard @ mentions should list only assets wired into this storyboard/shot"
+);
+
+const imageOptions = buildAssetMentionOptions(imageEditAsset, [...assets, imageEditAsset], session);
+assert.deepEqual(
+  imageOptions.map((option) => option.id),
+  [connectedAsset.id],
+  "image @ mentions should list only assets wired into this image node"
 );
 
 const store = new CinemaStore();

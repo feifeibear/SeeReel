@@ -1,36 +1,57 @@
 import assert from "node:assert/strict";
-import { expandAssetPrompt } from "../src/server/generators";
+import { expandAssetPrompt, generateAssetImage } from "../src/server/generators";
+import { composeSeedanceVideoText } from "../src/server/promptCompose";
 
 async function main() {
   process.env.SEED_PROMPT_API_KEY = "";
   process.env.BP_ARK_API_KEY = "";
   process.env.ARK_API_KEY = "";
+  process.env.SEEDANCE_RATIO = "";
 
+  const userPrompt = "一只金毛坐在蓝色沙发上";
   const goldenRetriever = await expandAssetPrompt({
     type: "character",
     name: "金毛",
-    prompt: "一只金毛"
+    prompt: userPrompt
   });
 
-  assert.match(goldenRetriever.prompt, /一只金毛|金毛/);
-  assert.doesNotMatch(
-    goldenRetriever.prompt,
-    /成年人|真实真人|人脸|五官|发型|头发|皮肤|第二人/,
-    "non-human character prompts must not be expanded as human character lookbooks"
-  );
+  assert.equal(goldenRetriever.prompt, userPrompt, "image prompt expansion must be a no-op");
 
-  const goldenHairedPerson = await expandAssetPrompt({
+  const imageResult = await generateAssetImage({
+    id: "asset_prompt_no_rewrite",
     type: "character",
-    name: "金发人物",
-    prompt: "一个金色头发的人"
-  });
+    name: "金毛",
+    prompt: userPrompt,
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString()
+  }, "seedream-4-5");
 
-  assert.match(goldenHairedPerson.prompt, /真实真人|成年人|人物|演员/);
+  assert.equal(imageResult.composedPrompt, userPrompt, "Seedream prompt must submit user text verbatim");
+
   assert.doesNotMatch(
-    goldenHairedPerson.prompt,
-    /非人类角色参考底板|禁止拟人化/,
-    "explicit human character prompts must keep using the human character lookbook"
+    imageResult.composedPrompt,
+    /ARRI|STRICT NEGATIVE|角色参考底板|lookbook|cinematography|no text/i,
+    "Seedream prompt must not include system expansion templates"
   );
+
+  const videoPrompt = "镜头从电梯门打开开始，王木走进会议室，停在空椅前沉默三秒";
+  const video = composeSeedanceVideoText({
+    shot: { rawPrompt: videoPrompt, prompt: videoPrompt, durationSec: 15 },
+    referencedAssets: [{
+      id: "asset_ref",
+      type: "scene",
+      name: "会议室",
+      prompt: "现代会议室",
+      mediaKind: "image",
+      mediaUrl: "https://example.com/room.png",
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString()
+    }],
+    resolution: "9:16"
+  }, "zh");
+
+  assert.equal(video.composedPrompt, videoPrompt, "Seedance prompt composition must keep only user text");
+  assert.deepEqual(video.parts, { raw: videoPrompt });
 }
 
 main().catch((error) => {

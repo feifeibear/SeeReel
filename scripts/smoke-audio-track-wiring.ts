@@ -1,6 +1,5 @@
 import { strict as assert } from "node:assert";
 import { buildSessionGraph } from "../src/client/flow/buildGraph";
-import { buildPendingConnectEdge } from "../src/client/flow/pendingConnection";
 import type { SessionWithShots, StoreSnapshot } from "../src/shared/types";
 
 const now = "2026-06-07T00:00:00.000Z";
@@ -74,7 +73,8 @@ const snapshot: StoreSnapshot = {
 };
 
 const defaultGraph = buildSessionGraph(snapshot, session);
-assert.ok(defaultGraph.nodes.some((node) => node.id === "audio-ses_audio_smoke-stitch_main"), "audio track node should remain visible");
+assert.equal(defaultGraph.nodes.some((node) => node.id.startsWith("stitch-")), false, "stitch nodes should not render on the LibTV-style canvas");
+assert.equal(defaultGraph.nodes.some((node) => node.id.startsWith("audio-")), false, "audio track should not auto-render from a hidden stitch node");
 assert.equal(defaultGraph.edges.some((edge) => edge.id.startsWith("e-audio-")), false, "stitch should not auto-connect to audio track");
 
 const connectedSession: SessionWithShots = {
@@ -84,20 +84,17 @@ const connectedSession: SessionWithShots = {
   narrationStatus: "running"
 };
 const connectedGraph = buildSessionGraph(snapshot, connectedSession);
-const audioEdge = connectedGraph.edges.find((edge) => edge.id === "e-audio-stitch-ses_audio_smoke-stitch_main-audio-ses_audio_smoke-stitch_main");
-assert.ok(audioEdge, "explicit audio-track wiring should render an edge");
-assert.notEqual(audioEdge.deletable, false, "explicit audio-track wiring should be deletable");
-assert.equal((audioEdge.data as { canDisconnectAudioTrack?: boolean }).canDisconnectAudioTrack, true, "audio edge should use disconnect metadata");
-assert.equal(audioEdge.animated, true, "running narration should animate the matching audio edge");
+assert.equal(connectedGraph.edges.some((edge) => edge.id.startsWith("e-audio-")), false, "legacy audio-track wiring should not resurrect stitch/audio canvas edges");
 
-const targetNode = defaultGraph.nodes.find((node) => node.id === "audio-ses_audio_smoke-stitch_main");
-const pendingEdge = buildPendingConnectEdge({
-  connection: { source: "stitch-ses_audio_smoke-stitch_main", target: "audio-ses_audio_smoke-stitch_main", sourceHandle: null, targetHandle: null },
-  session,
-  snapshot,
-  targetNodeData: targetNode?.data
-});
-assert.ok(pendingEdge, "dragging stitch into audio should preview an audio edge");
-assert.equal((pendingEdge.data as { canDisconnectAudioTrack?: boolean }).canDisconnectAudioTrack, true);
+const visibleAudioSession: SessionWithShots = {
+  ...session,
+  audioTrackHidden: false
+};
+const visibleAudioGraph = buildSessionGraph(snapshot, visibleAudioSession);
+const audioNode = visibleAudioGraph.nodes.find((node) => node.id === "audio-legacy");
+assert.ok(audioNode, "explicitly created LibTV-style audio track node should render without a stitch node");
+assert.equal(audioNode.type, "audioTrackNode");
+assert.equal((audioNode.data as { kind?: string; job?: { id?: string } }).kind, "audioTrack");
+assert.equal((audioNode.data as { job?: { id?: string } }).job?.id, "legacy");
 
 console.log("audio track wiring smoke passed");

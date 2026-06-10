@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process";
-import { createHash, randomUUID } from "node:crypto";
+import { createHash, createHmac, randomUUID } from "node:crypto";
 import { mkdir, stat, unlink, writeFile } from "node:fs/promises";
 import path from "node:path";
 import ffmpeg from "@ffmpeg-installer/ffmpeg";
@@ -10,7 +10,14 @@ import {
   runFfmpegCommand
 } from "./generators";
 import { hasAgentPlanKey } from "./arkCredentials";
-import type { NarrationStrategy, NarrationSubtitleMode, NarrationSubtitlePosition, Session } from "../shared/types";
+import type {
+  AudioTrackMode,
+  MusicGenerationKind,
+  NarrationStrategy,
+  NarrationSubtitleMode,
+  NarrationSubtitlePosition,
+  Session
+} from "../shared/types";
 
 // Bumped whenever rendering / timing / TTS request shape changes so cached narration artifacts get
 // re-rendered (signature is part of the output filename).
@@ -30,6 +37,15 @@ const VOLC_TTS_DEFAULT_RATE = 24000;
 const DEFAULT_GAP_MS = 200;
 const DEFAULT_MAX_TEMPO = 1.30;
 const DEFAULT_AMBIENT_DB = -12;
+const VOLC_MUSIC_DEFAULT_HOST = "open.volcengineapi.com";
+const VOLC_MUSIC_DEFAULT_REGION = "cn-beijing";
+const VOLC_MUSIC_DEFAULT_SERVICE = "imagination";
+const VOLC_MUSIC_DEFAULT_VERSION = "2024-08-12";
+const VOLC_MUSIC_DEFAULT_MODEL_VERSION = "v5.0";
+const VOLC_MUSIC_DEFAULT_KIND: MusicGenerationKind = "bgm";
+const VOLC_MUSIC_DEFAULT_BILLING_MODE: VolcMusicBillingMode = "postpaid";
+const VOLC_MUSIC_DEFAULT_POLL_MS = 5000;
+const VOLC_MUSIC_DEFAULT_TIMEOUT_MS = 20 * 60 * 1000;
 
 // ---------- Public types ----------
 
@@ -77,6 +93,9 @@ export interface NarrationPipelineResult {
   narrationSignature: string;
   /** The voice id we actually used (may differ from input.voice if we language-swapped). */
   effectiveVoice: string;
+  musicTaskId?: string;
+  musicAudioUrl?: string;
+  musicLocalAudioUrl?: string;
 }
 
 export interface NarrationPipelineOptions {
@@ -86,6 +105,7 @@ export interface NarrationPipelineOptions {
 // ---------- Signature ----------
 
 export function computeNarrationSignature(input: {
+  mode?: AudioTrackMode;
   script: string;
   voice: string;
   strategy: NarrationStrategy;
@@ -94,9 +114,15 @@ export function computeNarrationSignature(input: {
   subtitlePosition?: NarrationSubtitlePosition;
   narrationVolume?: number;
   sourceVolume?: number;
+  musicKind?: MusicGenerationKind;
+  musicPrompt?: string;
+  musicLyrics?: string;
+  musicDurationSec?: number;
+  musicModelVersion?: string;
 }) {
   const payload = JSON.stringify({
     version: NARRATION_SIGNATURE_VERSION,
+    mode: input.mode || "voiceover",
     script: input.script.trim(),
     voice: input.voice,
     strategy: input.strategy,
@@ -104,7 +130,12 @@ export function computeNarrationSignature(input: {
     subtitleMode: input.subtitleMode || "none",
     subtitlePosition: input.subtitlePosition || "bottom",
     narrationVolume: normalizeVolume(input.narrationVolume, 1.0),
-    sourceVolume: input.sourceVolume === undefined ? undefined : normalizeVolume(input.sourceVolume, 0.25)
+    sourceVolume: input.sourceVolume === undefined ? undefined : normalizeVolume(input.sourceVolume, 0.25),
+    musicKind: input.musicKind,
+    musicPrompt: input.musicPrompt?.trim() || "",
+    musicLyrics: input.musicLyrics?.trim() || "",
+    musicDurationSec: input.musicDurationSec,
+    musicModelVersion: input.musicModelVersion || VOLC_MUSIC_DEFAULT_MODEL_VERSION
   });
   return createHash("sha1").update(payload).digest("hex").slice(0, 12);
 }
@@ -377,6 +408,414 @@ async function consumeVolcSseStream(body: ReadableStream<Uint8Array>): Promise<B
   }
   if (fatalErr) throw fatalErr;
   return Buffer.concat(audioChunks);
+}
+
+// ---------- Volcengine Music (doubao-music / imagination OpenAPI) ----------
+
+type VolcMusicBillingMode = "postpaid" | "prepaid";
+
+interface VolcMusicConfig {
+  accessKeyId: string;
+  secretAccessKey: string;
+  sessionToken?: string;
+  host: string;
+  region: string;
+  service: string;
+  version: string;
+  billingMode: VolcMusicBillingMode;
+  modelVersion: string;
+  tosBucket?: string;
+  pollMs: number;
+  timeoutMs: number;
+}
+
+interface VolcMusicSignedRequest {
+  url: string;
+  headers: Record<string, string>;
+  body: string;
+  action: string;
+}
+
+interface VolcMusicPollResult {
+  status: "running" | "succeeded" | "failed";
+  audioUrl?: string;
+  taskId?: string;
+  lyrics?: string;
+  durationSec?: number;
+  failureReason?: string;
+  raw: unknown;
+}
+
+function readVolcMusicConfig(modelVersion?: string): VolcMusicConfig {
+  const accessKeyId = env(
+    "VOLC_MUSIC_ACCESS_KEY_ID",
+    "VOLCENGINE_ACCESS_KEY",
+    "VOLCENGINE_ACCESS_KEY_ID",
+    "VOLC_ACCESS_KEY",
+    "VOLC_ACCESS_KEY_ID",
+    "TOS_ACCESS_KEY_ID",
+    "TOS_ACCESS_KEY"
+  );
+  const secretAccessKey = env(
+    "VOLC_MUSIC_SECRET_ACCESS_KEY",
+    "VOLCENGINE_SECRET_KEY",
+    "VOLCENGINE_SECRET_ACCESS_KEY",
+    "VOLC_SECRET_KEY",
+    "VOLC_SECRET_ACCESS_KEY",
+    "TOS_SECRET_ACCESS_KEY",
+    "TOS_ACCESS_KEY_SECRET"
+  );
+  if (!accessKeyId || !secretAccessKey) {
+    const agentPlanNote = hasAgentPlanKey()
+      ? " ARK_AGENT_PLAN_KEY 已检测到，但豆包音乐走火山 openapi 签名（Service=imagination），Agent Plan 不能替代 AK/SK。"
+      : "";
+    throw new Error(
+      `火山音乐凭证未配置。请设置 VOLC_MUSIC_ACCESS_KEY_ID 与 VOLC_MUSIC_SECRET_ACCESS_KEY（或 arkcli SSO 写入的 VOLCENGINE_ACCESS_KEY / VOLCENGINE_SECRET_KEY）。${agentPlanNote}`
+    );
+  }
+  return {
+    accessKeyId,
+    secretAccessKey,
+    sessionToken: env("VOLC_MUSIC_SESSION_TOKEN", "VOLCENGINE_SESSION_TOKEN", "VOLCENGINE_STS_TOKEN"),
+    host: process.env.VOLC_MUSIC_HOST || VOLC_MUSIC_DEFAULT_HOST,
+    region: process.env.VOLC_MUSIC_REGION || VOLC_MUSIC_DEFAULT_REGION,
+    service: process.env.VOLC_MUSIC_SERVICE || VOLC_MUSIC_DEFAULT_SERVICE,
+    version: process.env.VOLC_MUSIC_API_VERSION || VOLC_MUSIC_DEFAULT_VERSION,
+    billingMode: parseVolcMusicBillingMode(process.env.VOLC_MUSIC_BILLING_MODE),
+    modelVersion: modelVersion || process.env.VOLC_MUSIC_MODEL_VERSION || VOLC_MUSIC_DEFAULT_MODEL_VERSION,
+    tosBucket: process.env.VOLC_MUSIC_TOS_BUCKET || undefined,
+    pollMs: parseNumberEnv(process.env.VOLC_MUSIC_POLL_MS, VOLC_MUSIC_DEFAULT_POLL_MS),
+    timeoutMs: parseNumberEnv(process.env.VOLC_MUSIC_TIMEOUT_MS, VOLC_MUSIC_DEFAULT_TIMEOUT_MS)
+  };
+}
+
+function parseVolcMusicBillingMode(value: string | undefined): VolcMusicBillingMode {
+  return value === "prepaid" || value === "postpaid" ? value : VOLC_MUSIC_DEFAULT_BILLING_MODE;
+}
+
+export function buildVolcMusicRequest(input: {
+  accessKeyId: string;
+  secretAccessKey: string;
+  sessionToken?: string;
+  host?: string;
+  region?: string;
+  service?: string;
+  version?: string;
+  action: string;
+  body: Record<string, unknown>;
+  now?: Date;
+}): VolcMusicSignedRequest {
+  const host = input.host || VOLC_MUSIC_DEFAULT_HOST;
+  const region = input.region || VOLC_MUSIC_DEFAULT_REGION;
+  const service = input.service || VOLC_MUSIC_DEFAULT_SERVICE;
+  const version = input.version || VOLC_MUSIC_DEFAULT_VERSION;
+  const now = input.now || new Date();
+  const xDate = toVolcXDate(now);
+  const shortDate = xDate.slice(0, 8);
+  const body = JSON.stringify(input.body);
+  const payloadHash = sha256Hex(body);
+  const query = canonicalQuery({ Action: input.action, Version: version });
+  const canonicalHeaderMap: Record<string, string> = {
+    "content-type": "application/json",
+    host,
+    "x-content-sha256": payloadHash,
+    "x-date": xDate
+  };
+  if (input.sessionToken) canonicalHeaderMap["x-security-token"] = input.sessionToken;
+  const signedHeaderNames = Object.keys(canonicalHeaderMap).sort();
+  const canonicalHeaders = signedHeaderNames.map((key) => `${key}:${canonicalHeaderMap[key]}`).join("\n") + "\n";
+  const signedHeaders = signedHeaderNames.join(";");
+  const canonicalRequest = [
+    "POST",
+    "/",
+    query,
+    canonicalHeaders,
+    signedHeaders,
+    payloadHash
+  ].join("\n");
+  const credentialScope = `${shortDate}/${region}/${service}/request`;
+  const stringToSign = [
+    "HMAC-SHA256",
+    xDate,
+    credentialScope,
+    sha256Hex(canonicalRequest)
+  ].join("\n");
+  const signature = hmacHex(signingKey(input.secretAccessKey, shortDate, region, service), stringToSign);
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+    Host: host,
+    "X-Date": xDate,
+    "X-Content-Sha256": payloadHash,
+    Authorization: `HMAC-SHA256 Credential=${input.accessKeyId}/${credentialScope}, SignedHeaders=${signedHeaders}, Signature=${signature}`
+  };
+  if (input.sessionToken) headers["X-Security-Token"] = input.sessionToken;
+  return {
+    action: input.action,
+    url: `https://${host}/?${query}`,
+    body,
+    headers
+  };
+}
+
+async function requestVolcMusic(config: VolcMusicConfig, action: string, body: Record<string, unknown>) {
+  const request = buildVolcMusicRequest({
+    accessKeyId: config.accessKeyId,
+    secretAccessKey: config.secretAccessKey,
+    sessionToken: config.sessionToken,
+    host: config.host,
+    region: config.region,
+    service: config.service,
+    version: config.version,
+    action,
+    body
+  });
+  const response = await fetch(request.url, {
+    method: "POST",
+    headers: request.headers,
+    body: request.body
+  });
+  const text = await response.text();
+  let json: unknown;
+  try {
+    json = text ? JSON.parse(text) : {};
+  } catch {
+    throw new Error(`Volcengine Music ${action} returned non-JSON HTTP ${response.status}: ${text.slice(0, 240)}`);
+  }
+  if (!response.ok) {
+    throw new Error(`Volcengine Music ${action} HTTP ${response.status}: ${extractVolcMessage(json) || text.slice(0, 240)}`);
+  }
+  const code = numberAt(json, "Code");
+  if (code !== undefined && code !== 0) {
+    throw new Error(`Volcengine Music ${action} code=${code}: ${extractVolcMessage(json)}`);
+  }
+  const metadataError = objectAt(json, "ResponseMetadata", "Error");
+  if (metadataError) {
+    throw new Error(`Volcengine Music ${action}: ${extractVolcMessage(metadataError)}`);
+  }
+  return json;
+}
+
+async function generateVolcMusic(input: {
+  kind: MusicGenerationKind;
+  prompt: string;
+  lyrics?: string;
+  durationSec: number;
+  modelVersion?: string;
+  onProgress?: (phase: string) => Promise<void> | void;
+}): Promise<{ taskId: string; audioUrl: string; lyrics?: string; durationSec?: number }> {
+  const config = readVolcMusicConfig(input.modelVersion);
+  const action = musicAction(input.kind, config.billingMode);
+  const body = buildMusicCreateBody(input, config);
+  const created = await requestVolcMusic(config, action, body);
+  const taskId = stringAt(created, "Result", "TaskID") || stringAt(created, "TaskID");
+  if (!taskId) {
+    throw new Error(`Volcengine Music ${action} did not return TaskID`);
+  }
+  await input.onProgress?.(`music task ${taskId}`);
+
+  const started = Date.now();
+  for (;;) {
+    await new Promise((resolve) => setTimeout(resolve, Math.max(1000, config.pollMs)));
+    const polled = await pollVolcMusicTask(config, taskId);
+    if (polled.status === "succeeded" && polled.audioUrl) {
+      return {
+        taskId,
+        audioUrl: polled.audioUrl,
+        lyrics: polled.lyrics,
+        durationSec: polled.durationSec
+      };
+    }
+    if (polled.status === "failed") {
+      throw new Error(`Volcengine Music task ${taskId} failed: ${polled.failureReason || "unknown error"}`);
+    }
+    if (Date.now() - started > config.timeoutMs) {
+      throw new Error(`Volcengine Music task ${taskId} timed out after ${Math.round(config.timeoutMs / 1000)}s`);
+    }
+    await input.onProgress?.(`music task ${taskId} still running`);
+  }
+}
+
+async function pollVolcMusicTask(config: VolcMusicConfig, taskId: string): Promise<VolcMusicPollResult> {
+  const json = await requestVolcMusic(config, "QuerySong", { TaskID: taskId });
+  return parseVolcMusicPollResult(json);
+}
+
+export function parseVolcMusicPollResult(json: unknown): VolcMusicPollResult {
+  const result = objectAt(json, "Result") || (typeof json === "object" && json !== null ? json : {});
+  const songDetail = objectAt(result, "SongDetail") || objectAt(json, "SongDetail") || {};
+  const audioUrl =
+    stringAt(songDetail, "AudioUrl") ||
+    stringAt(songDetail, "AudioURL") ||
+    stringAt(songDetail, "Audio") ||
+    stringAt(result, "AudioUrl") ||
+    stringAt(result, "AudioURL") ||
+    stringAt(json, "AudioUrl");
+  const statusValue = valueAt(result, "Status") ?? valueAt(json, "Status");
+  const statusString = String(statusValue ?? "").toLowerCase();
+  const failureReason = extractVolcFailureReason(result) || extractVolcFailureReason(json);
+  if (audioUrl || statusValue === 2 || statusString === "success" || statusString === "succeeded") {
+    return {
+      status: audioUrl ? "succeeded" : "running",
+      audioUrl,
+      taskId: stringAt(result, "TaskID") || stringAt(json, "TaskID"),
+      lyrics: stringAt(songDetail, "Lyrics") || stringAt(result, "Lyrics"),
+      durationSec: numberAt(songDetail, "Duration") || numberAt(result, "Duration"),
+      raw: json
+    };
+  }
+  if (statusValue === 3 || statusString === "failed" || statusString === "fail" || statusString === "error") {
+    return {
+      status: "failed",
+      taskId: stringAt(result, "TaskID") || stringAt(json, "TaskID"),
+      failureReason,
+      raw: json
+    };
+  }
+  return {
+    status: "running",
+    taskId: stringAt(result, "TaskID") || stringAt(json, "TaskID"),
+    raw: json
+  };
+}
+
+function buildMusicCreateBody(
+  input: { kind: MusicGenerationKind; prompt: string; lyrics?: string; durationSec: number; modelVersion?: string },
+  config: VolcMusicConfig
+) {
+  const duration = clampMusicDuration(input.durationSec, input.kind);
+  if (input.kind === "song") {
+    return stripUndefined({
+      Prompt: input.prompt,
+      Lyrics: input.lyrics?.trim() || undefined,
+      Duration: duration,
+      ModelVersion: config.modelVersion,
+      VodFormat: "mp3",
+      TosBucket: config.tosBucket || undefined
+    });
+  }
+  return stripUndefined({
+    Text: input.prompt,
+    Duration: duration,
+    EnableInputRewrite: false,
+    Version: config.modelVersion,
+    TosBucket: config.tosBucket || undefined
+  });
+}
+
+function musicAction(kind: MusicGenerationKind, billingMode: VolcMusicBillingMode) {
+  if (kind === "song") return billingMode === "prepaid" ? "GenSongV4" : "GenSongForTime";
+  return billingMode === "prepaid" ? "GenBGM" : "GenBGMForTime";
+}
+
+function clampMusicDuration(durationSec: number, kind: MusicGenerationKind) {
+  const parsed = Number(durationSec);
+  const fallback = kind === "song" ? 60 : 60;
+  const value = Number.isFinite(parsed) ? parsed : fallback;
+  const min = kind === "song" ? 30 : 30;
+  const max = kind === "song" ? 240 : 120;
+  return Math.max(min, Math.min(max, Math.round(value)));
+}
+
+async function downloadRemoteAudio(url: string, sessionId: string, signature: string) {
+  await mkdir(MEDIA_DIR, { recursive: true });
+  const ext = extensionFromUrl(url) || ".mp3";
+  const outputPath = path.join(MEDIA_DIR, `music-${sessionId}-${signature}${ext}`);
+  if (await fileExists(outputPath)) return outputPath;
+  const response = await fetch(url);
+  if (!response.ok) throw new Error(`Download music audio failed: ${response.status} ${response.statusText}`);
+  const buf = Buffer.from(await response.arrayBuffer());
+  if (!buf.length) throw new Error("Downloaded music audio is empty");
+  await writeFile(outputPath, buf);
+  return outputPath;
+}
+
+function extensionFromUrl(url: string) {
+  try {
+    const ext = path.extname(new URL(url).pathname).toLowerCase();
+    return ext && ext.length <= 8 ? ext : "";
+  } catch {
+    return "";
+  }
+}
+
+function toVolcXDate(date: Date) {
+  return date.toISOString().replace(/[:-]|\.\d{3}/g, "");
+}
+
+function canonicalQuery(params: Record<string, string>) {
+  return Object.entries(params)
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([key, value]) => `${encodeURIComponent(key)}=${encodeURIComponent(value)}`)
+    .join("&");
+}
+
+function sha256Hex(value: string) {
+  return createHash("sha256").update(value).digest("hex");
+}
+
+function hmacBuffer(key: Buffer | string, value: string) {
+  return createHmac("sha256", key).update(value).digest();
+}
+
+function hmacHex(key: Buffer | string, value: string) {
+  return createHmac("sha256", key).update(value).digest("hex");
+}
+
+function signingKey(secret: string, shortDate: string, region: string, service: string) {
+  return hmacBuffer(hmacBuffer(hmacBuffer(hmacBuffer(secret, shortDate), region), service), "request");
+}
+
+function stripUndefined<T extends Record<string, unknown>>(value: T): T {
+  return Object.fromEntries(Object.entries(value).filter(([, item]) => item !== undefined && item !== "")) as T;
+}
+
+function env(...keys: string[]) {
+  for (const key of keys) {
+    const value = process.env[key]?.trim();
+    if (value) return value;
+  }
+  return undefined;
+}
+
+function valueAt(value: unknown, ...pathParts: string[]): unknown {
+  let current: unknown = value;
+  for (const part of pathParts) {
+    if (!current || typeof current !== "object" || !(part in current)) return undefined;
+    current = (current as Record<string, unknown>)[part];
+  }
+  return current;
+}
+
+function objectAt(value: unknown, ...pathParts: string[]) {
+  const out = valueAt(value, ...pathParts);
+  return out && typeof out === "object" ? out as Record<string, unknown> : undefined;
+}
+
+function stringAt(value: unknown, ...pathParts: string[]) {
+  const out = valueAt(value, ...pathParts);
+  return typeof out === "string" && out ? out : undefined;
+}
+
+function numberAt(value: unknown, ...pathParts: string[]) {
+  const out = valueAt(value, ...pathParts);
+  return typeof out === "number" && Number.isFinite(out) ? out : undefined;
+}
+
+function extractVolcFailureReason(value: unknown) {
+  const failure = objectAt(value, "FailureReason");
+  if (failure) return extractVolcMessage(failure);
+  return stringAt(value, "FailureReason") || stringAt(value, "Error") || stringAt(value, "Message");
+}
+
+function extractVolcMessage(value: unknown) {
+  return (
+    stringAt(value, "Message") ||
+    stringAt(value, "Msg") ||
+    stringAt(value, "message") ||
+    stringAt(value, "Error", "Message") ||
+    stringAt(value, "ResponseMetadata", "Error", "Message") ||
+    JSON.stringify(value).slice(0, 240)
+  );
 }
 
 // ---------- Timeline assembly ----------
@@ -657,6 +1096,7 @@ function parseNumberEnv(value: string | undefined, fallback: number): number {
 export async function runNarrationPipeline(
   session: Pick<Session, "id" | "finalVideoUrl" | "finalVideoSignature">,
   input: {
+    mode?: AudioTrackMode;
     script: string;
     voice: string;
     strategy: NarrationStrategy;
@@ -664,6 +1104,11 @@ export async function runNarrationPipeline(
     subtitlePosition?: NarrationSubtitlePosition;
     narrationVolume?: number;
     sourceVolume?: number;
+    musicKind?: MusicGenerationKind;
+    musicPrompt?: string;
+    musicLyrics?: string;
+    musicDurationSec?: number;
+    musicModelVersion?: string;
   },
   options: NarrationPipelineOptions = {}
 ): Promise<NarrationPipelineResult> {
@@ -674,27 +1119,35 @@ export async function runNarrationPipeline(
     throw new Error("Session has no finalVideoSignature — 请先完成一次拼接再生成解说。");
   }
 
+  const mode: AudioTrackMode = input.mode === "music" ? "music" : "voiceover";
   // Safety net: if the requested voice doesn't match the script's dominant language, swap it for
   // the default speaker of the correct language. Guarantees "English script -> English narration /
   // Chinese script -> Chinese narration" even if the client cached a stale voice id.
-  const effectiveVoice = resolveEffectiveVoice(input.script, input.voice);
+  const effectiveVoice = mode === "voiceover" ? resolveEffectiveVoice(input.script, input.voice) : input.voice;
   if (effectiveVoice !== input.voice) {
     console.log(
       `[narration ${session.id}] voice ${input.voice} doesn't match script language → swapping to ${effectiveVoice}`
     );
   }
 
-  const cfg = readVolcConfig(effectiveVoice);
+  const cfg = mode === "voiceover" ? readVolcConfig(effectiveVoice) : undefined;
+  const effectiveVoiceForSignature = cfg?.voice || effectiveVoice;
 
   const signature = computeNarrationSignature({
+    mode,
     script: input.script,
-    voice: cfg.voice,
+    voice: effectiveVoiceForSignature,
     strategy: input.strategy,
     finalVideoSignature: session.finalVideoSignature,
     subtitleMode: input.subtitleMode,
     subtitlePosition: input.subtitlePosition,
     narrationVolume: input.narrationVolume,
-    sourceVolume: input.sourceVolume
+    sourceVolume: input.sourceVolume,
+    musicKind: input.musicKind,
+    musicPrompt: input.musicPrompt,
+    musicLyrics: input.musicLyrics,
+    musicDurationSec: input.musicDurationSec,
+    musicModelVersion: input.musicModelVersion
   });
   const report = async (phase: string) => {
     console.log(`[narration ${session.id}] ${phase}`);
@@ -723,11 +1176,61 @@ export async function runNarrationPipeline(
     };
   }
 
-  await report(`signature=${signature} voice=${cfg.voice}`);
+  await report(mode === "music" ? `signature=${signature} music=doubao-music` : `signature=${signature} voice=${effectiveVoiceForSignature}`);
 
   const sourceVideoPath = await materializeFinalVideo(session.finalVideoUrl, session.id, signature);
   const videoDurationSec = await probeMediaDurationSec(sourceVideoPath);
   await report(`video duration ${videoDurationSec.toFixed(2)}s`);
+
+  if (mode === "music") {
+    const prompt = (input.musicPrompt || input.script || "").trim();
+    if (!prompt) throw new Error("音乐提示词为空。");
+    const musicDurationSec = input.musicDurationSec || videoDurationSec;
+    await report(`music submit ${input.musicKind || VOLC_MUSIC_DEFAULT_KIND}: ${truncatePreview(prompt)}`);
+    const music = await generateVolcMusic({
+      kind: input.musicKind || VOLC_MUSIC_DEFAULT_KIND,
+      prompt,
+      lyrics: input.musicLyrics,
+      durationSec: musicDurationSec,
+      modelVersion: input.musicModelVersion,
+      onProgress: report
+    });
+    await report(`music ready task=${music.taskId}`);
+    const musicPath = await downloadRemoteAudio(music.audioUrl, session.id, signature);
+    const musicLocalAudioUrl = `/media/${path.basename(musicPath)}`;
+    const timeline: NarrationTimeline = {
+      segments: [{
+        index: 0,
+        text: prompt,
+        audioPath: musicPath,
+        startSec: 0,
+        endSec: videoDurationSec
+      }],
+      globalTempo: 1.0,
+      narrationDurationSec: videoDurationSec,
+      outputDurationSec: videoDurationSec,
+      videoDurationSec,
+      droppedLineCount: 0
+    };
+    await renderFinalNarratedVideo({
+      sourceVideoPath,
+      timeline,
+      outputPath: outputVideoPath,
+      subtitleMode: "none",
+      subtitlePosition: "bottom",
+      narrationVolume: input.narrationVolume,
+      sourceVolume: input.sourceVolume,
+      report
+    });
+    return {
+      narrationVideoUrl: `/media/${outputVideoName}`,
+      narrationSignature: signature,
+      effectiveVoice,
+      musicTaskId: music.taskId,
+      musicAudioUrl: music.audioUrl,
+      musicLocalAudioUrl
+    };
+  }
 
   const lines = parseNarrationScriptLines(input.script);
   if (!lines.length) throw new Error("脚本为空或全是标点。");
@@ -741,7 +1244,7 @@ export async function runNarrationPipeline(
     if (!(await fileExists(audioPath))) {
       await report(`tts ${index + 1}/${lines.length}: ${truncatePreview(text)}`);
       try {
-        const audio = await synthesizeViaDoubao(text, cfg.voice);
+        const audio = await synthesizeViaDoubao(text, effectiveVoiceForSignature);
         await writeFile(audioPath, audio);
       } catch (err) {
         await report(`tts ${index + 1} failed (${(err as Error).message}); inserting silence`);

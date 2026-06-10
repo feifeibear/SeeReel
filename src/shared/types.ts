@@ -1,4 +1,4 @@
-export type AssetType = "character" | "scene" | "prop" | "style" | "other";
+export type AssetType = "image" | "character" | "scene" | "prop" | "style" | "other";
 export type AssetMediaKind = "image" | "video" | "none";
 export type AssetImageModel = "gpt-image-2" | "seedream-4" | "seedream-4-5" | "seedream-5-lite";
 export type StandardApiKeyRoute = "byteplus" | "volcengine-cn";
@@ -9,6 +9,8 @@ export type SessionLanguage = "zh" | "en";
 
 export type ShotStatus = "draft" | "scripted" | "generating" | "ready" | "error" | "cancelled";
 export type SeedanceVariant = "fast" | "standard";
+export type AudioTrackMode = "voiceover" | "music";
+export type MusicGenerationKind = "bgm" | "song";
 /**
  * Sub-phase of a `generating` shot/render so the UI can distinguish "still queued at Seedance"
  * (the task is accepted but no GPU has picked it up yet — common during peak hours, can sit for
@@ -683,6 +685,7 @@ export interface Session {
    * source stitch job id is listed here. Legacy stitch output uses the id "legacy".
    */
   audioTrackStitchJobIds?: string[];
+  audioTrackMode?: AudioTrackMode;
   narrationScript?: string;
   narrationVoice?: string;
   narrationStrategy?: NarrationStrategy;
@@ -700,6 +703,14 @@ export interface Session {
   narrationSubtitleUrl?: string;
   narrationSignature?: string;
   narrationRunningSignature?: string;
+  musicKind?: MusicGenerationKind;
+  musicPrompt?: string;
+  musicLyrics?: string;
+  musicDurationSec?: number;
+  musicModelVersion?: string;
+  musicTaskId?: string;
+  musicAudioUrl?: string;
+  musicLocalAudioUrl?: string;
   /**
    * The `finalVideoSignature` value that was active when this narration was built. The UI
    * compares it against the current `finalVideoSignature` to detect a stale narration after a

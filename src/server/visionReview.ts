@@ -688,7 +688,7 @@ export async function withImageReview<T>(opts: WithImageReviewOpts<T>): Promise<
     return { url: result.url, payload: result.payload, reviewAttempts: 0 };
   }
 
-  const rewriteEnabled = opts.rewritePrompt !== false;
+  const rewriteEnabled = opts.rewritePrompt === true;
   const lang: "zh" | "en" = opts.lang === "en" ? "en" : "zh";
   let last: { url: string; payload: T } | undefined;
   let lastRewrittenPrompt: string | undefined;
@@ -765,23 +765,12 @@ export function formatReviewNote(
 }
 
 // ============================================================================
-// Prompt rewriter — turn VLM verdict reasons into a fresh prompt for resubmission.
+// Prompt rewriter disabled: prompt text remains user-authored.
 // ============================================================================
 
-const SYSTEM_PROMPT_REWRITE_ZH =
-  "你是 AI 图像/视频 prompt 修复师。给定 (a) 上一版被打回的原始 prompt 和 (b) 一组来自视觉模型质检员的具体失败原因，" +
-  "请把 prompt 改写成能避免这些失败的新版本，同时保留原 prompt 中没有被指出有问题的部分（人物设定、场景、镜头、光线、风格、负面约束等）。" +
-  "重点在于：把每条失败原因变成 prompt 里更明确、更可执行的指令；删除/替换与失败原因冲突的描述；不要堆叠重复约束；保持中文。" +
-  "只输出改写后的 prompt 本身，不要解释，不要 Markdown，不要任何前后缀，不要写 \"以下是改写后的 prompt:\" 之类的话。" +
-  "保持与原始 prompt 相近的长度与结构。";
+const SYSTEM_PROMPT_REWRITE_ZH = "";
 
-const SYSTEM_PROMPT_REWRITE_EN =
-  "You are an AI image/video prompt fixer. Given (a) the original prompt that produced a flawed output and (b) a list of specific failure " +
-  "reasons from a vision-language reviewer, rewrite the prompt so that the next generation addresses those failures while preserving " +
-  "everything that wasn't called out as wrong (character spec, scene, camera, lighting, style, negative constraints). Turn each failure " +
-  "reason into a more explicit, actionable instruction in the prompt; remove/replace any description that conflicts with the reasons; " +
-  "do not pile up duplicate constraints; keep English. Output the rewritten prompt only, no explanation, no Markdown, no preamble. " +
-  "Keep the rewritten length and structure close to the original.";
+const SYSTEM_PROMPT_REWRITE_EN = "";
 
 export interface RewritePromptInput {
   originalPrompt: string;
@@ -816,120 +805,10 @@ function resolvePromptRewriteModel(explicitModel: string | undefined, source: "s
 }
 
 /**
- * Take an original prompt + the VLM's failure reasons and rewrite the prompt so the next
- * generation has a real chance of passing review. Falls through to the original prompt on any
- * failure (no API key, transport error, empty output, malformed response) — never throws.
- *
- * Used by:
- *   - withImageReview (asset / sketch / storyboard panel regen)
- *   - the video review-driven retry branch in submitShotGeneration
+ * Prompt rewriting is intentionally disabled. VLM failures are feedback only; the user or agent
+ * must edit visible prompt fields directly.
  */
 export async function rewritePromptWithReviewFeedback(input: RewritePromptInput): Promise<RewritePromptResult> {
-  const credential = reviewCredential();
-  const { apiKey } = credential;
-  const model = resolvePromptRewriteModel(input.model, credential.source);
-  const lang: "zh" | "en" = input.lang === "en" ? "en" : "zh";
   const original = (input.originalPrompt || "").trim();
-  const reasons = (input.reviewReasons || []).map((r) => (r || "").trim()).filter(Boolean);
-
-  if (!apiKey) {
-    return { prompt: original, rewritten: false, model: "", note: "[skip] no API key" };
-  }
-  if (!model) {
-    return { prompt: original, rewritten: false, model: "", note: "[skip] no Agent Plan-compatible rewrite model configured" };
-  }
-  if (!original) {
-    return { prompt: original, rewritten: false, model: "", note: "[skip] empty original prompt" };
-  }
-  if (!reasons.length) {
-    return { prompt: original, rewritten: false, model: "", note: "[skip] no review reasons" };
-  }
-
-  const systemPrompt = lang === "en" ? SYSTEM_PROMPT_REWRITE_EN : SYSTEM_PROMPT_REWRITE_ZH;
-  const userText = lang === "en"
-    ? [
-        "Original prompt:",
-        original,
-        "",
-        "Reviewer reasons (each is a concrete failure to fix):",
-        ...reasons.map((r, i) => `${i + 1}. ${r}`),
-        "",
-        "Rewrite the prompt now. Output the rewritten prompt only — no explanation, no preamble, no markdown."
-      ].join("\n")
-    : [
-        "原始 prompt：",
-        original,
-        "",
-        "质检反馈（每条都是要修的具体问题）：",
-        ...reasons.map((r, i) => `${i + 1}. ${r}`),
-        "",
-        "现在改写 prompt。只输出改写后的 prompt——不要解释，不要前后缀，不要 Markdown。"
-      ].join("\n");
-
-  // Optionally attach the failed product image + reference images so the rewriter can see what
-  // went wrong visually rather than relying purely on textual reasons. Cheap when models support
-  // it; falls through silently when attachments fail.
-  const attachments: Array<{ type: "input_image"; image_url: string }> = [];
-  if (input.failedProductUrl) {
-    const c = await imageInputContent(input.failedProductUrl);
-    if (c) attachments.push(c);
-  }
-  if (input.referenceUrls?.length) {
-    const refs = await collectReferenceImageContents(input.referenceUrls);
-    attachments.push(...refs);
-  }
-  const userContent: CallVisionParams["userContent"] = [
-    { type: "input_text", text: userText },
-    ...(attachments.length
-      ? ([
-          {
-            type: "input_text" as const,
-            text: lang === "en"
-              ? `Attachments below: first the rejected output${input.referenceUrls?.length ? ", then up to 3 reference images that should be respected" : ""}.`
-              : `下方附件：先是被打回的产物${input.referenceUrls?.length ? "，然后是最多 3 张应当遵循的参考图" : ""}。`
-          },
-          ...attachments
-        ])
-      : [])
-  ];
-
-  try {
-    const apiBase = credential.apiBase;
-    const response = await fetchWithRetry(`${apiBase}/responses`, {
-      method: "POST",
-      timeoutMs: 60_000,
-      tag: "ark:prompt-rewrite",
-      headers: {
-        "Content-Type": "application/json",
-        Accept: "application/json",
-        Authorization: `Bearer ${apiKey}`
-      },
-      body: JSON.stringify({
-        model,
-        stream: false,
-        input: [
-          { role: "system", content: [{ type: "input_text", text: systemPrompt }] },
-          { role: "user", content: userContent }
-        ]
-      })
-    });
-    const text = await response.text();
-    if (!response.ok) {
-      console.warn(`[prompt-rewrite] API ${response.status}: ${text.slice(0, 300)}`);
-      return { prompt: original, rewritten: false, model, note: `[skip] API ${response.status}` };
-    }
-    const body = text ? safeJson(text) : undefined;
-    const tokenUsage = tokenUsageFromRaw(body);
-    const rawText = (extractResponseText(body) || "").trim();
-    // Strip any accidental markdown fences the rewriter might still emit despite the system prompt.
-    const cleaned = rawText.replace(/^```(?:[a-z]+)?\s*/i, "").replace(/\s*```$/i, "").trim();
-    if (!cleaned || cleaned === original) {
-      return { prompt: original, rewritten: false, model, note: "[skip] rewriter returned empty or identical", tokenUsage };
-    }
-    return { prompt: cleaned, rewritten: true, model, tokenUsage };
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    console.warn(`[prompt-rewrite] threw: ${message.slice(0, 300)}`);
-    return { prompt: original, rewritten: false, model, note: `[skip] ${message.slice(0, 200)}` };
-  }
+  return { prompt: original, rewritten: false, model: "", note: "[skip] prompt rewriting disabled" };
 }

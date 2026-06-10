@@ -10,6 +10,8 @@ import type {
   ExpandAssetPromptResult,
   GalleryItem,
   GalleryPublishPayload,
+  AudioTrackMode,
+  MusicGenerationKind,
   NarrationStrategy,
   NarrationSubtitleMode,
   NarrationSubtitlePosition,
@@ -309,6 +311,11 @@ export const api = {
       method: "POST",
       body: JSON.stringify(opts || {})
     }),
+  createShotFirstFrame: (shotId: string, opts?: { publishToTos?: boolean; canvasNode?: boolean }) =>
+    request<{ asset: Asset }>(`/api/shots/${shotId}/firstframe`, {
+      method: "POST",
+      body: JSON.stringify(opts || {})
+    }),
   createShotTailClip: (shotId: string, opts?: { durationSec?: number; publishToTos?: boolean }) =>
     request<{ asset: Asset }>(`/api/shots/${shotId}/tail-clip`, {
       method: "POST",
@@ -506,6 +513,7 @@ export const api = {
     sessionId: string,
     payload: {
       script: string;
+      mode?: AudioTrackMode;
       voice?: string;
       strategy?: NarrationStrategy;
       jobId?: string;
@@ -513,6 +521,11 @@ export const api = {
       subtitlePosition?: NarrationSubtitlePosition;
       narrationVolume?: number;
       sourceVolume?: number;
+      musicKind?: MusicGenerationKind;
+      musicPrompt?: string;
+      musicLyrics?: string;
+      musicDurationSec?: number;
+      musicModelVersion?: string;
     },
     onProgress?: (snapshot: SessionWithShots) => void
   ): Promise<SessionWithShots> => {

@@ -1,9 +1,9 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactElement } from "react";
-import { Film, Globe, Image as ImageIcon, Mountain, Music2, Plus, Scissors, Upload, User } from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactElement } from "react";
+import { Film, Globe, Image as ImageIcon, Music2, Plus, Upload } from "lucide-react";
 import { useI18n } from "../i18n";
 import { resolveCreateNodeMenuLayout } from "./createNodeMenuPosition";
 
-export type CreateMenuOption = "character" | "scene" | "storyboard" | "shot" | "stitch" | "audioTrack" | "uploadCharacter" | "uploadScene" | "uploadVideo";
+export type CreateMenuOption = "image" | "storyboard" | "shot" | "audioTrack" | "uploadImage" | "uploadVideo";
 
 interface CreateNodeMenuProps {
   /** Anchor position in viewport coords (clientX/Y from the context-menu event). */
@@ -31,7 +31,6 @@ export function CreateNodeMenu({ x, y, onPick, onClose }: CreateNodeMenuProps) {
   const { t } = useI18n();
   const ref = useRef<HTMLDivElement | null>(null);
   const pickedRef = useRef(false);
-  const [menuSize, setMenuSize] = useState({ width: 320, height: 560 });
   const [viewportSize, setViewportSize] = useState(() => ({
     width: typeof window === "undefined" ? 1024 : window.innerWidth,
     height: typeof window === "undefined" ? 768 : window.innerHeight
@@ -59,14 +58,11 @@ export function CreateNodeMenu({ x, y, onPick, onClose }: CreateNodeMenuProps) {
         if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || target.isContentEditable) return;
       }
       if (e.key === "Escape") return safeClose();
-      if (e.key === "c" || e.key === "C") return safePick("character");
-      if (e.key === "s" || e.key === "S") return safePick("scene");
+      if (e.key === "i" || e.key === "I") return safePick("image");
       if (e.key === "b" || e.key === "B") return safePick("storyboard");
       if (e.key === "n" || e.key === "N") return safePick("shot");
-      if (e.key === "j" || e.key === "J") return safePick("stitch");
       if (e.key === "a" || e.key === "A") return safePick("audioTrack");
-      if (e.key === "u" || e.key === "U") return safePick("uploadCharacter");
-      if (e.key === "v" || e.key === "V") return safePick("uploadScene");
+      if (e.key === "u" || e.key === "U") return safePick("uploadImage");
       if (e.key === "r" || e.key === "R") return safePick("uploadVideo");
     };
     const onClick = (e: MouseEvent) => {
@@ -89,16 +85,19 @@ export function CreateNodeMenu({ x, y, onPick, onClose }: CreateNodeMenuProps) {
     return () => window.removeEventListener("resize", onResize);
   }, []);
 
-  useLayoutEffect(() => {
-    const node = ref.current;
-    if (!node) return;
-    const rect = node.getBoundingClientRect();
-    const width = Math.ceil(rect.width);
-    const height = Math.ceil(node.scrollHeight || rect.height);
-    if (width && height && (Math.abs(width - menuSize.width) > 1 || Math.abs(height - menuSize.height) > 1)) {
-      setMenuSize({ width, height });
-    }
-  }, [menuSize.height, menuSize.width, viewportSize.width]);
+  const items: Array<{ key: CreateMenuOption; icon: ReactElement; label: string; hint: string; tag: string }> = [
+    { key: "image", icon: <ImageIcon size={14} />, label: t.menu.image, hint: t.menu.imageHint, tag: "I" },
+    { key: "storyboard", icon: <ImageIcon size={14} />, label: t.menu.storyboard, hint: t.menu.storyboardHint, tag: "B" },
+    { key: "shot", icon: <Plus size={14} />, label: t.menu.shot, hint: t.menu.shotHint, tag: "N" },
+    { key: "audioTrack", icon: <Music2 size={14} />, label: t.menu.audioTrack, hint: t.menu.audioTrackHint, tag: "A" },
+    { key: "uploadImage", icon: <Upload size={14} />, label: t.menu.uploadImage, hint: t.menu.uploadImageHint, tag: "U" },
+    { key: "uploadVideo", icon: <Film size={14} />, label: t.menu.uploadVideo, hint: t.menu.uploadVideoHint, tag: "R" }
+  ];
+
+  const menuSize = useMemo(() => ({
+    width: Math.min(320, Math.max(220, viewportSize.width - 24)),
+    height: 52 + items.length * 46
+  }), [items.length, viewportSize.width]);
 
   const layout = useMemo(() => resolveCreateNodeMenuLayout({
     anchorX: x,
@@ -108,18 +107,6 @@ export function CreateNodeMenu({ x, y, onPick, onClose }: CreateNodeMenuProps) {
     menuWidth: menuSize.width,
     menuHeight: menuSize.height
   }), [menuSize.height, menuSize.width, viewportSize.height, viewportSize.width, x, y]);
-
-  const items: Array<{ key: CreateMenuOption; icon: ReactElement; label: string; hint: string; tag: string }> = [
-    { key: "character", icon: <User size={14} />, label: t.menu.character, hint: t.menu.characterHint, tag: "C" },
-    { key: "scene", icon: <Mountain size={14} />, label: t.menu.scene, hint: t.menu.sceneHint, tag: "S" },
-    { key: "storyboard", icon: <ImageIcon size={14} />, label: t.menu.storyboard, hint: t.menu.storyboardHint, tag: "B" },
-    { key: "shot", icon: <Plus size={14} />, label: t.menu.shot, hint: t.menu.shotHint, tag: "N" },
-    { key: "stitch", icon: <Scissors size={14} />, label: t.menu.stitch, hint: t.menu.stitchHint, tag: "J" },
-    { key: "audioTrack", icon: <Music2 size={14} />, label: t.menu.audioTrack, hint: t.menu.audioTrackHint, tag: "A" },
-    { key: "uploadCharacter", icon: <Upload size={14} />, label: t.menu.uploadCharacter, hint: t.menu.uploadCharacterHint, tag: "U" },
-    { key: "uploadScene", icon: <ImageIcon size={14} />, label: t.menu.uploadScene, hint: t.menu.uploadSceneHint, tag: "V" },
-    { key: "uploadVideo", icon: <Film size={14} />, label: t.menu.uploadVideo, hint: t.menu.uploadVideoHint, tag: "R" }
-  ];
 
   return (
     <div

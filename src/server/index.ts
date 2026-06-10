@@ -72,7 +72,7 @@ import { incCounter, metricsText, observeHttpRequest, setGauge, setHttpInflight 
 import { collectVisitorMetrics, visitorMetricsMiddleware } from "./visitorMetrics";
 import { cleanupDeletedSessionArtifacts, collectDeletedSessionArtifacts, collectDeletedSessionsArtifacts } from "./sessionCleanup";
 import { resolveNodeReviewEnabled } from "../shared/reviewSettings";
-import { selectedShotPendingRender } from "../shared/shotGenerationState";
+import { hasActiveShotGeneration, selectedShotPendingRender } from "../shared/shotGenerationState";
 import { resolveVideoDeliveryUrl, shouldRedirectVideoDelivery, type VideoDeliveryInput } from "../shared/videoDelivery";
 import {
   composeSeedanceVideoText,
@@ -85,14 +85,15 @@ import {
   reviewImage,
   reviewImageDetailed,
   reviewVideoDetailed,
-  rewritePromptWithReviewFeedback,
   shouldEnableReview,
   withImageReview,
   formatReviewNote
 } from "./visionReview";
 import type {
   Asset,
+  AudioTrackMode,
   GalleryPublishPayload,
+  MusicGenerationKind,
   NarrationStrategy,
   SeedancePhase,
   Session,
@@ -1236,7 +1237,7 @@ function selectedRenderReferenceImagesChanged(shot: Shot, snapshot: StoreSnapsho
 }
 
 function workflowShotAction(shot: Shot, mode: WorkflowRunMode, snapshot: StoreSnapshot): WorkflowShotPlanItem["action"] {
-  if (shot.status === "generating" || Boolean(shot.generationTaskId) || Boolean(findPendingRender(shot))) return "poll";
+  if (hasActiveShotGeneration(shot)) return "poll";
   if (mode === "all") return "generate";
   if (!shot.videoUrl || shot.status === "error" || shot.status === "cancelled") return "generate";
   if (selectedRenderReferenceImagesChanged(shot, snapshot)) return "generate";
@@ -1525,31 +1526,7 @@ app.get("/api/assets/:assetId/download", async (req, res) => {
 app.post("/api/assets/:assetId/review/repair-prompt", async (req, res) => {
   const asset = store.snapshot().assets.find((item) => item.id === req.params.assetId);
   if (!asset) return res.status(404).json({ error: "Asset not found" });
-  const failures = parseExistingReviewFailures(asset.reviewNote);
-  const reasons = failures.flatMap((failure) => failure.reasons);
-  if (!reasons.length) return res.status(400).json({ error: "Asset has no VLM review failures to repair" });
-  if (!consumeGenerationOr429(res, sessionIdForAsset(asset), "asset_review_repair_prompt")) return;
-  const rewrite = await rewritePromptWithReviewFeedback({
-    originalPrompt: asset.prompt || asset.description || asset.name,
-    reviewReasons: reasons.slice(0, 8),
-    referenceUrls: [asset.referenceImageUrl, asset.mediaUrl, asset.imageUrl].filter(Boolean) as string[],
-    lang: "zh"
-  });
-  const patch = rewrite.rewritten ? rewrite.prompt : buildFallbackRepairPatch(reasons);
-  const plan: VideoReviewRepairPlan = {
-    createdAt: new Date().toISOString(),
-    sourceReviewScope: "asset",
-    sourceNodeId: asset.id,
-    targets: [{ kind: "asset", id: asset.id, reason: "图片资产 VLM 自审未通过，需要修复资产 prompt", promptPatch: patch }],
-    appliedAt: new Date().toISOString()
-  };
-  const updated = await store.upsertAsset({
-    id: asset.id,
-    prompt: appendRepairBlock(asset.prompt || asset.description || asset.name, patch),
-    composedPromptDraft: undefined,
-    videoReviewRepairPlan: plan
-  });
-  res.json(updated);
+  res.status(410).json({ error: "AI prompt repair is disabled. Edit the prompt manually." });
 });
 
 app.post("/api/assets/:assetId/promote", async (req, res) => {
@@ -2362,9 +2339,48 @@ app.post("/api/shots/restore", async (req, res) => {
   res.json({ shot: restoredShot, session: restored.session, assets: restored.assets });
 });
 
-// Phase 4 — extract the rendered last frame of a shot's video and persist it as a session-scoped
-// image asset. Used to chain shot N+1's first-frame anchor (or sub-storyboard reference) to the
-// real motion-end of shot N, eliminating the static-keyframe "freeze at the cut" pattern.
+// Phase 4 — extract rendered frames from a shot's video and persist them as session-scoped image
+// assets. They appear as standalone canvas nodes; users may optionally wire them into later videos
+// as Seedance first/last-frame anchors.
+app.post("/api/shots/:shotId/firstframe", async (req, res) => {
+  const shot = store.getShot(req.params.shotId);
+  if (!shot) return res.status(404).json({ error: "Shot not found" });
+  const videoUrl = shot.videoUrl;
+  if (!videoUrl) return res.status(400).json({ error: "Shot has no rendered videoUrl" });
+  const reqBody = (req.body as Record<string, unknown>) || {};
+  const publishToTos = reqBody.publishToTos === true;
+  const canvasNode = reqBody.canvasNode === true;
+  try {
+    let asset = await extractVideoFrameAsAsset({
+      frameRole: "first",
+      videoUrl,
+      sessionId: shot.sessionId,
+      ownerShotId: canvasNode ? undefined : shot.id,
+      sourceShotId: shot.id,
+      label: `${shot.title || `Shot ${shot.index}`} 首帧`
+    });
+    if (publishToTos) {
+      if (!hasTosConfig()) {
+        return res.status(400).json({ error: "TOS 配置缺失，无法 publish 首帧到远端。" });
+      }
+      const published = await publishAssetImageToTos(asset, shot);
+      const updated = await store.upsertAsset({
+        id: asset.id,
+        mediaUrl: published.url,
+        imageUrl: published.url,
+        referenceImageUrl: published.localUrl,
+        tosObjectKey: published.key,
+        tosPublishedAt: new Date().toISOString(),
+        generatedAt: asset.generatedAt || new Date().toISOString()
+      });
+      if (updated) asset = updated;
+    }
+    res.json({ asset });
+  } catch (error) {
+    res.status(500).json({ error: friendlyApiError(error, "first-frame extraction failed") });
+  }
+});
+
 app.post("/api/shots/:shotId/tailframe", async (req, res) => {
   const shot = store.getShot(req.params.shotId);
   if (!shot) return res.status(404).json({ error: "Shot not found" });
@@ -2374,7 +2390,8 @@ app.post("/api/shots/:shotId/tailframe", async (req, res) => {
   const publishToTos = reqBody.publishToTos === true;
   const canvasNode = reqBody.canvasNode === true;
   try {
-    let asset = await extractTailFrameAsAsset({
+    let asset = await extractVideoFrameAsAsset({
+      frameRole: "tail",
       videoUrl,
       sessionId: shot.sessionId,
       ownerShotId: canvasNode ? undefined : shot.id,
@@ -2883,22 +2900,21 @@ function splitScenePromptIntoBeats(prompt: string, panelCount: number): string[]
 }
 
 /**
- * Phase 4 helper — extract the last frame of a video and persist it as a session-scoped image
- * asset so it can be wired as the next shot's first-frame anchor (or as a sub-storyboard
- * reference image). Avoids the static-keyframe "freeze at the cut" problem by treating the
- * actual rendered tail as the next shot's starting state.
+ * Phase 4 helper — extract the first or last frame of a video and persist it as a session-scoped
+ * image asset. The last-frame branch decodes to the strict final frame for continuity.
  *
  * Returns the persisted Asset on success.
  */
-async function extractTailFrameAsAsset(opts: {
+async function extractVideoFrameAsAsset(opts: {
+  frameRole: "first" | "tail";
   videoUrl: string;
   sessionId: string;
   ownerShotId?: string;
   sourceShotId?: string;
   label: string;
 }): Promise<Asset> {
-  const { videoUrl, sessionId, ownerShotId, sourceShotId, label } = opts;
-  if (!videoUrl) throw new Error("extractTailFrameAsAsset: videoUrl required");
+  const { frameRole, videoUrl, sessionId, ownerShotId, sourceShotId, label } = opts;
+  if (!videoUrl) throw new Error("extractVideoFrameAsAsset: videoUrl required");
   await mkdir(MEDIA_DIR, { recursive: true });
 
   // Resolve a local file path: /media/foo.mp4 → MEDIA_DIR/foo.mp4; http(s) → let ffmpeg fetch
@@ -2911,50 +2927,68 @@ async function extractTailFrameAsAsset(opts: {
   } else if (/^https?:\/\//.test(videoUrl)) {
     inputPath = videoUrl;
   } else {
-    throw new Error(`tailframe: unsupported videoUrl scheme: ${videoUrl}`);
+    throw new Error(`${frameRole}frame: unsupported videoUrl scheme: ${videoUrl}`);
   }
 
-  const outName = `tailframe-${sanitizeFilePart(ownerShotId || sessionId)}-${Date.now()}.jpg`;
+  const outName = `${frameRole === "first" ? "firstframe" : "tailframe"}-${sanitizeFilePart(ownerShotId || sessionId)}-${Date.now()}.jpg`;
   const outPath = path.join(MEDIA_DIR, outName);
-  // Decode the video stream to the actual end and keep overwriting the same image. The previous
-  // duration-0.1s seek was fast, but it could extract a near-tail frame instead of the strict final
-  // decoded frame, causing visible discontinuity when this asset anchors the next shot's first frame.
-  await runFfmpegCommand([
-    "-y",
-    "-i",
-    inputPath,
-    "-map",
-    "0:v:0",
-    "-an",
-    "-vsync",
-    "0",
-    "-q:v",
-    "2",
-    "-update",
-    "1",
-    outPath
-  ]);
+  if (frameRole === "first") {
+    await runFfmpegCommand([
+      "-y",
+      "-i",
+      inputPath,
+      "-map",
+      "0:v:0",
+      "-an",
+      "-frames:v",
+      "1",
+      "-q:v",
+      "2",
+      outPath
+    ]);
+  } else {
+    // Decode the video stream to the actual end and keep overwriting the same image. The previous
+    // duration-0.1s seek was fast, but it could extract a near-tail frame instead of the strict
+    // final decoded frame, causing visible discontinuity when this asset anchors another video.
+    await runFfmpegCommand([
+      "-y",
+      "-i",
+      inputPath,
+      "-map",
+      "0:v:0",
+      "-an",
+      "-vsync",
+      "0",
+      "-q:v",
+      "2",
+      "-update",
+      "1",
+      outPath
+    ]);
+  }
   // Sanity check: prior implementation could leave a stale asset row pointing to a missing
   // file when ffmpeg "succeeded" against a 0-byte download. Verify the output before persisting.
   const fsPromises = await import("node:fs/promises");
   const outInfo = await fsPromises.stat(outPath).catch(() => undefined);
   if (!outInfo || !outInfo.isFile() || outInfo.size <= 0) {
-    throw new Error(`tailframe: ffmpeg produced no output for ${videoUrl}`);
+    throw new Error(`${frameRole}frame: ffmpeg produced no output for ${videoUrl}`);
   }
   const localUrl = `/media/${outName}`;
+  const roleLabel = frameRole === "first" ? "首帧" : "尾帧";
+  const roleTag = frameRole === "first" ? "firstframe" : "tailframe";
   const asset = await store.upsertAsset({
     name: label,
     type: "scene",
     mediaKind: "image",
-    description: `自动从 ${sourceShotId || ownerShotId || sessionId} 的渲染产物抽取的尾帧，用于下一镜首帧/参考。`,
-    tags: ["tailframe", "frame-anchor", ...(sourceShotId ? [`source-shot:${sourceShotId}`] : [])],
+    description: `自动从 ${sourceShotId || ownerShotId || sessionId} 的渲染产物抽取的${roleLabel}，可作为视频首帧/尾帧参考。`,
+    tags: [roleTag, "frame-anchor", ...(sourceShotId ? [`source-shot:${sourceShotId}`] : [])],
     ownerSessionId: sessionId,
     ownerShotId,
     mediaUrl: localUrl,
     imageUrl: localUrl,
     generatedAt: new Date().toISOString()
   });
-  if (!asset) throw new Error("tailframe: failed to persist asset");
+  if (!asset) throw new Error(`${frameRole}frame: failed to persist asset`);
   return asset;
 }
 
@@ -4059,43 +4093,9 @@ app.post("/api/sessions/:sessionId/storyboard-grid", async (req, res) => {
             `[storyboard-grid:review] panel ${i + 1}/${created.length} attempt ${attempt}/${perPanelMaxAttempts} failed: ${verdict.reasons.join("; ")}`
           );
           if (attempt >= perPanelMaxAttempts) break;
-          // Ask the rewriter LLM to fold the VLM reasons into a fresh prompt, rather than blindly
-          // appending them. The rewriter knows to delete/replace the original phrasing that
-          // produced the failure (instead of leaving the broken text in place under a "but fix
-          // these" footer that Seedream then half-honors).
-          const rewrite = await rewritePromptWithReviewFeedback({
-            originalPrompt: panelPrompt,
-            reviewReasons: verdict.reasons,
-            referenceUrls: otherUrls,
-            failedProductUrl: panel.mediaUrl || panel.imageUrl,
-            lang: "zh"
-          });
-          await recordTokenUsage(session.id, rewrite.tokenUsage, {
-            nodeId: panel.id,
-            nodeType: "review",
-            nodeLabel: `${panel.name} prompt 修复`,
-            operation: "storyboard_panel_prompt_rewrite",
-            provider: "ark-responses",
-            model: rewrite.model
-          });
-          const refinedPrompt = rewrite.rewritten ? rewrite.prompt : [
-            panelPrompt.trim(),
-            "",
-            "上一版生成被 VLM 判定不通过，原因：",
-            ...verdict.reasons.map((r) => `- ${r}`),
-            "",
-            "请按以上反馈修正这一帧；保持与参考图相同的人物面孔/服装/办公室场景/机位构图，仅修正不一致点。"
-          ].join("\n");
-          if (rewrite.rewritten) {
-            console.warn(
-              `[storyboard-grid:review] rewriter produced a new prompt (model=${rewrite.model}); panel ${i + 1} retry will use it`
-            );
-          } else if (rewrite.note) {
-            console.warn(`[storyboard-grid:review] rewriter skipped: ${rewrite.note}`);
-          }
           try {
             const fresh = await generateAssetImage(panel, "seedream-4-5", otherUrls, {
-              promptOverride: refinedPrompt,
+              promptOverride: panelPrompt,
               lang: "zh"
             });
             await recordTokenUsage(session.id, fresh.rawUsage, {
@@ -4576,7 +4576,7 @@ async function submitShotGeneration(shotId: string, body: Partial<Shot>): Promis
   const savedShot = store.getShot(shotId);
   if (!savedShot) return { status: 404, body: { error: "Shot not found" } };
 
-  if (findPendingRender(savedShot) || savedShot.generationTaskId) {
+  if (hasActiveShotGeneration(savedShot)) {
     return { status: 200, body: savedShot };
   }
 
@@ -5133,29 +5133,7 @@ app.post("/api/shots/:shotId/review", async (req, res) => {
 app.post("/api/shots/:shotId/review/repair-prompts", async (req, res) => {
   const shot = store.getShot(req.params.shotId);
   if (!shot) return res.status(404).json({ error: "Shot not found" });
-  const verdict = shot.videoReview || findSelectedRender(shot)?.videoReview;
-  if (!verdict) return res.status(400).json({ error: "Run VLM review before repairing prompts" });
-  if (!consumeGenerationOr429(res, shot.sessionId, "shot_review_repair_prompts")) return;
-  const plan = await buildShotReviewRepairPlan(shot, verdict);
-  for (const target of plan.targets) {
-    if (target.kind === "shot") {
-      const targetShot = store.getShot(target.id);
-      if (!targetShot) continue;
-      const base = (targetShot.rawPrompt || targetShot.prompt || "").trim();
-      const nextPrompt = appendRepairBlock(base, target.promptPatch);
-      await store.updateShot(target.id, {
-        rawPrompt: nextPrompt,
-        prompt: nextPrompt,
-        status: targetShot.videoUrl ? targetShot.status : "scripted"
-      });
-    } else if (target.kind === "asset") {
-      const asset = store.snapshot().assets.find((item) => item.id === target.id);
-      if (!asset) continue;
-      await store.upsertAsset({ id: asset.id, prompt: appendRepairBlock(asset.prompt || asset.description || asset.name, target.promptPatch) });
-    }
-  }
-  const updated = await store.updateShot(shot.id, { videoReviewRepairPlan: { ...plan, appliedAt: new Date().toISOString() } });
-  res.json({ shot: updated, plan });
+  res.status(410).json({ error: "AI prompt repair is disabled. Edit the prompt manually." });
 });
 
 app.post("/api/shots/:shotId/poll", async (req, res) => {
@@ -5320,39 +5298,12 @@ app.post("/api/shots/:shotId/poll", async (req, res) => {
                     referenceVideoFromShotId: pendingRender.referenceVideoFromShotId,
                     assetIds: pendingRender.assetIds || shot.assetIds
                   };
-                  // Run the prompt rewriter: turn the VLM's verdict reasons into a fresh prompt
-                  // that explicitly addresses what was wrong, instead of resubmitting the same text
-                  // verbatim. The rewriter falls through to the original prompt on any failure
-                  // (no API key, transport error, empty rewrite), so this is always at-least-as-good
-                  // as the legacy verbatim path.
                   const baseSeedanceText = renderPromptForReview(pendingRender, shot);
                   const retrySession = store.getSession(shot.sessionId);
                   const retryLang = resolveLang(retrySession?.language);
-                  const rewrite = await rewritePromptWithReviewFeedback({
-                    originalPrompt: baseSeedanceText,
-                    reviewReasons: verdict.reasons,
-                    referenceUrls: collectVideoReviewReferences(shot, pendingRender).slice(0, 2),
-                    lang: retryLang
-                  });
-                  await recordTokenUsage(shot.sessionId, rewrite.tokenUsage, {
-                    nodeId: pendingRender.id,
-                    nodeType: "review",
-                    nodeLabel: `${shotLabel(shot)} prompt 修复`,
-                    operation: "shot_prompt_rewrite",
-                    provider: "ark-responses",
-                    model: rewrite.model
-                  });
-                  const rewrittenSeedanceText = rewrite.rewritten ? rewrite.prompt : baseSeedanceText;
-                  if (rewrite.rewritten) {
-                    console.warn(
-                      `[vision-review] shot ${shot.id} render ${pendingRender.id} rewriter produced a new prompt (model=${rewrite.model}); attempt ${attemptIndex + 1} will use it`
-                    );
-                  } else if (rewrite.note) {
-                    console.warn(`[vision-review] shot ${shot.id} rewriter skipped: ${rewrite.note}`);
-                  }
                   const latestRetryAssets = freshAssetsForSeedanceRender(shotForRetry, pendingRender.id, retryAssets);
                   const task = await createSeedanceVideoTask(shotForRetry, latestRetryAssets, {
-                    prebuiltText: rewrittenSeedanceText,
+                    prebuiltText: baseSeedanceText,
                     lang: retryLang,
                     ...(typeof pendingRender.generateAudio === "boolean" ? { generateAudio: pendingRender.generateAudio } : {})
                   });
@@ -5758,80 +5709,6 @@ function composeFinalReviewContext(session: ReturnType<CinemaStore["getSession"]
   ].join("\n");
 }
 
-async function buildShotReviewRepairPlan(shot: Shot, verdict: VideoReviewVerdict): Promise<VideoReviewRepairPlan> {
-  const reasons = [...verdict.fatalIssues, ...verdict.reasons, ...verdict.fixes.map((fix) => fix.action)].filter(Boolean);
-  const reasonText = reasons.join("；");
-  const targets: VideoReviewRepairPlan["targets"] = [];
-  const referencedAssets = store.getAssets(shot.assetIds || []);
-  const wantsIdentity = /人物|角色|身份|脸|face|identity|换人|服装|character/i.test(reasonText);
-  const wantsScene = /场景|背景|空间|医院|街道|光线|scene|background|lighting|continuity/i.test(reasonText);
-  const wantsProp = /道具|蛋糕|手机|头盔|prop|object/i.test(reasonText);
-
-  for (const asset of referencedAssets) {
-    if ((asset.type === "character" && wantsIdentity) || (asset.type === "scene" && wantsScene) || (asset.type === "prop" && wantsProp)) {
-      const rewrite = await rewritePromptWithReviewFeedback({
-        originalPrompt: asset.prompt || asset.description || asset.name,
-        reviewReasons: reasons.slice(0, 6),
-        referenceUrls: [asset.referenceImageUrl || asset.mediaUrl || asset.imageUrl].filter(Boolean) as string[],
-        lang: "zh"
-      });
-      targets.push({
-        kind: "asset",
-        id: asset.id,
-        reason: `VLM 指出与 ${asset.type} 相关的问题`,
-        promptPatch: rewrite.rewritten ? rewrite.prompt : buildFallbackRepairPatch(reasons)
-      });
-    }
-  }
-
-  const rewrite = await rewritePromptWithReviewFeedback({
-    originalPrompt: shot.rawPrompt || shot.prompt || "",
-    reviewReasons: reasons.slice(0, 8),
-    referenceUrls: referencedAssets.map((asset) => asset.referenceImageUrl || asset.mediaUrl || asset.imageUrl).filter(Boolean).slice(0, 3) as string[],
-    lang: "zh"
-  });
-  targets.push({
-    kind: "shot",
-    id: shot.id,
-    reason: "当前视频节点未达标，需要加强本镜头 prompt",
-    promptPatch: rewrite.rewritten ? rewrite.prompt : buildFallbackRepairPatch(reasons)
-  });
-
-  if (/上一镜|前序|接续|连贯|continuity|previous/i.test(reasonText) && shot.index > 1) {
-    const previous = store.getSession(shot.sessionId)?.shots.find((item) => item.index === shot.index - 1);
-    if (previous) {
-      targets.push({
-        kind: "shot",
-        id: previous.id,
-        reason: "当前镜头的失败与前序连续性有关，需要修前序镜头的交接描述",
-        promptPatch: appendRepairBlock(previous.rawPrompt || previous.prompt || "", `为后续 Shot ${shot.index} 提供明确尾帧/节奏/空间交接：${reasons.slice(0, 3).join("；")}`)
-      });
-    }
-  }
-
-  return {
-    createdAt: new Date().toISOString(),
-    sourceReviewScope: verdict.scope,
-    sourceNodeId: shot.id,
-    targets
-  };
-}
-
-function buildFallbackRepairPatch(reasons: string[]) {
-  return [
-    "VLM 审核修复要求：",
-    ...reasons.slice(0, 8).map((reason) => `- ${reason}`),
-    "请优先修复以上问题；保持原有剧情意图，但明确人物身份、场景连续、动作物理合理、无乱码文字/水印/畸形。"
-  ].join("\n");
-}
-
-function appendRepairBlock(base: string, patch: string) {
-  const cleanBase = (base || "").trim();
-  const cleanPatch = (patch || "").trim();
-  if (!cleanPatch) return cleanBase;
-  return [cleanBase, "", "【VLM 审核反馈修复】", cleanPatch].filter(Boolean).join("\n");
-}
-
 function parseExistingReviewFailures(reviewNote: string | undefined): Array<{ attempt: number; reasons: string[] }> {
   if (!reviewNote) return [];
   // formatReviewNote shapes notes as "<header>\nattempt N: reason1; reason2\n..."
@@ -6089,44 +5966,7 @@ app.post("/api/sessions/:sessionId/final-review", async (req, res) => {
 app.post("/api/sessions/:sessionId/final-review/repair-prompts", async (req, res) => {
   const session = store.getSession(req.params.sessionId);
   if (!session) return res.status(404).json({ error: "Session not found" });
-  const jobId = typeof req.body?.jobId === "string" ? req.body.jobId : undefined;
-  const resolved = resolveFinalArtifact(session, jobId);
-  if (resolved.error) return res.status(resolved.error.status).json({ error: resolved.error.message });
-  const { artifact } = resolved;
-  const job = artifact.job;
-  const verdict = artifact.finalVideoReview;
-  if (!verdict) return res.status(400).json({ error: "Run final VLM review before repairing prompts" });
-  if (!consumeGenerationOr429(res, session.id, "final_review_repair_prompts")) return;
-  const reasons = [...verdict.fatalIssues, ...verdict.reasons, ...verdict.fixes.map((fix) => fix.action)].filter(Boolean);
-  const targets: VideoReviewRepairPlan["targets"] = [];
-  const shots = (session.shots || []).slice().sort((a, b) => a.index - b.index);
-  const fixShotNumbers = new Set(verdict.fixes.map((fix) => fix.shot).filter((n): n is number => Number.isFinite(n)));
-  const selected = shots.filter((shot) => fixShotNumbers.size ? fixShotNumbers.has(shot.index) : Boolean(shot.videoUrl));
-  for (const shot of selected.slice(0, 6)) {
-    const localReasons = verdict.fixes.filter((fix) => !fix.shot || fix.shot === shot.index).map((fix) => fix.action);
-    const repairReasons = localReasons.length ? localReasons : reasons;
-    const rewrite = await rewritePromptWithReviewFeedback({
-      originalPrompt: shot.rawPrompt || shot.prompt || "",
-      reviewReasons: repairReasons.slice(0, 8),
-      lang: "zh"
-    });
-    const promptPatch = rewrite.rewritten ? rewrite.prompt : buildFallbackRepairPatch(repairReasons);
-    targets.push({ kind: "shot", id: shot.id, reason: `完整片终审指出 Shot ${shot.index} 需要修复`, promptPatch });
-    await store.updateShot(shot.id, {
-      rawPrompt: appendRepairBlock(shot.rawPrompt || shot.prompt || "", promptPatch),
-      prompt: appendRepairBlock(shot.rawPrompt || shot.prompt || "", promptPatch),
-      status: shot.videoUrl ? shot.status : "scripted"
-    });
-  }
-  const plan: VideoReviewRepairPlan = {
-    createdAt: new Date().toISOString(),
-    sourceReviewScope: verdict.scope,
-    sourceNodeId: session.id,
-    targets,
-    appliedAt: new Date().toISOString()
-  };
-  if (job) return res.json(await store.updateStitchJob(session.id, job.id, { finalVideoReviewRepairPlan: plan }));
-  res.json(await store.updateSession(session.id, { finalVideoReviewRepairPlan: plan }));
+  res.status(410).json({ error: "AI prompt repair is disabled. Edit the prompt manually." });
 });
 
 app.post("/api/sessions/:sessionId/stitch", async (req, res) => {
@@ -6388,8 +6228,23 @@ function parseNarrationVolume(value: unknown, fallback: number, max = 2) {
   return Math.max(0, Math.min(max, parsed));
 }
 
+function parseAudioTrackMode(value: unknown): AudioTrackMode {
+  return value === "music" ? "music" : "voiceover";
+}
+
+function parseMusicKind(value: unknown): MusicGenerationKind {
+  return value === "song" ? "song" : "bgm";
+}
+
+function parseMusicDurationSec(value: unknown) {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return undefined;
+  return Math.max(30, Math.min(240, Math.round(parsed)));
+}
+
 app.post("/api/sessions/:sessionId/narration", async (req, res) => {
   const sessionId = req.params.sessionId;
+  const mode = parseAudioTrackMode(req.body?.mode);
   const script: string = typeof req.body?.script === "string" ? req.body.script : "";
   const voice: string = typeof req.body?.voice === "string" && req.body.voice.trim() ? req.body.voice.trim() : DEFAULT_NARRATION_VOICE;
   const strategy: NarrationStrategy = req.body?.strategy === "natural" ? "natural" : DEFAULT_NARRATION_STRATEGY;
@@ -6397,14 +6252,23 @@ app.post("/api/sessions/:sessionId/narration", async (req, res) => {
   const subtitlePosition = parseNarrationSubtitlePosition(req.body?.subtitlePosition);
   const narrationVolume = parseNarrationVolume(req.body?.narrationVolume, 1.0);
   const sourceVolume = parseNarrationVolume(req.body?.sourceVolume, 0.25, 1);
+  const musicKind = parseMusicKind(req.body?.musicKind);
+  const musicPrompt: string = typeof req.body?.musicPrompt === "string" ? req.body.musicPrompt : "";
+  const musicLyrics: string = typeof req.body?.musicLyrics === "string" ? req.body.musicLyrics : "";
+  const musicDurationSec = parseMusicDurationSec(req.body?.musicDurationSec);
+  const musicModelVersion: string | undefined = typeof req.body?.musicModelVersion === "string" && req.body.musicModelVersion.trim()
+    ? req.body.musicModelVersion.trim()
+    : undefined;
   const jobId: string | undefined = typeof req.body?.jobId === "string" && req.body.jobId.trim()
     ? req.body.jobId.trim()
     : undefined;
-  if (!script.trim()) return res.status(400).json({ error: "Script is required" });
+  if (mode === "voiceover" && !script.trim()) return res.status(400).json({ error: "Script is required" });
+  if (mode === "music" && !(musicPrompt || script).trim()) return res.status(400).json({ error: "Music prompt is required" });
 
   if (!consumeGenerationOr429(res, sessionId, "narration")) return;
 
   const result = await triggerNarrationJob(sessionId, {
+    mode,
     script,
     voice,
     strategy,
@@ -6412,7 +6276,12 @@ app.post("/api/sessions/:sessionId/narration", async (req, res) => {
     subtitleMode,
     subtitlePosition,
     narrationVolume,
-    sourceVolume
+    sourceVolume,
+    musicKind,
+    musicPrompt,
+    musicLyrics,
+    musicDurationSec,
+    musicModelVersion
   });
   if ("status" in result) return res.status(result.status).json({ error: result.error });
   res.json(result.session);
@@ -6433,10 +6302,11 @@ app.get("/api/sessions/:sessionId/narration/download", async (req, res) => {
     return res.status(404).json({ error: "Subtitle generation is disabled for this project" });
   }
   if (!session.narrationVideoUrl) return res.status(404).json({ error: "Narration video not ready" });
+  const audioTrackSuffix = session.audioTrackMode === "music" ? "含音乐" : "含旁白";
   return sendVideoDownload(
     res,
     session.narrationVideoUrl,
-    `${sanitizeDownloadName(`${session.title || session.id}-含旁白`)}.mp4`
+    `${sanitizeDownloadName(`${session.title || session.id}-${audioTrackSuffix}`)}.mp4`
   );
 });
 
@@ -6451,6 +6321,7 @@ app.get("/api/sessions/:sessionId/narration/download", async (req, res) => {
 async function triggerNarrationJob(
   sessionId: string,
   input: {
+    mode: AudioTrackMode;
     script: string;
     voice: string;
     strategy: NarrationStrategy;
@@ -6459,6 +6330,11 @@ async function triggerNarrationJob(
     subtitlePosition: NarrationSubtitlePosition;
     narrationVolume: number;
     sourceVolume: number;
+    musicKind: MusicGenerationKind;
+    musicPrompt?: string;
+    musicLyrics?: string;
+    musicDurationSec?: number;
+    musicModelVersion?: string;
   }
 ): Promise<{ session: ReturnType<CinemaStore["getSession"]> } | { status: number; error: string }> {
   const session = store.getSession(sessionId);
@@ -6476,8 +6352,9 @@ async function triggerNarrationJob(
   // Pre-apply the same language-mismatch safety net the pipeline uses so the signature we compute
   // here (used for inflight dedup + reuse) matches the signature the pipeline will compute. Without
   // this, an EN script with a stale ZH voice request would always cache-miss after the swap.
-  const effectiveVoice = resolveEffectiveVoice(input.script, input.voice);
+  const effectiveVoice = input.mode === "music" ? input.voice : resolveEffectiveVoice(input.script, input.voice);
   const signature = computeNarrationSignature({
+    mode: input.mode,
     script: input.script,
     voice: effectiveVoice,
     strategy: input.strategy,
@@ -6485,7 +6362,12 @@ async function triggerNarrationJob(
     subtitleMode: input.subtitleMode,
     subtitlePosition: input.subtitlePosition,
     narrationVolume: input.narrationVolume,
-    sourceVolume: input.sourceVolume
+    sourceVolume: input.sourceVolume,
+    musicKind: input.musicKind,
+    musicPrompt: input.musicPrompt,
+    musicLyrics: input.musicLyrics,
+    musicDurationSec: input.musicDurationSec,
+    musicModelVersion: input.musicModelVersion
   });
 
   // Reuse already-ready artifacts.
@@ -6524,10 +6406,19 @@ async function triggerNarrationJob(
     narrationStrategy: input.strategy,
     narrationStitchJobId: audioSourceJobId,
     audioTrackStitchJobIds: Array.from(new Set([...(session.audioTrackStitchJobIds || []), audioSourceJobId])),
+    audioTrackMode: input.mode,
     narrationSubtitleMode: input.subtitleMode,
     narrationSubtitlePosition: input.subtitlePosition,
     narrationVolume: input.narrationVolume,
     narrationSourceVolume: input.sourceVolume,
+    musicKind: input.musicKind,
+    musicPrompt: input.musicPrompt || undefined,
+    musicLyrics: input.musicLyrics || undefined,
+    musicDurationSec: input.musicDurationSec,
+    musicModelVersion: input.musicModelVersion,
+    musicTaskId: undefined,
+    musicAudioUrl: undefined,
+    musicLocalAudioUrl: undefined,
     audioTrackHidden: false,
     narrationStatus: "running",
     narrationStartedAt: startedAt,
@@ -6554,6 +6445,7 @@ async function triggerNarrationJob(
 async function runNarrationJobInBackground(
   sessionId: string,
   input: {
+    mode: AudioTrackMode;
     script: string;
     voice: string;
     strategy: NarrationStrategy;
@@ -6562,6 +6454,11 @@ async function runNarrationJobInBackground(
     subtitlePosition: NarrationSubtitlePosition;
     narrationVolume: number;
     sourceVolume: number;
+    musicKind: MusicGenerationKind;
+    musicPrompt?: string;
+    musicLyrics?: string;
+    musicDurationSec?: number;
+    musicModelVersion?: string;
   },
   signature: string,
   finalArtifact: { finalVideoUrl: string; finalVideoSignature?: string }
@@ -6594,10 +6491,19 @@ async function runNarrationJobInBackground(
       narrationVoice: result.effectiveVoice,
       narrationStitchJobId: input.jobId || "legacy",
       audioTrackStitchJobIds: Array.from(new Set([...(store.getSession(sessionId)?.audioTrackStitchJobIds || []), input.jobId || "legacy"])),
+      audioTrackMode: input.mode,
       narrationSubtitleMode: input.subtitleMode,
       narrationSubtitlePosition: input.subtitlePosition,
       narrationVolume: input.narrationVolume,
       narrationSourceVolume: input.sourceVolume,
+      musicKind: input.musicKind,
+      musicPrompt: input.musicPrompt || undefined,
+      musicLyrics: input.musicLyrics || undefined,
+      musicDurationSec: input.musicDurationSec,
+      musicModelVersion: input.musicModelVersion,
+      musicTaskId: result.musicTaskId,
+      musicAudioUrl: result.musicAudioUrl,
+      musicLocalAudioUrl: result.musicLocalAudioUrl,
       narrationBuiltForFinalVideoSignature: finalArtifact.finalVideoSignature,
       narrationStatus: "ready",
       narrationUpdatedAt: new Date().toISOString(),

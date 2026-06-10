@@ -724,6 +724,22 @@ export class CinemaStore {
     const session = this.data.sessions.find((item) => item.id === shot.sessionId);
     if (!session) return undefined;
     const restoredShot = structuredClone(shot);
+    const restoredShotHasVideo = Boolean(restoredShot.videoUrl || restoredShot.playbackVideoUrl || restoredShot.downloadVideoUrl);
+    if (restoredShotHasVideo && restoredShot.status !== "generating") {
+      restoredShot.generationTaskId = undefined;
+      restoredShot.generationStartedAt = undefined;
+      restoredShot.seedancePhase = undefined;
+    }
+    restoredShot.renders = (restoredShot.renders || []).map((render) => {
+      const restoredRender = structuredClone(render);
+      const restoredRenderHasVideo = Boolean(restoredRender.videoUrl || restoredRender.remoteVideoUrl || restoredRender.playbackVideoUrl || restoredRender.downloadVideoUrl);
+      if (restoredRenderHasVideo && restoredRender.status !== "generating") {
+        restoredRender.generationTaskId = undefined;
+        restoredRender.generationStartedAt = undefined;
+        restoredRender.seedancePhase = undefined;
+      }
+      return restoredRender;
+    });
     const existingShotIndex = this.data.shots.findIndex((item) => item.id === restoredShot.id);
     if (existingShotIndex >= 0) this.data.shots[existingShotIndex] = restoredShot;
     else this.data.shots.push(restoredShot);

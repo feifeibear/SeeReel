@@ -18,8 +18,8 @@ import "@xyflow/react/dist/style.css";
 
 import { api } from "../api";
 import type { Asset, AssetImageModel, AssetType, SessionWithShots, Shot, StitchJob, StoreSnapshot } from "../../shared/types";
-import { buildSessionGraph, type FlowNodeData } from "./buildGraph";
-import { AssetNode, AudioTrackNode, ReferenceVideoNode, VideoProcessorNode, StoryboardNode, ShotNode, StitchNode, TailframeNode } from "./nodes";
+import { buildSessionGraph, visualNodeIdForAsset, type FlowNodeData } from "./buildGraph";
+import { AssetNode, AudioTrackNode, ReferenceVideoNode, VideoAssetNode, VideoProcessorNode, StoryboardNode, ShotNode, TailframeNode } from "./nodes";
 import { Inspector } from "./Inspector";
 import { DownloadToast } from "./DownloadToast";
 import { CreateNodeMenu, type CreateMenuOption } from "./CreateNodeMenu";
@@ -28,7 +28,7 @@ import { buildPendingConnectEdge, mergePendingEdges } from "./pendingConnection"
 import type { UndoableAction } from "./useUndoStack";
 import { useI18n, type UiLanguage } from "../i18n";
 
-type AnchorKind = Extract<AssetType, "character" | "scene" | "prop" | "style">;
+type AnchorKind = Extract<AssetType, "image" | "character" | "scene" | "prop" | "style"> | "moodboard";
 export type UploadImageAssetResult = Asset | {
   asset: Asset;
   completed?: Promise<Asset | undefined>;
@@ -42,11 +42,13 @@ function normalizeUploadImageAssetResult(result: UploadImageAssetResult | undefi
 
 const nodeTypes = {
   assetNode: AssetNode,
+  moodboardNode: AssetNode,
+  imageNode: AssetNode,
   storyboardNode: StoryboardNode,
   shotNode: ShotNode,
-  stitchNode: StitchNode,
   audioTrackNode: AudioTrackNode,
   referenceVideoNode: ReferenceVideoNode,
+  videoAssetNode: VideoAssetNode,
   videoProcessorNode: VideoProcessorNode,
   tailframeNode: TailframeNode
 };
@@ -63,11 +65,11 @@ export interface FlowViewProps {
   onMutated: () => Promise<void> | void;
   onCreateAnchorAsset: (kind: AnchorKind) => Promise<Asset | undefined> | Asset | undefined;
   onCreateShot: () => Promise<Shot | undefined> | Shot | undefined;
-  onCreateStitchJob: () => Promise<StitchJob | undefined> | StitchJob | undefined;
+  onCreateStitchJob?: () => Promise<StitchJob | undefined> | StitchJob | undefined;
   onSetStitchOrder: (jobId: string, shotIds: string[], legacy?: boolean) => Promise<void> | void;
   onDeleteCanvasAsset: (asset: Asset) => Promise<boolean> | boolean;
   onDeleteCanvasShot: (shot: Shot) => Promise<boolean> | boolean;
-  onUploadImageAsset: (file: File, kind: "character" | "scene") => Promise<UploadImageAssetResult | undefined> | UploadImageAssetResult | undefined;
+  onUploadImageAsset: (file: File, kind: "image" | "character" | "scene") => Promise<UploadImageAssetResult | undefined> | UploadImageAssetResult | undefined;
   /** Drop a video file onto the canvas → upload + auto-trigger reference-video analysis. */
   onUploadReferenceVideo: (file: File) => Promise<Asset | undefined> | Asset | undefined;
   onPushUndo?: (action: UndoableAction) => void;
@@ -81,7 +83,31 @@ export interface FlowViewProps {
   toolbarPrimaryAction?: ReactNode;
 }
 
-export function FlowView({ snapshot, session, visionReviewEnabled, defaultImageModel, onMutated, onCreateAnchorAsset, onCreateShot, onCreateStitchJob, onSetStitchOrder, onDeleteCanvasAsset, onDeleteCanvasShot, onUploadImageAsset, onUploadReferenceVideo, onPushUndo, undo, redo, canUndo, canRedo, undoDescription, redoDescription, toolbarPrimaryAction }: FlowViewProps) {
+function legacyStitchJobForSession(session: SessionWithShots): StitchJob {
+  return {
+    id: "legacy",
+    name: "完整视频",
+    shotIds: session.stitchShotIds || [],
+    status: session.stitchStatus,
+    progress: session.stitchProgress,
+    error: session.stitchError,
+    finalVideoUrl: session.finalVideoUrl,
+    finalVideoSignature: session.finalVideoSignature,
+    finalVideoGeneratedAt: session.finalVideoGeneratedAt,
+    finalVideoReviewStatus: session.finalVideoReviewStatus,
+    finalVideoReview: session.finalVideoReview,
+    finalVideoReviewError: session.finalVideoReviewError,
+    finalVideoReviewUpdatedAt: session.finalVideoReviewUpdatedAt,
+    finalVideoReviewRunningSignature: session.finalVideoReviewRunningSignature,
+    finalVideoReviewBuiltForSignature: session.finalVideoReviewBuiltForSignature,
+    runningSignature: session.stitchRunningSignature,
+    startedAt: session.stitchStartedAt,
+    updatedAt: session.stitchUpdatedAt,
+    createdAt: session.createdAt
+  };
+}
+
+export function FlowView({ snapshot, session, visionReviewEnabled, defaultImageModel, onMutated, onCreateAnchorAsset, onCreateShot, onSetStitchOrder, onDeleteCanvasAsset, onDeleteCanvasShot, onUploadImageAsset, onUploadReferenceVideo, onPushUndo, undo, redo, canUndo, canRedo, undoDescription, redoDescription, toolbarPrimaryAction }: FlowViewProps) {
   const { lang, t } = useI18n();
   const allAssets = snapshot.assets;
   const { nodes: derivedNodes, edges: derivedEdges } = useMemo(() => {
@@ -93,6 +119,7 @@ export function FlowView({ snapshot, session, visionReviewEnabled, defaultImageM
   const [edges, setEdges] = useState<Edge[]>(derivedEdges);
   const nodesRef = useRef<Node<FlowNodeData>[]>(derivedNodes);
   const [selectedNodeId, setSelectedNodeId] = useState<string | undefined>();
+  const [showFinalVideoPanel, setShowFinalVideoPanel] = useState(false);
   // Floating "新建节点" menu position. Right-click summons it; null hides it.
   const [createMenu, setCreateMenu] = useState<{ x: number; y: number; flowPosition?: XYPosition } | null>(null);
   const [creatingKind, setCreatingKind] = useState<string>("");
@@ -100,7 +127,7 @@ export function FlowView({ snapshot, session, visionReviewEnabled, defaultImageM
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const videoInputRef = useRef<HTMLInputElement | null>(null);
   const canvasRef = useRef<HTMLDivElement | null>(null);
-  const pendingFileKindRef = useRef<"character" | "scene">("character");
+  const pendingFileKindRef = useRef<"image" | "character" | "scene">("image");
   const pendingFilePositionRef = useRef<XYPosition | undefined>(undefined);
   const guardCreate = useCallback((kind: string, fn: () => unknown | Promise<unknown>) => {
     if (creatingKind) return;
@@ -130,12 +157,11 @@ export function FlowView({ snapshot, session, visionReviewEnabled, defaultImageM
     });
   }, []);
 
-  const centerNodeAt = useCallback((nodeId: string, position: XYPosition | undefined) => {
+  const placeNodeAt = useCallback((nodeId: string, position: XYPosition | undefined) => {
     if (!position) return;
-    const centered = { x: position.x - 160, y: position.y - 90 };
-    pendingCreatedPositionsRef.current.set(nodeId, centered);
+    pendingCreatedPositionsRef.current.set(nodeId, position);
     setNodes((prev) => {
-      const nextNodes = prev.map((node) => (node.id === nodeId ? { ...node, position: centered } : node));
+      const nextNodes = prev.map((node) => (node.id === nodeId ? { ...node, position } : node));
       nodesRef.current = nextNodes;
       return nextNodes;
     });
@@ -144,13 +170,13 @@ export function FlowView({ snapshot, session, visionReviewEnabled, defaultImageM
   const centerUploadImageResult = useCallback((result: UploadImageAssetResult | undefined, placement?: XYPosition) => {
     const upload = normalizeUploadImageAssetResult(result);
     if (!upload) return;
-    centerNodeAt(`asset-${upload.asset.id}`, placement);
+    placeNodeAt(`asset-${upload.asset.id}`, placement);
     if (upload.completed) {
       void upload.completed.then((asset) => {
-        if (asset) centerNodeAt(`asset-${asset.id}`, placement);
+        if (asset) placeNodeAt(`asset-${asset.id}`, placement);
       });
     }
-  }, [centerNodeAt]);
+  }, [placeNodeAt]);
 
   useEffect(() => {
     setNodes((prev) => {
@@ -220,11 +246,13 @@ export function FlowView({ snapshot, session, visionReviewEnabled, defaultImageM
 
   const onNodeClick = useCallback((_: unknown, node: Node<FlowNodeData>) => {
     setSelectedNodeId(node.id);
+    setShowFinalVideoPanel(false);
     setCreateMenu(null);
   }, []);
 
   const onPaneClick = useCallback(() => {
     setSelectedNodeId(undefined);
+    setShowFinalVideoPanel(false);
     setCreateMenu(null);
   }, []);
 
@@ -275,6 +303,7 @@ export function FlowView({ snapshot, session, visionReviewEnabled, defaultImageM
 
   useEffect(() => {
     setSelectedNodeId(undefined);
+    setShowFinalVideoPanel(false);
     setCreateMenu(null);
     setCreatingKind("");
     pendingCreatedPositionsRef.current.clear();
@@ -318,9 +347,19 @@ export function FlowView({ snapshot, session, visionReviewEnabled, defaultImageM
     if (!session) return;
     const src = conn.source || "";
     const tgt = conn.target || "";
+    const isFrameAnchorNode = (nodeId: string) => nodeId.startsWith("frame-anchor-") || nodeId.startsWith("tailframe-");
+    const isVisualAssetNode = (nodeId: string) => nodeId.startsWith("image-") || nodeId.startsWith("asset-") || nodeId.startsWith("moodboard-") || isFrameAnchorNode(nodeId);
+    const assetIdFromVisualNode = (nodeId: string) => {
+      if (nodeId.startsWith("frame-anchor-")) return nodeId.slice("frame-anchor-".length);
+      if (nodeId.startsWith("tailframe-")) return nodeId.slice("tailframe-".length);
+      if (nodeId.startsWith("image-")) return nodeId.slice("image-".length);
+      if (nodeId.startsWith("asset-")) return nodeId.slice("asset-".length);
+      if (nodeId.startsWith("moodboard-")) return nodeId.slice("moodboard-".length);
+      return "";
+    };
     const resolveVisualReferenceSource = () => {
-      if (src.startsWith("asset-")) {
-        const assetId = src.slice("asset-".length);
+      if (isVisualAssetNode(src)) {
+        const assetId = assetIdFromVisualNode(src);
         const asset = snapshot.assets.find((item) => item.id === assetId);
         const isFrameAnchor = (asset?.tags || []).includes("tailframe") || (asset?.tags || []).includes("frame-anchor");
         return asset && !isFrameAnchor ? asset : undefined;
@@ -334,8 +373,8 @@ export function FlowView({ snapshot, session, visionReviewEnabled, defaultImageM
       return undefined;
     };
 
-    if (src.startsWith("asset-") && tgt.startsWith("shot-")) {
-      const assetId = src.slice("asset-".length);
+    if (isVisualAssetNode(src) && tgt.startsWith("shot-")) {
+      const assetId = assetIdFromVisualNode(src);
       const targetShotId = tgt.slice("shot-".length);
       const asset = snapshot.assets.find((a) => a.id === assetId);
       const targetShot = (session.shots || []).find((s) => s.id === targetShotId);
@@ -377,11 +416,11 @@ export function FlowView({ snapshot, session, visionReviewEnabled, defaultImageM
       }
     }
 
-    if ((src.startsWith("asset-") || src.startsWith("storyboard-")) && (tgt.startsWith("asset-") || tgt.startsWith("storyboard-"))) {
+    if ((isVisualAssetNode(src) || src.startsWith("storyboard-")) && (isVisualAssetNode(tgt) || tgt.startsWith("storyboard-"))) {
       const sourceAsset = resolveVisualReferenceSource();
       if (!sourceAsset) return;
-      if (tgt.startsWith("asset-")) {
-        const targetAssetId = tgt.slice("asset-".length);
+      if (isVisualAssetNode(tgt)) {
+        const targetAssetId = assetIdFromVisualNode(tgt);
         if (targetAssetId === sourceAsset.id) return;
         const targetAsset = snapshot.assets.find((asset) => asset.id === targetAssetId);
         if (!targetAsset) return;
@@ -450,8 +489,8 @@ export function FlowView({ snapshot, session, visionReviewEnabled, defaultImageM
       }
     }
 
-    if (src.startsWith("asset-") && (tgt.startsWith("storyboard-") || tgt.startsWith("shot-"))) {
-      const assetId = src.slice("asset-".length);
+    if (isVisualAssetNode(src) && (tgt.startsWith("storyboard-") || tgt.startsWith("shot-"))) {
+      const assetId = assetIdFromVisualNode(src);
       const shotId = tgt.startsWith("storyboard-")
         ? tgt.slice("storyboard-".length)
         : tgt.slice("shot-".length);
@@ -529,10 +568,12 @@ export function FlowView({ snapshot, session, visionReviewEnabled, defaultImageM
       return;
     }
 
-    if ((src.startsWith("refvideo-") || src.startsWith("videoproc-")) && tgt.startsWith("shot-")) {
+    if ((src.startsWith("refvideo-") || src.startsWith("videoproc-") || src.startsWith("video-")) && tgt.startsWith("shot-")) {
       const refAssetId = src.startsWith("refvideo-")
         ? src.slice("refvideo-".length)
-        : src.slice("videoproc-".length);
+        : src.startsWith("videoproc-")
+          ? src.slice("videoproc-".length)
+          : src.slice("video-".length);
       const shotId = tgt.slice("shot-".length);
       const refAsset = snapshot.assets.find((a) => a.id === refAssetId);
       if (!refAsset) return;
@@ -587,8 +628,8 @@ export function FlowView({ snapshot, session, visionReviewEnabled, defaultImageM
       return;
     }
 
-    if ((src.startsWith("tailframe-") || src.startsWith("asset-")) && tgt.startsWith("shot-")) {
-      const assetId = src.startsWith("tailframe-") ? src.slice("tailframe-".length) : src.slice("asset-".length);
+    if ((isFrameAnchorNode(src) || src.startsWith("asset-")) && tgt.startsWith("shot-")) {
+      const assetId = isFrameAnchorNode(src) ? assetIdFromVisualNode(src) : src.slice("asset-".length);
       const targetShotId = tgt.slice("shot-".length);
       const asset = snapshot.assets.find((a) => a.id === assetId);
       const targetShot = (session.shots || []).find((s) => s.id === targetShotId);
@@ -1189,9 +1230,17 @@ export function FlowView({ snapshot, session, visionReviewEnabled, defaultImageM
   }, [session, onMutated, onPushUndo]);
 
   const selectedData = useMemo(() => {
+    if (showFinalVideoPanel && session) {
+      return {
+        kind: "stitch",
+        session,
+        job: legacyStitchJobForSession(session),
+        legacy: true
+      } satisfies FlowNodeData;
+    }
     const node = nodes.find((n) => n.id === selectedNodeId);
     return node?.data;
-  }, [nodes, selectedNodeId]);
+  }, [nodes, selectedNodeId, session, showFinalVideoPanel]);
 
   const onBeforeDelete = useCallback<OnBeforeDelete<Node<FlowNodeData>, Edge>>(async ({ nodes: deletingNodes, edges: deletingEdges }) => {
     // All node kinds are deletable now. Generating shots get a soft warning so the user knows the
@@ -1210,7 +1259,7 @@ export function FlowView({ snapshot, session, visionReviewEnabled, defaultImageM
     const allowedNodes = deletingNodes;
     const labels = allowedNodes.map((node) => {
       const data = node.data;
-      if (data.kind === "asset" || data.kind === "referenceVideo" || data.kind === "videoProcessor" || data.kind === "tailframe") {
+      if (data.kind === "image" || data.kind === "asset" || data.kind === "referenceVideo" || data.kind === "videoAsset" || data.kind === "videoProcessor" || data.kind === "tailframe") {
         return data.asset.name || data.asset.id;
       }
       if (data.kind === "shot") return data.shot.title || `Shot ${data.shot.index}`;
@@ -1260,7 +1309,7 @@ export function FlowView({ snapshot, session, visionReviewEnabled, defaultImageM
         const data = node.data;
         try {
           let ok = false;
-          if (data.kind === "asset" || data.kind === "referenceVideo" || data.kind === "videoProcessor" || data.kind === "tailframe") {
+          if (data.kind === "image" || data.kind === "asset" || data.kind === "referenceVideo" || data.kind === "videoAsset" || data.kind === "videoProcessor" || data.kind === "tailframe") {
             ok = await onDeleteCanvasAsset(data.asset);
           } else if (data.kind === "shot") {
             ok = await onDeleteCanvasShot(data.shot);
@@ -1364,22 +1413,15 @@ export function FlowView({ snapshot, session, visionReviewEnabled, defaultImageM
 
   /**
    * Translate a user pick from the floating menu into the actual mutation. The "upload" branch
-   * stages which kind of anchor the file should become (character vs scene), then triggers the
-   * hidden file input — its onChange handler runs the upload.
+   * stages an image upload, then triggers the hidden file input — its onChange handler runs the upload.
    */
   const handleMenuPick = useCallback(async (option: CreateMenuOption) => {
     const placement = createMenu?.flowPosition;
     setCreateMenu(null);
-    if (option === "character") {
-      return guardCreate("character", async () => {
-        const asset = await onCreateAnchorAsset("character");
-        if (asset) centerNodeAt(`asset-${asset.id}`, placement);
-      });
-    }
-    if (option === "scene") {
-      return guardCreate("scene", async () => {
-        const asset = await onCreateAnchorAsset("scene");
-        if (asset) centerNodeAt(`asset-${asset.id}`, placement);
+    if (option === "image") {
+      return guardCreate("image", async () => {
+        const asset = await onCreateAnchorAsset("image");
+        if (asset) placeNodeAt(visualNodeIdForAsset(asset) || `image-${asset.id}`, placement);
       });
     }
     if (option === "storyboard") {
@@ -1387,45 +1429,29 @@ export function FlowView({ snapshot, session, visionReviewEnabled, defaultImageM
         const shot = await onCreateShot();
         if (!shot) return;
         await api.updateShot(shot.id, { subShotPanelCount: 9 });
-        centerNodeAt(`storyboard-${shot.id}`, placement);
+        placeNodeAt(`storyboard-${shot.id}`, placement);
         await onMutated();
       });
     }
     if (option === "shot") {
       return guardCreate("shot", async () => {
         const shot = await onCreateShot();
-        if (shot) centerNodeAt(`shot-${shot.id}`, placement);
-      });
-    }
-    if (option === "stitch") {
-      return guardCreate("stitch", async () => {
-        if (!session) return;
-        const job = await onCreateStitchJob();
-        if (job) centerNodeAt(`stitch-${session.id}-${job.id}`, placement);
+        if (shot) placeNodeAt(`shot-${shot.id}`, placement);
       });
     }
     if (option === "audioTrack") {
       return guardCreate("audioTrack", async () => {
         if (!session) return;
-        await api.updateSession(session.id, { audioTrackHidden: false });
-        const firstJob = session.stitchJobs?.[0];
-        if (firstJob) {
-          centerNodeAt(`audio-${session.id}-${firstJob.id}`, placement);
-        } else {
-          const hasLegacyStitch = !session.stitchHidden && ((session.shots || []).length >= 2 || Boolean(session.finalVideoUrl) || Boolean(session.stitchShotIds?.length));
-          if (hasLegacyStitch) centerNodeAt(`audio-${session.id}`, placement);
-        }
+        await api.updateSession(session.id, {
+          audioTrackHidden: false,
+          audioTrackStitchJobIds: Array.from(new Set([...(session.audioTrackStitchJobIds || []), "legacy"]))
+        });
+        placeNodeAt("audio-legacy", placement);
         await onMutated();
       });
     }
-    if (option === "uploadCharacter") {
-      pendingFileKindRef.current = "character";
-      pendingFilePositionRef.current = placement;
-      fileInputRef.current?.click();
-      return;
-    }
-    if (option === "uploadScene") {
-      pendingFileKindRef.current = "scene";
+    if (option === "uploadImage") {
+      pendingFileKindRef.current = "image";
       pendingFilePositionRef.current = placement;
       fileInputRef.current?.click();
       return;
@@ -1435,7 +1461,7 @@ export function FlowView({ snapshot, session, visionReviewEnabled, defaultImageM
       videoInputRef.current?.click();
       return;
     }
-  }, [centerNodeAt, createMenu?.flowPosition, guardCreate, onCreateAnchorAsset, onCreateShot, onCreateStitchJob, onMutated, session]);
+  }, [createMenu?.flowPosition, guardCreate, onCreateAnchorAsset, onCreateShot, onMutated, placeNodeAt, session]);
 
   /** Drop-on-canvas handler: route file by mime type. Image → character anchor; video → reference. */
   const onDrop = useCallback((event: React.DragEvent<HTMLDivElement>) => {
@@ -1444,17 +1470,17 @@ export function FlowView({ snapshot, session, visionReviewEnabled, defaultImageM
     const file = event.dataTransfer.files[0];
     const placement = flowPositionFromClient(event.clientX, event.clientY);
     if (file.type.startsWith("image/")) {
-      pendingFileKindRef.current = "character";
-      void Promise.resolve(onUploadImageAsset(file, "character")).then((result) => centerUploadImageResult(result, placement));
+      pendingFileKindRef.current = "image";
+      void Promise.resolve(onUploadImageAsset(file, "image")).then((result) => centerUploadImageResult(result, placement));
       return;
     }
     if (file.type.startsWith("video/")) {
       void Promise.resolve(onUploadReferenceVideo(file)).then((asset) => {
-        if (asset) centerNodeAt(`refvideo-${asset.id}`, placement);
+        if (asset) placeNodeAt(`refvideo-${asset.id}`, placement);
       });
       return;
     }
-  }, [centerNodeAt, centerUploadImageResult, flowPositionFromClient, onUploadImageAsset, onUploadReferenceVideo]);
+  }, [centerUploadImageResult, flowPositionFromClient, onUploadImageAsset, onUploadReferenceVideo, placeNodeAt]);
 
   if (!session) {
     return (
@@ -1479,6 +1505,17 @@ export function FlowView({ snapshot, session, visionReviewEnabled, defaultImageM
           </small>
         </div>
         <div className="flow-toolbar-actions">
+          <button
+            type="button"
+            className="primary"
+            onClick={() => {
+              setSelectedNodeId(undefined);
+              setShowFinalVideoPanel((value) => !value);
+            }}
+            title={lang === "en" ? "Open final video stitch, review, and download controls" : "打开完整视频拼接、终审和下载面板"}
+          >
+            {session.stitchStatus === "running" ? t.nodes.stitching : t.nodes.fullVideo}
+          </button>
           {undo && (
             <button
               className="flow-toolbar-undo"
@@ -1507,6 +1544,7 @@ export function FlowView({ snapshot, session, visionReviewEnabled, defaultImageM
           className="flow-canvas"
           onDrop={onDrop}
           onDragOver={onCanvasDragOver}
+          onContextMenuCapture={onPaneContextMenu}
         >
           <ReactFlow
             nodes={nodes}
@@ -1603,7 +1641,7 @@ export function FlowView({ snapshot, session, visionReviewEnabled, defaultImageM
           const placement = pendingFilePositionRef.current;
           pendingFilePositionRef.current = undefined;
           const asset = await onUploadReferenceVideo(file);
-          if (asset) centerNodeAt(`refvideo-${asset.id}`, placement);
+          if (asset) placeNodeAt(`refvideo-${asset.id}`, placement);
         }}
       />
       <DownloadToast />

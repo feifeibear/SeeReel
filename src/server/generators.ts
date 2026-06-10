@@ -8,7 +8,7 @@ import { pipeline } from "node:stream/promises";
 import type { ReadableStream as WebReadableStream } from "node:stream/web";
 import ffmpeg from "@ffmpeg-installer/ffmpeg";
 import type { Asset, AssetImageModel, SessionWithShots, Shot, StoryBeat, StoryPlan } from "../shared/types";
-import { composeSeedanceVideoText, composeSeedreamAssetPrompt, enforceSpokenLanguageInstruction, type Lang } from "./promptCompose";
+import { composeSeedanceVideoText, composeSeedreamAssetPrompt, type Lang } from "./promptCompose";
 import { fetchWithRetry } from "./fetchWithRetry";
 import { arkMissingKeyMessage, BYTEPLUS_ARK_BASE, resolveArkCredential, VOLCENGINE_CN_ARK_BASE, type ArkCredential, type StandardCredentialRouteConfig } from "./arkCredentials";
 import { seedreamWebSearchPayload } from "./seedreamOptions";
@@ -595,63 +595,11 @@ function isAgentPlanUnsupportedModelError(status: number, text: string) {
 }
 
 export async function expandAssetPrompt(asset: Partial<Asset>) {
-  const fallback = buildLocalExpandedAssetPrompt(asset);
-  const credential = seedPromptCredential();
-  const model = resolveSeedPromptModel(credential.source);
-  if (!credential.apiKey) return { prompt: fallback, model: "local-template" };
-  if (!model) return { prompt: fallback, model: "local-template-agent-plan" };
+  return { prompt: assetUserPrompt(asset), model: "user-prompt", rawUsage: undefined };
+}
 
-  // Wrapped in fetchWithRetry — when BytePlus throws a transient "fetch failed" / 5xx, we
-  // silently retry with backoff instead of bubbling the network blip up to the user. The user's
-  // prompt-expansion request is read-only on BytePlus's side (no content created) so retry-on-
-  // timeout is safe.
-  const response = await fetchWithRetry(`${credential.apiBase}/responses`, {
-    method: "POST",
-    timeoutMs: 60_000,
-    idempotent: true,
-    tag: "doubao:expand-prompt",
-    headers: {
-      ...jsonHeaders(credential.apiKey),
-      "ark-beta-mcp": "true"
-    },
-    body: JSON.stringify({
-      model,
-      stream: false,
-      input: [
-        {
-          role: "system",
-          content: [
-            {
-              type: "input_text",
-              text:
-                "你是电影短片资产设定 prompt 扩写师。只输出可直接用于文生图的最终中文 prompt，不要解释，不要 Markdown。"
-            }
-          ]
-        },
-        {
-          role: "user",
-          content: [
-            {
-              type: "input_text",
-              text: buildAssetPromptExpansionInstruction(asset)
-            }
-          ]
-        }
-      ]
-    })
-  });
-
-  const text = await response.text();
-  if (!response.ok) {
-    if (credential.source === "agent-plan" && isAgentPlanUnsupportedModelError(response.status, text)) {
-      console.warn(`[seed-prompt] ${model} is not supported by Agent Plan; falling back to local template expansion`);
-      return { prompt: fallback, model: "local-template-agent-plan" };
-    }
-    throw new Error(`Seed prompt API failed: ${response.status} ${text.slice(0, 1000)}`);
-  }
-  const body = text ? JSON.parse(text) : {};
-  const expanded = (extractResponseText(body) || "").trim();
-  return { prompt: isNoOpPromptExpansion(expanded, asset) ? fallback : expanded, model, rawUsage: body.usage };
+function assetUserPrompt(asset: Partial<Pick<Asset, "prompt" | "description" | "name">>) {
+  return (asset.prompt || asset.description || asset.name || "").trim();
 }
 
 function isNoOpPromptExpansion(expanded: string, asset: Partial<Asset>) {
@@ -671,9 +619,7 @@ async function generateAssetImageViaOpenAI(asset: Asset, referenceImageUrls: str
     return `https://placehold.co/1024x1024/1f2937/f8fafc?text=${encodeURIComponent(asset.name)}`;
   }
   const usableRefs = await prepareOpenAIReferenceImages(referenceImageUrls);
-  const prompt = `${asset.prompt || asset.description || asset.name}
-Asset type: ${asset.type}. Clean production reference image, no text overlay.
-${usableRefs.length ? "Use the attached input images as strict visual references for the main subjects. Preserve their faces, styling, wardrobe, silhouette, age, and identity. Do not invent replacement protagonists." : ""}`;
+  const prompt = assetUserPrompt(asset);
   const endpoint = usableRefs.length ? "edits" : "generations";
   const response = await fetch(`https://api.openai.com/v1/images/${endpoint}`, {
     method: "POST",
@@ -785,23 +731,21 @@ async function generateAssetImageViaSeedream(
   opts: SeedreamGenerateOpts = {}
 ) {
   const credential = seedreamCredential();
+  const lang: Lang = opts.lang === "en" ? "en" : "zh";
+  const composedPrompt = opts.promptOverride && opts.promptOverride.trim().length > 0
+    ? opts.promptOverride
+    : composeSeedreamAssetPrompt(asset, referenceImageUrls.length > 0, lang).composedPrompt;
   if (!credential.apiKey) {
     refuseFakeSuccessInProduction("Seedream image generation", SEEDREAM_KEY_ENVS);
     return {
       url: `https://placehold.co/2048x2048/1f2937/f8fafc?text=${encodeURIComponent(asset.name)}`,
-      composedPrompt: "",
+      composedPrompt,
       model: variant,
       credentialSource: credential.source
     };
   }
 
   const usableRefs = await prepareSeedreamReferenceImages(referenceImageUrls, asset.id);
-
-  // Compose prompt: caller override > centralized composer (zh by default).
-  const lang: Lang = opts.lang === "en" ? "en" : "zh";
-  const composedPrompt = opts.promptOverride && opts.promptOverride.trim().length > 0
-    ? opts.promptOverride
-    : composeSeedreamAssetPrompt(asset, usableRefs.length > 0, lang).composedPrompt;
 
   // Default to Seedream 4K for higher-fidelity role/scene anchors. Env override still wins so ops
   // can temporarily lower cost/latency without touching code.
@@ -1044,19 +988,9 @@ async function generateShotVideoViaCustomEndpoint(shot: Shot, assets: Asset[], o
   const referenceClipUrl = useFirstFrameMode ? undefined : getSeedanceWebUrl(shot.referenceClipUrl);
   const referenceAudioUrl = useFirstFrameMode ? undefined : getSeedanceWebUrl(shot.referenceAudioUrl);
   const referenceAssets = useFirstFrameMode && firstFrameAsset ? [firstFrameAsset] : assets;
-  const promptBase = opts.prebuiltText && opts.prebuiltText.trim().length > 0
+  const prompt = opts.prebuiltText && opts.prebuiltText.trim().length > 0
     ? opts.prebuiltText.trim()
-    : [
-        buildVideoPrompt(shot, referenceAssets, {
-          continuityVideoFirst: Boolean(referenceClipUrl),
-          firstFrameAsset: useFirstFrameMode ? firstFrameAsset : undefined
-        }),
-        referenceClipUrl || referenceAudioUrl ? buildContinuityInstruction() : "",
-        useFirstFrameMode ? buildFirstFrameInstruction(firstFrameAsset) : ""
-      ]
-        .filter(Boolean)
-        .join("\n");
-  const prompt = enforceSpokenLanguageInstruction(promptBase, opts.lang || "zh");
+    : (shot.rawPrompt || shot.prompt || "").trim();
 
   // Custom Seedance HTTP endpoint — wrapped in fetchWithRetry with idempotent=false so we only
   // retry pre-flight network errors (not server-confirmed timeouts that may have created a task).
@@ -1305,8 +1239,7 @@ async function buildBytePlusSeedancePayload(shot: Shot, assets: Asset[], opts: B
       : [...referenceImages, ...referenceVideos].map((item) => item.asset);
 
   // Compose the text content. Two paths:
-  //   - opts.prebuiltText: caller has the user-edited final prompt (post audit), then we still
-  //     append the session spoken-language lock before submitting.
+  //   - opts.prebuiltText: caller has a user-edited final prompt; submit it verbatim.
   //   - else: run promptCompose.composeSeedanceVideoText with the resolved context + lang.
   // The composer is the single source of truth for the assembled text — same code path drives
   // dryRun preview returned by /api/shots/:id/generate?dryRun=true.
@@ -1326,7 +1259,7 @@ async function buildBytePlusSeedancePayload(shot: Shot, assets: Asset[], opts: B
         },
         lang
       ).composedPrompt;
-  const textContent = enforceSpokenLanguageInstruction(textContentBase, lang);
+  const textContent = textContentBase;
 
   return {
     model,
@@ -1588,6 +1521,7 @@ function buildAssetReferenceText(assets: Asset[], options: BuildVideoPromptOptio
 }
 
 function getAssetReferenceUsage(asset: Asset) {
+  if (asset.type === "image") return "Use this connected image node as an explicit visual reference. Preserve its intended subject, layout, palette, material cues, and editing constraints unless the user's prompt says otherwise.";
   if (asset.type === "character") return "Maintain the character identity, face, body type, costume, and recognizable expression details from this reference.";
   if (asset.type === "scene") return "Maintain the scene layout, key objects, lighting logic, palette, weather, and spatial geography from this reference.";
   if (asset.type === "prop") return "Maintain the prop shape, material, scale, state, and how it is held or used from this reference.";
@@ -1658,6 +1592,16 @@ function extractGenerationError(body: unknown): unknown {
 
 function buildAssetPromptExpansionInstruction(asset: Partial<Asset>) {
   const rawPrompt = [asset.name, asset.prompt || asset.description].filter(Boolean).join("，").trim() || "未命名电影资产";
+  if (asset.type === "image") {
+    return [
+      "请把用户原始图片节点描述扩写成 Seedream 4.5 文生图 / 图生图最终 prompt。语言：中文。最长不超过 650 字。",
+      "这是一张 SeeReel 画布里的通用图片节点，可代表角色、场景、道具、风格、Moodboard 或图片编辑结果。不要强行套角色三视图或场景空镜模板；按用户原文判断图片内容。",
+      "如果此节点连接了上游图片参考，扩写必须体现 image-to-image 编辑：保留参考图的主体身份、轮廓、透视、构图、材质、色彩关系和关键细节；只改变用户明确要求改变的部分。",
+      "硬性输出：一张清晰、干净、电影级图片，优先 16:9 横构图；ARRI Alexa Mini LF + 50mm prime + 35mm 胶片质感；主体清晰，材质细节明确，光线可读。",
+      "结尾负面：**STRICT NEGATIVE**——不要文字 / 字幕 / 水印 / UI / 二维码 / HDR halo / 低清 / 虚焦 / motion blur / 无关主体；不要改变已连接参考图的主体身份。",
+      `用户原始描述：${rawPrompt}`
+    ].join("\n");
+  }
   if (asset.type === "character") {
     if (isLikelyNonHumanCharacterAsset(rawPrompt)) {
       return [
@@ -1739,6 +1683,15 @@ function buildAssetPromptExpansionInstruction(asset: Partial<Asset>) {
 
 function buildLocalExpandedAssetPrompt(asset: Partial<Asset>) {
   const rawPrompt = [asset.name, asset.prompt || asset.description].filter(Boolean).join("，").trim() || "一个电影短片资产";
+  if (asset.type === "image") {
+    return [
+      `图片节点参考图：${rawPrompt}。`,
+      "一张清晰、干净、电影级图片，可作为下游图片编辑、分镜板或视频生成参考。",
+      "如果连接了上游图片参考，保留参考图的主体身份、轮廓、透视、构图、材质、色彩关系和关键细节；只改变用户描述要求改变的部分。",
+      "ARRI Alexa Mini LF + 50mm prime + 35mm 胶片质感；主体清晰，光线可读，材质细节明确，构图干净高级。",
+      "**STRICT NEGATIVE**：不要文字 / 字幕 / 水印 / UI / 二维码 / HDR halo / 低清 / 虚焦 / motion blur / 无关主体；不要改变已连接参考图的主体身份。"
+    ].join(" ");
+  }
   if (asset.type === "character") {
     if (isLikelyNonHumanCharacterAsset(rawPrompt)) {
       return [

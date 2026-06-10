@@ -60,8 +60,8 @@ const snapshot = {
 const graph = buildSessionGraph(snapshot as never, session as never);
 const positions = new Map(graph.nodes.map((node) => [node.id, node.position]));
 
-assert.deepEqual(positions.get("asset-asset_character"), { x: 333, y: 444 });
+assert.deepEqual(positions.get("image-asset_character"), { x: 333, y: 444 });
 assert.deepEqual(positions.get("shot-shot_one"), { x: 777, y: 888 });
-assert.deepEqual(positions.get("stitch-ses_layout-stitch_one"), { x: 1111, y: 222 });
+assert.equal(positions.has("stitch-ses_layout-stitch_one"), false);
 
 console.log("smoke:canvas-node-layout passed");

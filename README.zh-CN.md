@@ -253,6 +253,15 @@ TOS_KEY_PREFIX=cinema-agent/storyboards
 TOS_PRESIGN_EXPIRES_SEC=604800
 ```
 
+火山 `doubao-music` 是后期音轨节点的独立 OpenAPI 能力，不走 Ark `/api/v3`，也不能用 Agent Plan Key：
+
+```bash
+VOLC_MUSIC_ACCESS_KEY_ID=<AK>
+VOLC_MUSIC_SECRET_ACCESS_KEY=<SK>
+VOLC_MUSIC_BILLING_MODE=postpaid
+VOLC_MUSIC_MODEL_VERSION=v5.0
+```
+
 回退和可选配置：
 
 | 能力 | 环境变量 |
@@ -264,6 +273,7 @@ TOS_PRESIGN_EXPIRES_SEC=604800
 | Agent Plan | `ARK_AGENT_PLAN_KEY` |
 | 可选剧本生成 | `OPENAI_API_KEY` / `OAI_KEY` |
 | 可选解说配音 | `VOLC_TTS_APPID` / `VOLC_TTS_TOKEN` |
+| 可选音乐生成 | `VOLC_MUSIC_ACCESS_KEY_ID` / `VOLC_MUSIC_SECRET_ACCESS_KEY` |
 | 公网媒体回退 | 非 localhost 的 `PUBLIC_MEDIA_BASE_URL` |
 
 ## 公网部署

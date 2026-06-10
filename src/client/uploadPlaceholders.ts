@@ -1,6 +1,6 @@
 import type { Asset, AssetType, SessionLanguage } from "../shared/types";
 
-export type ImageUploadKind = Extract<AssetType, "character" | "scene">;
+export type ImageUploadKind = Extract<AssetType, "image" | "character" | "scene">;
 
 export interface PendingImageUploadAssetInput {
   fileName: string;
@@ -15,11 +15,17 @@ export interface PendingImageUploadAssetInput {
 export function imageUploadAssetName(fileName: string, kind: ImageUploadKind, lang: SessionLanguage = "zh") {
   const stem = fileName.replace(/\.[^/.]+$/, "");
   if (stem) return stem;
+  if (kind === "image") return lang === "en" ? "Uploaded image" : "上传图片";
   if (kind === "character") return lang === "en" ? "Uploaded character" : "上传角色";
   return lang === "en" ? "Uploaded scene" : "上传场景";
 }
 
 export function imageUploadDescription(kind: ImageUploadKind, lang: SessionLanguage = "zh") {
+  if (kind === "image") {
+    return lang === "en"
+      ? "Image imported from local disk and available for image editing or generation references"
+      : "从本地拖入的图片，可连接其它图片节点做编辑，也可作为分镜或视频参考";
+  }
   if (lang === "en") {
     return `Image imported from local disk and used as a ${kind === "character" ? "character" : "scene"} anchor`;
   }

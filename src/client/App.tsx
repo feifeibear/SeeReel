@@ -20,7 +20,7 @@ const FlowView = lazy(() =>
 
 const clientBuildStamp = "speed-20260604-state-first-canvas";
 
-type AnchorKind = Extract<AssetType, "character" | "scene" | "prop" | "style">;
+type AnchorKind = Extract<AssetType, "image" | "character" | "scene" | "prop" | "style"> | "moodboard";
 
 type TokenUsageNodeSummary = {
   nodeId: string;
@@ -1614,36 +1614,44 @@ export function App() {
   const handleCreateAnchorAsset = useStableEvent(async (kind: AnchorKind) => {
     if (!visibleSelectedSession) return undefined;
     const seedNames: Record<string, string> = lang === "en" ? {
+      image: "Untitled image",
       character: "Untitled character",
       scene: "Untitled scene",
       prop: "Untitled prop",
-      style: "Untitled style"
+      style: "Untitled style",
+      moodboard: "Untitled moodboard"
     } : {
+      image: "未命名图片",
       character: "未命名角色",
       scene: "未命名场景",
       prop: "未命名道具",
-      style: "未命名风格"
+      style: "未命名风格",
+      moodboard: "未命名 Moodboard"
     };
     const seedDescriptions: Record<string, string> = lang === "en" ? {
+      image: "Describe the image you want, or connect another image node as a reference for image editing. Generate a still, then wire it to storyboards or shots when needed.",
       character: "Describe the character identity, appearance, and wardrobe in the Inspector; generate a reference image, then drag a canvas edge to the storyboard that should use it.",
       scene: "Describe the scene elements, lighting, and set dressing in the Inspector; generate a reference image, then drag a canvas edge to the storyboard that should use it.",
       prop: "Describe the prop shape, material, and key details in the Inspector; generate a baseline prop image, then drag a canvas edge to the storyboard that should use it.",
-      style: "Describe the visual style, color palette, brush/texture keywords in the Inspector; generate a style reference, then drag a canvas edge to the storyboard that should use it."
+      style: "Describe the visual style, color palette, brush/texture keywords in the Inspector; generate a style reference, then drag a canvas edge to the storyboard that should use it.",
+      moodboard: "Describe the visual mood: palette, lighting, era, texture, camera taste, and genre references. Generate a moodboard, then wire it to assets, storyboards, or shots that should follow it."
     } : {
+      image: "在右侧 Inspector 写清你想要的图片；也可以把其它图片节点连过来做参考图编辑。生成后，再连到需要使用它的分镜板或 shot。",
       character: "在右侧 Inspector 写清角色身份/外形/服装；先「重新出图」生成参考图，然后从画布拖一根线连到要用它的分镜板。",
       scene: "在右侧 Inspector 写清场景元素/光线/布景；先「重新出图」生成参考图，然后从画布拖一根线连到要用它的分镜板。",
       prop: "在右侧 Inspector 写清道具的造型/材质/关键细节；先「重新出图」生成道具基准图，然后从画布拖一根线连到要用它的分镜板。",
-      style: "在右侧 Inspector 写清画面风格/色调/笔触/质感关键词；先「重新出图」生成风格基准图，然后从画布拖一根线连到要用它的分镜板。"
+      style: "在右侧 Inspector 写清画面风格/色调/笔触/质感关键词；先「重新出图」生成风格基准图，然后从画布拖一根线连到要用它的分镜板。",
+      moodboard: "在右侧 Inspector 写清视觉情绪：色彩、光影、年代感、质感、镜头审美和类型参考。先生成 Moodboard，再把它连到需要统一风格的资产、分镜板或 shot。"
     };
     const sessionForCreate = visibleSelectedSession;
     if (!sessionForCreate) return undefined;
     const payload: Partial<Asset> = {
       name: seedNames[kind],
-      type: kind as AssetType,
+      type: (kind === "moodboard" ? "style" : kind) as AssetType,
       description: seedDescriptions[kind],
       prompt: "",
       ownerSessionId: sessionForCreate.id,
-      tags: ["anchor", kind]
+      tags: kind === "moodboard" ? ["anchor", "style", "moodboard", "style-reference"] : ["anchor", kind]
     };
     await waitForSessionCreate(sessionForCreate.id);
     const asset = await api.saveAsset(payload);
@@ -1717,7 +1725,7 @@ export function App() {
     }));
   });
 
-  const handleUploadImageAsset = useStableEvent((file: File, kind: "character" | "scene"): UploadImageAssetResult | undefined => {
+  const handleUploadImageAsset = useStableEvent((file: File, kind: "image" | "character" | "scene"): UploadImageAssetResult | undefined => {
     if (!selectedSession) return undefined;
     setError("");
     const objectUrl = URL.createObjectURL(file);
@@ -1748,12 +1756,12 @@ export function App() {
         });
         const patched = await api.saveAsset({
           id: asset.id,
-          type: kind as AssetType,
+          type: (kind === "image" ? "image" : kind) as AssetType,
           description: imageUploadDescription(kind, lang),
           tags
         });
         upsertAssetInState(patched);
-        pushAssetCreateUndo(kind === "character" ? (lang === "en" ? "Upload character image" : "上传角色图") : (lang === "en" ? "Upload scene image" : "上传场景图"), patched);
+        pushAssetCreateUndo(lang === "en" ? "Upload image" : "上传图片", patched);
         cleanupPlaceholder();
         await refresh();
         return patched;
@@ -2409,7 +2417,6 @@ export function App() {
               onPushUndo={undoStack.push}
               onCreateAnchorAsset={handleCreateAnchorAsset}
               onCreateShot={handleCreateShot}
-              onCreateStitchJob={handleCreateStitchJob}
               onSetStitchOrder={handleSetStitchOrder}
               onDeleteCanvasAsset={handleDeleteCanvasAsset}
               onDeleteCanvasShot={handleDeleteCanvasShot}

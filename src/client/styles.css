@@ -2481,6 +2481,7 @@ label {
 .tag-scene { background: rgba(59,130,246,0.20); color: #93c5fd; }
 .tag-prop { background: rgba(244,114,182,0.18); color: #f9a8d4; }
 .tag-style { background: rgba(167,139,250,0.18); color: #c4b5fd; }
+.tag-moodboard { background: rgba(236,72,153,0.18); color: #f9a8d4; }
 .tag-other { background: rgba(156,163,175,0.18); color: #d1d5db; }
 .tag-storyboard { background: rgba(167,139,250,0.22); color: #c4b5fd; }
 .tag-shot { background: rgba(96,165,250,0.20); color: #93c5fd; }
@@ -2756,6 +2757,48 @@ label {
   color: rgba(244, 201, 93, 0.55);
   font-weight: 400;
   font-size: 10px;
+}
+.inspector-mention-chips-with-thumbs {
+  align-items: stretch;
+  margin-top: 0;
+}
+.inspector-mention-chip.with-thumb {
+  border-radius: 8px;
+  padding: 4px 6px 4px 4px;
+  max-width: 160px;
+}
+.inspector-mention-chip.with-thumb img {
+  width: 30px;
+  height: 30px;
+  object-fit: cover;
+  border-radius: 5px;
+  background: rgba(255, 255, 255, 0.08);
+}
+.inspector-mention-chip.with-thumb span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.flow-node-reference-strip {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0 8px 8px;
+  color: rgba(244, 201, 93, 0.78);
+  font-size: 10px;
+  font-weight: 700;
+}
+.flow-node-reference-strip img {
+  width: 22px;
+  height: 22px;
+  object-fit: cover;
+  border-radius: 5px;
+  border: 1px solid rgba(244, 201, 93, 0.4);
+  background: rgba(255, 255, 255, 0.08);
+}
+.flow-node-reference-strip small {
+  color: rgba(244, 201, 93, 0.6);
 }
 
 /* @-mention autocomplete textarea + dropdown. Popup floats below the textarea anchored to its
@@ -3075,6 +3118,13 @@ label {
   border-color: transparent;
 }
 .inspector-actions button:disabled { opacity: 0.5; cursor: not-allowed; }
+.inspector-actions-wrap {
+  flex-wrap: wrap;
+}
+.inspector-actions-wrap button,
+.inspector-actions-wrap .inspector-download {
+  flex: 1 1 120px;
+}
 
 .range-label {
   display: grid;
@@ -3608,8 +3658,8 @@ label {
   font-size: 12px;
 }
 
-/* In-node video/image thumbnail preview. Node clicks bubble up to React Flow and open the
-   Inspector; only the bottom-right ▶ button plays video in the Lightbox. */
+/* In-node media preview. Image thumbnails stay passive so node clicks open the Inspector; video
+   nodes opt into an inline native player with controls, progress, pause, and seek. */
 .flow-thumb-preview,
 .flow-thumb-clickable {
   position: relative;
@@ -3628,6 +3678,9 @@ label {
   background: #0b1220;
   display: block;
   pointer-events: none;
+}
+.flow-video-player > video {
+  pointer-events: auto;
 }
 .flow-thumb-preview > .flow-empty,
 .flow-thumb-clickable > .flow-empty {
