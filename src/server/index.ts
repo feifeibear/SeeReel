@@ -16,6 +16,7 @@ import type {
 import {
   canUseBytePlusSeedance,
   type BuildSeedancePayloadOpts,
+  cacheGeneratedImage,
   cacheGeneratedVideo,
   cancelSeedanceVideoTask,
   createSeedanceVideoTask,
@@ -37,7 +38,7 @@ import {
   seedanceTimeoutMs,
   stitchShotVideos
 } from "./generators";
-import { computeNarrationSignature, resolveEffectiveVoice, resolveVoiceIdFromVoicePrompt, runNarrationPipeline, synthesizeViaDoubao } from "./narration";
+import { computeNarrationSignature, downloadRemoteAudio, generateVolcMusic, resolveEffectiveVoice, resolveVoiceIdFromVoicePrompt, runNarrationPipeline, synthesizeViaDoubao } from "./narration";
 import { computeAudioSeparationSignature, runAudioSeparationPipeline } from "./audioSeparation";
 import { CinemaStore } from "./store";
 import { inferTokenUsageModelFamily, tokenUsageEventFromRaw } from "./tokenUsage";
@@ -1685,6 +1686,108 @@ app.post("/api/assets/:assetId/voice-preview", async (req, res) => {
   }
 });
 
+app.post("/api/assets/:assetId/music-generate", async (req, res) => {
+  const assetId = req.params.assetId;
+  const existing = store.snapshot().assets.find((asset) => asset.id === assetId);
+  if (!existing) return res.status(404).json({ error: "Asset not found" });
+  if (existing.ownerSessionId && !ownsSession(sessionById(existing.ownerSessionId))) {
+    return res.status(404).json({ error: "Asset not found" });
+  }
+  const musicKind = parseMusicKind(req.body?.musicKind);
+  const musicPrompt = typeof req.body?.musicPrompt === "string" && req.body.musicPrompt.trim()
+    ? req.body.musicPrompt.trim()
+    : typeof req.body?.prompt === "string" && req.body.prompt.trim()
+      ? req.body.prompt.trim()
+      : "";
+  if (!musicPrompt) return res.status(400).json({ error: "musicPrompt is required" });
+  const musicLyrics = typeof req.body?.musicLyrics === "string" && req.body.musicLyrics.trim()
+    ? req.body.musicLyrics.trim()
+    : undefined;
+  const musicDurationSec = parseMusicDurationSec(req.body?.musicDurationSec) || existing.musicDurationSec || 60;
+  const musicModelVersion = typeof req.body?.musicModelVersion === "string" && req.body.musicModelVersion.trim()
+    ? req.body.musicModelVersion.trim()
+    : undefined;
+  const started = await store.upsertAsset(withAssetOwner({
+    id: assetId,
+    type: "music",
+    mediaKind: "audio",
+    description: musicPrompt,
+    prompt: musicPrompt,
+    musicKind,
+    musicPrompt,
+    musicLyrics: musicKind === "song" ? musicLyrics : undefined,
+    musicDurationSec,
+    musicModelVersion,
+    musicStatus: "generating",
+    musicError: undefined,
+    musicProgress: "queued"
+  }));
+  if (!started) return res.status(404).json({ error: "Asset not found" });
+  try {
+    const signature = createHash("sha1")
+      .update(JSON.stringify({ assetId, musicKind, musicPrompt, musicLyrics, musicDurationSec, musicModelVersion, version: "music-asset-v1" }))
+      .digest("hex")
+      .slice(0, 12);
+    const music = await generateVolcMusic({
+      kind: musicKind,
+      prompt: musicPrompt,
+      lyrics: musicKind === "song" ? musicLyrics : undefined,
+      durationSec: musicDurationSec,
+      modelVersion: musicModelVersion,
+      onProgress: async (phase) => {
+        await store.upsertAsset(withAssetOwner({
+          id: assetId,
+          type: "music",
+          mediaKind: "audio",
+          musicStatus: "generating",
+          musicProgress: phase
+        }));
+      }
+    });
+    const scopeId = existing.ownerSessionId || assetId;
+    const musicPath = await downloadRemoteAudio(music.audioUrl, scopeId, signature);
+    const localUrl = `/media/${path.basename(musicPath)}`;
+    const ready = await store.upsertAsset(withAssetOwner({
+      id: assetId,
+      type: "music",
+      mediaKind: "audio",
+      mediaUrl: localUrl,
+      description: musicPrompt,
+      prompt: musicPrompt,
+      musicKind,
+      musicPrompt,
+      musicLyrics: music.lyrics || (musicKind === "song" ? musicLyrics : undefined),
+      musicDurationSec: music.durationSec || musicDurationSec,
+      musicModelVersion,
+      musicTaskId: music.taskId,
+      musicAudioUrl: music.audioUrl,
+      musicLocalAudioUrl: localUrl,
+      musicStatus: "ready",
+      musicError: undefined,
+      musicProgress: "",
+      musicGeneratedAt: new Date().toISOString(),
+      generatedAt: new Date().toISOString()
+    }));
+    res.json(ready);
+  } catch (err) {
+    const message = friendlyApiError(err, "Music generation failed");
+    const failed = await store.upsertAsset(withAssetOwner({
+      id: assetId,
+      type: "music",
+      mediaKind: "audio",
+      musicKind,
+      musicPrompt,
+      musicLyrics: musicKind === "song" ? musicLyrics : undefined,
+      musicDurationSec,
+      musicModelVersion,
+      musicStatus: "error",
+      musicError: message,
+      musicProgress: ""
+    }));
+    res.status(500).json(failed || { error: message });
+  }
+});
+
 app.delete("/api/assets/:assetId", async (req, res) => {
   await store.deleteAsset(req.params.assetId);
   res.json({ ok: true });
@@ -2371,10 +2474,11 @@ app.post("/api/shots/:shotId/sketches", async (req, res) => {
           provider: "ark-responses",
           model: reviewed.imageReview?.model
         });
+        const canvasImage = await cacheImageForCanvas(reviewed.url, placeholder.id);
         const updated = await store.upsertAsset({
           id: placeholder.id,
-          imageUrl: reviewed.url,
-          mediaUrl: reviewed.url,
+          imageUrl: canvasImage.imageUrl,
+          mediaUrl: canvasImage.mediaUrl,
           mediaKind: "image",
           generatedAt,
           composedPrompt: reviewed.rewrittenPrompt || lastComposedPrompt || undefined,
@@ -2808,11 +2912,12 @@ app.post("/api/assets/:assetId/generate", async (req, res) => {
       provider: "ark-responses",
       model: reviewed.imageReview?.model
     });
+    const canvasImage = await cacheImageForCanvas(reviewed.url, asset.id);
     res.json(
       await store.upsertAsset({
         id: asset.id,
-        imageUrl: reviewed.url,
-        mediaUrl: reviewed.url,
+        imageUrl: canvasImage.imageUrl,
+        mediaUrl: canvasImage.mediaUrl,
         mediaKind: "image",
         generatedAt,
         composedPrompt: reviewed.rewrittenPrompt || lastComposedPrompt || undefined,
@@ -3621,11 +3726,12 @@ async function generateCastAssetImage(asset: Asset, session: Session, candidate:
     session
   );
   const generated = await generateAssetImage(preparedAsset, "gpt-image-2", []);
+  const canvasImage = await cacheImageForCanvas(generated.url, preparedAsset.id);
   return (
     (await store.upsertAsset({
       id: preparedAsset.id,
-      imageUrl: generated.url,
-      mediaUrl: generated.url,
+      imageUrl: canvasImage.imageUrl,
+      mediaUrl: canvasImage.mediaUrl,
       mediaKind: "image",
       generatedAt: new Date().toISOString()
     })) as Asset
@@ -3865,6 +3971,15 @@ function resolveShotVideoDeliveryForRequest(shot: Shot | undefined, req: Request
   const render = version
     ? (shot.renders || []).find((item) => item.id === version)
     : findSelectedRender(shot);
+  if (mode === "playback") {
+    return render?.videoUrl
+      || shot.videoUrl
+      || render?.playbackVideoUrl
+      || render?.downloadVideoUrl
+      || render?.remoteVideoUrl
+      || shot.playbackVideoUrl
+      || shot.downloadVideoUrl;
+  }
   return resolveVideoDeliveryUrl({
     videoUrl: render?.videoUrl || shot.videoUrl,
     remoteVideoUrl: render?.remoteVideoUrl,
@@ -4225,6 +4340,7 @@ app.post("/api/sessions/:sessionId/storyboard-grid", async (req, res) => {
     const created: Asset[] = [];
     for (let i = 0; i < result.panels.length; i += 1) {
       const panel = result.panels[i];
+      const canvasImage = await cacheImageForCanvas(panel.url, `${session.id}-storyboard-${i + 1}`);
       const placeholder = await store.upsertAsset({
         name: `${session.title || session.id} 故事板 #${i + 1}`,
         type: "scene",
@@ -4233,8 +4349,8 @@ app.post("/api/sessions/:sessionId/storyboard-grid", async (req, res) => {
         prompt: promptText,
         tags: ["storyboard-grid", "frame-anchor"],
         ownerSessionId: session.id,
-        mediaUrl: panel.url,
-        imageUrl: panel.url,
+        mediaUrl: canvasImage.mediaUrl,
+        imageUrl: canvasImage.imageUrl,
         generatedAt: new Date().toISOString(),
         generationModel: result.model.includes("seedream-5.0-lite") ? "seedream-5-lite" : result.model.includes("seedream-4-0") ? "seedream-4" : "seedream-4-5",
         generationModelActual: result.model,
@@ -4304,10 +4420,11 @@ app.post("/api/sessions/:sessionId/storyboard-grid", async (req, res) => {
               provider: "seedream",
               model: fresh.model
             });
+            const canvasImage = await cacheImageForCanvas(fresh.url, panel.id);
             const updated = await store.upsertAsset({
               id: panel.id,
-              mediaUrl: fresh.url,
-              imageUrl: fresh.url,
+              mediaUrl: canvasImage.mediaUrl,
+              imageUrl: canvasImage.imageUrl,
               generatedAt: new Date().toISOString()
             });
             if (updated) {
@@ -4586,8 +4703,11 @@ app.post("/api/shots/:shotId/sub-storyboard", async (req, res) => {
       provider: "seedream",
       model: grid.model
     });
+    const canvasImage = await cacheImageForCanvas(grid.url, `sub-storyboard-${shot.id}`);
     const payload = {
       ...buildSubStoryboardAssetPayload(shot.id, shot.title || `Shot ${shot.index}`, scenePrompt, grid),
+      imageUrl: canvasImage.imageUrl,
+      mediaUrl: canvasImage.mediaUrl,
       composedPrompt: grid.composedPrompt,
       generatedAt: new Date().toISOString(),
       // Audit trail: which character/scene assets actually steered this grid generation.
@@ -5809,6 +5929,14 @@ async function cacheVideoOrKeepRemote(
   }
 }
 
+async function cacheImageForCanvas(imageUrl: string, assetId: string) {
+  const cached = await cacheGeneratedImage(imageUrl, assetId);
+  return {
+    imageUrl: cached.imageUrl,
+    mediaUrl: cached.remoteImageUrl || cached.imageUrl
+  };
+}
+
 async function publishVideoForAcceleratedDelivery(
   source: VideoDeliveryInput,
   keyHint: string
@@ -6058,6 +6186,11 @@ function stitchJobFinalArtifact(job: StitchJob): FinalArtifact {
 }
 
 function resolveFinalArtifactDelivery(artifact: FinalArtifact, mode: "playback" | "download") {
+  if (mode === "playback") {
+    return artifact.finalVideoUrl
+      || artifact.finalVideoPlaybackUrl
+      || artifact.finalVideoDownloadUrl;
+  }
   return resolveVideoDeliveryUrl({
     videoUrl: artifact.finalVideoUrl,
     playbackVideoUrl: artifact.finalVideoPlaybackUrl,

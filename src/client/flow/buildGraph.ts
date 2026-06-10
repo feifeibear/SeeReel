@@ -43,6 +43,11 @@ export interface VoiceNodeData extends Record<string, unknown> {
   asset: Asset;
 }
 
+export interface MusicNodeData extends Record<string, unknown> {
+  kind: "music";
+  asset: Asset;
+}
+
 export interface ReferenceVideoNodeData extends Record<string, unknown> {
   kind: "referenceVideo";
   asset: Asset;
@@ -76,6 +81,7 @@ export type FlowNodeData =
   | StitchNodeData
   | AudioTrackNodeData
   | VoiceNodeData
+  | MusicNodeData
   | ReferenceVideoNodeData
   | VideoAssetNodeData
   | VideoProcessorNodeData
@@ -216,7 +222,8 @@ export function buildSessionGraph(snapshot: StoreSnapshot, session: SessionWithS
     (asset.tags || []).find((tag) => tag.startsWith("source-shot:"))?.slice("source-shot:".length) || asset.ownerShotId;
   const isDerivedClip = (asset: Asset) => Boolean(asset.derivedFromAssetId);
   const voiceAssets = sessionAssets.filter((asset) => asset.type === "voice");
-  const anchorAssets = sessionAssets.filter((asset) => asset.type !== "other" && asset.type !== "voice" && !isReferenceVideo(asset) && !isFrameAnchor(asset));
+  const musicAssets = sessionAssets.filter((asset) => asset.type === "music");
+  const anchorAssets = sessionAssets.filter((asset) => asset.type !== "other" && asset.type !== "voice" && asset.type !== "music" && !isReferenceVideo(asset) && !isFrameAnchor(asset));
   const frameAnchorAssets = sessionAssets.filter(isFrameAnchor);
   const tailClipVideoAssets = sessionAssets.filter((a) => isReferenceVideo(a) && isTailClipVideo(a) && !isDerivedClip(a));
   const referenceVideoAssets = sessionAssets.filter((a) => isReferenceVideo(a) && !isTailClipVideo(a) && !isDerivedClip(a));
@@ -254,13 +261,22 @@ export function buildSessionGraph(snapshot: StoreSnapshot, session: SessionWithS
       data: { kind: "voice", asset } satisfies VoiceNodeData
     });
   });
+  musicAssets.forEach((asset, index) => {
+    const nodeId = `music-${asset.id}`;
+    nodes.push({
+      id: nodeId,
+      type: "musicNode",
+      position: positionFor(nodeId, { x: COLUMN_X.asset, y: 60 + (anchorAssets.length + voiceAssets.length + index) * ROW_HEIGHT }),
+      data: { kind: "music", asset } satisfies MusicNodeData
+    });
+  });
   // Stack reference-video nodes below the anchor list. They have no edges by default — they live
   // off the main pipeline; the user "applies" a parsed shot to a target shot via the Inspector.
   referenceVideoAssets.forEach((asset, index) => {
     nodes.push({
       id: `refvideo-${asset.id}`,
       type: "referenceVideoNode",
-      position: positionFor(`refvideo-${asset.id}`, { x: COLUMN_X.asset, y: 60 + (anchorAssets.length + voiceAssets.length + index) * ROW_HEIGHT }),
+      position: positionFor(`refvideo-${asset.id}`, { x: COLUMN_X.asset, y: 60 + (anchorAssets.length + voiceAssets.length + musicAssets.length + index) * ROW_HEIGHT }),
       data: { kind: "referenceVideo", asset } satisfies ReferenceVideoNodeData
     });
   });

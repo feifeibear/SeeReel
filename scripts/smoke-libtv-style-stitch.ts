@@ -76,6 +76,9 @@ assert.match(createMenuSource, /safePick\("audioTrack"\)/, "right-click menu sho
 assert.match(createMenuSource, /key:\s*"audioTrack"/, "right-click menu should list an audio-track node");
 
 const inspectorSource = readFileSync("src/client/flow/Inspector.tsx", "utf8");
+const flowSource = readFileSync("src/client/flow/FlowView.tsx", "utf8");
+assert.match(flowSource, /ConnectionMode/, "canvas should import React Flow connection modes");
+assert.match(flowSource, /connectionMode=\{ConnectionMode\.Loose\}/, "video-to-video wiring should not require starting from the exact source handle");
 assert.match(inspectorSource, /defaultStitchIds = stitchableShots\.map\(\(shot\) => shot\.id\)/, "stitch panel should default to generated canvas videos in creation order");
 assert.match(inspectorSource, /availableStitchShots/, "stitch panel should expose available canvas video nodes");
 assert.match(inspectorSource, /application\/x-seereel-shot-id/, "available video nodes should be draggable into the stitch playlist");

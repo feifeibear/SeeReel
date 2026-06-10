@@ -1829,6 +1829,30 @@ export async function cacheGeneratedVideo(videoUrl: string, renderId: string) {
   return { videoUrl: `/media/${outputName}`, remoteVideoUrl: videoUrl };
 }
 
+export async function cacheGeneratedImage(imageUrl: string, assetId: string) {
+  if (!imageUrl) return { imageUrl };
+  if (imageUrl.startsWith("/media/") || imageUrl.includes("placehold.co")) return { imageUrl };
+
+  await mkdir(MEDIA_DIR, { recursive: true });
+  const safeId = sanitizeFilePart(assetId || "asset");
+  if (imageUrl.startsWith("data:image/")) {
+    const match = imageUrl.match(/^data:(image\/(?:png|jpeg|jpg|webp));base64,(.+)$/);
+    if (!match) return { imageUrl };
+    const ext = imageExtensionFromContentType(match[1]);
+    const outputName = `asset-image-${safeId}-${Date.now()}${ext}`;
+    await writeFile(path.join(MEDIA_DIR, outputName), Buffer.from(match[2], "base64"));
+    return { imageUrl: `/media/${outputName}` };
+  }
+
+  if (!isHttpUrl(imageUrl)) return { imageUrl };
+
+  const digest = createHash("sha1").update(imageUrl).digest("hex").slice(0, 12);
+  const outputName = `asset-image-${safeId}-${digest}-${Date.now()}${imageExtensionFromUrl(imageUrl)}`;
+  const outputPath = path.join(MEDIA_DIR, outputName);
+  await downloadImageToFile(imageUrl, outputPath, `asset ${assetId}`);
+  return { imageUrl: `/media/${outputName}`, remoteImageUrl: imageUrl };
+}
+
 /**
  * If `filePath` is an mp4/m4v, run a fast `-c copy -movflags +faststart` remux so the moov atom
  * is moved to the front. Atomic — writes to a sibling tmp file then renames over the original.
@@ -2085,6 +2109,24 @@ async function downloadVideoToFile(url: string, outputPath: string, label: strin
   }
 }
 
+async function downloadImageToFile(url: string, outputPath: string, label: string) {
+  const partialPath = `${outputPath}.partial`;
+  await unlink(partialPath).catch(() => undefined);
+
+  const response = await fetch(url);
+  if (!response.ok) throw new Error(`Failed to download ${label} image: ${response.status}`);
+
+  try {
+    const bytes = Buffer.from(await response.arrayBuffer());
+    if (!bytes.length) throw new Error(`Downloaded ${label} image is empty`);
+    await writeFile(partialPath, bytes);
+    await rename(partialPath, outputPath);
+  } catch (error) {
+    await unlink(partialPath).catch(() => undefined);
+    throw error;
+  }
+}
+
 async function validateDownloadedVideo(outputPath: string, response: Response, label: string) {
   const fileStat = await stat(outputPath).catch(() => undefined);
   if (!fileStat?.size) throw new Error(`Downloaded ${label} is empty`);
@@ -2130,6 +2172,23 @@ function videoExtensionFromUrl(url: string) {
   } catch {
     return path.extname(url) || ".mp4";
   }
+}
+
+function imageExtensionFromUrl(url: string) {
+  try {
+    const ext = path.extname(new URL(url).pathname).toLowerCase();
+    return [".png", ".jpg", ".jpeg", ".webp", ".gif"].includes(ext) ? ext : ".jpg";
+  } catch {
+    const ext = path.extname(url).toLowerCase();
+    return [".png", ".jpg", ".jpeg", ".webp", ".gif"].includes(ext) ? ext : ".jpg";
+  }
+}
+
+function imageExtensionFromContentType(contentType: string) {
+  if (contentType.includes("png")) return ".png";
+  if (contentType.includes("webp")) return ".webp";
+  if (contentType.includes("gif")) return ".gif";
+  return ".jpg";
 }
 
 function sanitizeFilePart(value: string) {

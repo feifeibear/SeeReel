@@ -662,7 +662,7 @@ async function requestVolcMusic(config: VolcMusicConfig, action: string, body: R
   return json;
 }
 
-async function generateVolcMusic(input: {
+export async function generateVolcMusic(input: {
   kind: MusicGenerationKind;
   prompt: string;
   lyrics?: string;
@@ -783,7 +783,7 @@ function clampMusicDuration(durationSec: number, kind: MusicGenerationKind) {
   return Math.max(min, Math.min(max, Math.round(value)));
 }
 
-async function downloadRemoteAudio(url: string, sessionId: string, signature: string) {
+export async function downloadRemoteAudio(url: string, sessionId: string, signature: string) {
   await mkdir(MEDIA_DIR, { recursive: true });
   const ext = extensionFromUrl(url) || ".mp3";
   const outputPath = path.join(MEDIA_DIR, `music-${sessionId}-${signature}${ext}`);

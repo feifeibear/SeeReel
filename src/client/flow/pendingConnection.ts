@@ -171,7 +171,7 @@ export function buildPendingConnectEdge(input: PendingConnectInput): Edge | unde
     const targetShotId = target.slice("shot-".length);
     const sourceShot = input.session.shots?.find((shot) => shot.id === sourceShotId);
     const targetShot = input.session.shots?.find((shot) => shot.id === targetShotId);
-    if (!sourceShot || !targetShot || sourceShot.id === targetShot.id || !sourceShot.videoUrl) return undefined;
+    if (!sourceShot || !targetShot || sourceShot.id === targetShot.id) return undefined;
     return {
       id: `e-shotref-${sourceShot.id}-${targetShot.id}`,
       source,

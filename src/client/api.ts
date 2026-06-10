@@ -238,6 +238,19 @@ export const api = {
     method: "POST",
     body: JSON.stringify(payload)
   }),
+  generateMusicAsset: (
+    assetId: string,
+    payload: {
+      musicKind?: MusicGenerationKind;
+      musicPrompt?: string;
+      musicLyrics?: string;
+      musicDurationSec?: number;
+      musicModelVersion?: string;
+    }
+  ) => request<Asset>(`/api/assets/${assetId}/music-generate`, {
+    method: "POST",
+    body: JSON.stringify(payload)
+  }),
   deleteAsset: (assetId: string) => request<{ ok: true }>(`/api/assets/${assetId}`, { method: "DELETE" }),
   uploadImageAsset: (file: File, payload: { ownerSessionId?: string; name?: string; tags?: string[] }) => {
     const params = new URLSearchParams();

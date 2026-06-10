@@ -23,6 +23,7 @@ import { useI18n } from "../i18n";
 import { resolveNodeReviewEnabled } from "../../shared/reviewSettings";
 import { selectedShotPendingRender } from "../../shared/shotGenerationState";
 import { VOICE_PRESETS, voicePresetForId } from "../../shared/voicePresets";
+import { isShotVideoUpdatedAfterFinal } from "./stitchFreshness";
 
 const INSPECTOR_SEEDANCE_OPTIONS: Array<{ value: SeedanceVariant; label: string }> = [
   { value: "standard", label: "Seedance 2.0" },
@@ -392,6 +393,9 @@ export function Inspector({ selected, session, allAssets, visionReviewEnabled, d
   }
   if (selected.kind === "voice") {
     return <VoiceInspector asset={selected.asset} onMutated={onMutated} onDeleteCanvasAsset={onDeleteCanvasAsset} onClose={onClose} />;
+  }
+  if (selected.kind === "music") {
+    return <MusicInspector asset={selected.asset} onMutated={onMutated} onDeleteCanvasAsset={onDeleteCanvasAsset} onClose={onClose} />;
   }
   if (selected.kind === "referenceVideo" || selected.kind === "videoAsset") {
     return <ReferenceVideoInspector asset={selected.asset} session={session} onMutated={onMutated} onDeleteCanvasAsset={onDeleteCanvasAsset} onClose={onClose} />;
@@ -2262,6 +2266,7 @@ function StitchInspector({ session, job, legacy, onMutated, onSetStitchOrder, on
                   </div>
                 );
               }
+              const shotVideoUpdated = isShotVideoUpdatedAfterFinal(shot, job);
               return (
                 <div
                   key={`${shotId}-${index}`}
@@ -2286,6 +2291,9 @@ function StitchInspector({ session, job, legacy, onMutated, onSetStitchOrder, on
                   <div className="inspector-history-meta">
                     <strong>{index + 1}. {shot.title || `Shot ${shot.index}`}</strong>
                     <span className="inspector-history-status">{shot.videoUrl ? t.nodes.statusReady : t.nodes.notGenerated}</span>
+                    {shotVideoUpdated && (
+                      <span className="inspector-stale-tag">{tr("已更新", "Updated")}</span>
+                    )}
                   </div>
                   <div className="inspector-history-actions">
                     <button type="button" onClick={() => move(index, -1)} disabled={Boolean(busy) || index === 0}>{tr("上移", "Move up")}</button>
@@ -2592,6 +2600,211 @@ function VoiceInspector({ asset, onMutated, onDeleteCanvasAsset, onClose }: {
         <strong>{tr("如何使用", "How to use")}</strong>
         <div className="inspector-hint">
           {tr("创建或选择音轨节点，在「声音节点」下拉框里选中这个声音；添加旁白时会使用它的 voice id。", "Create or select an audio-track node, then choose this voice from the Voice node selector. The generated voiceover uses its voice id.")}
+        </div>
+      </div>
+    </aside>
+  );
+}
+
+function MusicInspector({ asset, onMutated, onDeleteCanvasAsset, onClose }: {
+  asset: Asset;
+  onMutated: () => Promise<void> | void;
+  onDeleteCanvasAsset?: (asset: Asset) => Promise<boolean> | boolean;
+  onClose: () => void;
+}) {
+  const { lang } = useI18n();
+  const tr = (zh: string, en: string) => (lang === "en" ? en : zh);
+  const [name, setName] = useState(asset.name || "");
+  const [musicKind, setMusicKind] = useState<MusicGenerationKind>(asset.musicKind || "bgm");
+  const [musicPrompt, setMusicPrompt] = useState(asset.musicPrompt || asset.description || asset.prompt || "");
+  const [musicLyrics, setMusicLyrics] = useState(asset.musicLyrics || "");
+  const [musicDurationSec, setMusicDurationSec] = useState(String(asset.musicDurationSec || 60));
+  const [musicModelVersion, setMusicModelVersion] = useState(asset.musicModelVersion || "");
+  const [busy, setBusy] = useState<"" | "save" | "generate" | "delete">("");
+  const [error, setError] = useState("");
+  const audioUrl = asset.musicLocalAudioUrl || asset.mediaUrl || asset.musicAudioUrl;
+
+  useEffect(() => {
+    setName(asset.name || "");
+    setMusicKind(asset.musicKind || "bgm");
+    setMusicPrompt(asset.musicPrompt || asset.description || asset.prompt || "");
+    setMusicLyrics(asset.musicLyrics || "");
+    setMusicDurationSec(String(asset.musicDurationSec || 60));
+    setMusicModelVersion(asset.musicModelVersion || "");
+    setError("");
+  }, [asset.id, asset.updatedAt, asset.musicGeneratedAt]);
+
+  const normalizedDuration = () => {
+    const parsed = Number(musicDurationSec);
+    if (!Number.isFinite(parsed)) return 60;
+    return Math.max(30, Math.min(musicKind === "song" ? 240 : 120, Math.round(parsed)));
+  };
+
+  const saveMusic = async () => {
+    setBusy("save");
+    setError("");
+    try {
+      const prompt = musicPrompt.trim();
+      await api.saveAsset({
+        id: asset.id,
+        name: name.trim() || asset.name || tr("未命名音乐", "Untitled music"),
+        type: "music",
+        mediaKind: "audio",
+        description: prompt,
+        prompt,
+        musicKind,
+        musicPrompt: prompt,
+        musicLyrics: musicKind === "song" ? musicLyrics.trim() || undefined : undefined,
+        musicDurationSec: normalizedDuration(),
+        musicModelVersion: musicModelVersion.trim() || undefined,
+        musicStatus: asset.musicStatus || "idle"
+      });
+      await onMutated();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : tr("保存音乐失败", "Failed to save music"));
+    } finally {
+      setBusy("");
+    }
+  };
+
+  const generateMusic = async () => {
+    const prompt = musicPrompt.trim();
+    if (!prompt) {
+      setError(tr("请先填写音乐提示词。", "Write a music prompt first."));
+      return;
+    }
+    setBusy("generate");
+    setError("");
+    try {
+      await api.generateMusicAsset(asset.id, {
+        musicKind,
+        musicPrompt: prompt,
+        musicLyrics: musicKind === "song" ? musicLyrics.trim() || undefined : undefined,
+        musicDurationSec: normalizedDuration(),
+        musicModelVersion: musicModelVersion.trim() || undefined
+      });
+      await onMutated();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : tr("生成音乐失败", "Music generation failed"));
+      await onMutated();
+    } finally {
+      setBusy("");
+    }
+  };
+
+  const deleteMusic = async () => {
+    if (!window.confirm(tr(`删除音乐节点「${asset.name || asset.id}」？删除后可在画布顶部「↶ 撤销」恢复。`, `Delete music node “${asset.name || asset.id}”? You can restore it with “↶ Undo” in the canvas toolbar.`))) return;
+    setBusy("delete");
+    setError("");
+    try {
+      if (onDeleteCanvasAsset) {
+        const deleted = await onDeleteCanvasAsset(asset);
+        if (!deleted) return;
+        await onMutated();
+      } else {
+        await api.deleteAsset(asset.id);
+        await onMutated();
+      }
+      onClose();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : tr("删除音乐节点失败", "Failed to delete music node"));
+    } finally {
+      setBusy("");
+    }
+  };
+
+  return (
+    <aside className="inspector">
+      <header>
+        <span className="inspector-tag">{tr("音乐节点", "Music node")}</span>
+        <button onClick={onClose} className="inspector-close" title={tr("关闭", "Close")}>×</button>
+      </header>
+      <div className="inspector-section">
+        <label>
+          {tr("名称", "Name")}
+          <input value={name} onChange={(e) => setName(e.target.value)} />
+        </label>
+        <label>
+          {tr("音乐类型", "Music type")}
+          <select value={musicKind} onChange={(e) => setMusicKind(e.target.value as MusicGenerationKind)}>
+            <option value="bgm">BGM</option>
+            <option value="song">{tr("歌曲", "Song")}</option>
+          </select>
+        </label>
+        <label>
+          {tr("音乐提示词", "Music prompt")}
+          <textarea
+            value={musicPrompt}
+            onChange={(e) => setMusicPrompt(e.target.value)}
+            rows={5}
+            placeholder={tr("例如：1880 年代纽约街头讽刺喜剧，轻快钢琴、拨弦低音、铜管点缀。", "Example: satirical comedy in 1880s New York, jaunty piano, plucked bass, brass accents.")}
+          />
+        </label>
+        {musicKind === "song" && (
+          <label>
+            {tr("歌词（可选）", "Lyrics (optional)")}
+            <textarea
+              value={musicLyrics}
+              onChange={(e) => setMusicLyrics(e.target.value)}
+              rows={4}
+              placeholder={tr("不填则由模型根据提示词生成。", "Leave blank to let the model write lyrics from the prompt.")}
+            />
+          </label>
+        )}
+        <label>
+          {tr("时长（秒）", "Duration (sec)")}
+          <input
+            type="number"
+            min={30}
+            max={musicKind === "song" ? 240 : 120}
+            value={musicDurationSec}
+            onChange={(e) => setMusicDurationSec(e.target.value)}
+          />
+        </label>
+        <label>
+          {tr("模型版本（可选）", "Model version (optional)")}
+          <input
+            value={musicModelVersion}
+            onChange={(e) => setMusicModelVersion(e.target.value)}
+            placeholder={tr("留空使用服务端默认配置", "Leave empty to use server default")}
+          />
+        </label>
+        <div className="inspector-actions compact-actions">
+          <button type="button" className="ghost-action" disabled={Boolean(busy)} onClick={saveMusic}>
+            {busy === "save" ? tr("保存中...", "Saving...") : tr("保存音乐", "Save music")}
+          </button>
+          <button type="button" className="primary" disabled={Boolean(busy)} onClick={generateMusic}>
+            {busy === "generate" ? tr("生成音乐中...", "Generating music...") : tr("生成音乐", "Generate music")}
+          </button>
+          <button type="button" className="danger" disabled={Boolean(busy)} onClick={deleteMusic}>
+            {busy === "delete" ? "..." : tr("删除音乐", "Delete music")}
+          </button>
+        </div>
+      </div>
+      <div className="inspector-section">
+        <strong>{tr("试听", "Preview")}</strong>
+        {audioUrl ? (
+          <audio
+            className="inspector-audio-player"
+            controls
+            src={`${audioUrl}${audioUrl.includes("?") ? "&" : "?"}v=${encodeURIComponent(asset.musicGeneratedAt || asset.updatedAt || asset.id)}`}
+          />
+        ) : (
+          <div className="inspector-hint">{tr("生成音乐后，这里会出现可播放音频。", "Generate music to play it here.")}</div>
+        )}
+        <div className="inspector-hint">
+          {tr("状态：", "Status: ")}
+          <strong>{asset.musicStatus || (audioUrl ? "ready" : "idle")}</strong>
+          {asset.musicProgress ? ` · ${asset.musicProgress}` : ""}
+        </div>
+        {asset.musicTaskId && <div className="inspector-hint">Task ID: <code>{asset.musicTaskId}</code></div>}
+        {asset.musicError && <div className="inspector-error">{asset.musicError}</div>}
+        {error && <div className="inspector-error">{error}</div>}
+      </div>
+      <div className="inspector-section">
+        <strong>{tr("如何使用", "How to use")}</strong>
+        <div className="inspector-hint">
+          {tr("音乐节点会把生成结果保存在 session 里的音频资产上。可以先试听，再在后期音轨流程里选择性使用。", "The music node keeps generated audio as a session asset. Preview it first, then use it selectively in post-production.")}
         </div>
       </div>
     </aside>

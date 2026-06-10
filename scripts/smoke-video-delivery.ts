@@ -50,5 +50,15 @@ assert.match(
   /FINAL_VIDEO_PUBLISH_TIMEOUT_MS/,
   "final video publish timeout should be configurable"
 );
+assert.match(
+  indexSource,
+  /if \(mode === "playback"\) \{\s*return render\?\.videoUrl\s*\|\| shot\.videoUrl/s,
+  "shot canvas playback should prefer the stable local cached video before expiring remote delivery URLs"
+);
+assert.match(
+  indexSource,
+  /if \(mode === "playback"\) \{\s*return artifact\.finalVideoUrl\s*\|\| artifact\.finalVideoPlaybackUrl/s,
+  "final video canvas playback should prefer the stable local final video before expiring remote delivery URLs"
+);
 
 console.log("video delivery smoke passed");

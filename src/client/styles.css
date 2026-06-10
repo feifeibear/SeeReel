@@ -3561,7 +3561,13 @@ label {
 .flow-node.refvideo-node { border-color: rgba(244, 114, 182, 0.32); }
 .flow-node.audio-track-node { border-color: rgba(244, 114, 182, 0.30); }
 .flow-node.voice-node { border-color: rgba(244, 114, 182, 0.36); }
+.flow-node.music-node { border-color: rgba(96, 165, 250, 0.40); }
 .voice-node-body {
+  display: grid;
+  place-items: center;
+  padding: 18px;
+}
+.music-node-body {
   display: grid;
   place-items: center;
   padding: 18px;
@@ -3579,6 +3585,53 @@ label {
   background: linear-gradient(180deg, rgba(244, 114, 182, 0.12), rgba(20, 28, 38, 0.28));
   text-align: center;
 }
+.music-node-card {
+  width: 100%;
+  min-height: 132px;
+  display: grid;
+  align-content: center;
+  justify-items: center;
+  gap: 8px;
+  padding: 14px;
+  border: 1px solid rgba(96, 165, 250, 0.18);
+  border-radius: 8px;
+  background: linear-gradient(180deg, rgba(96, 165, 250, 0.13), rgba(20, 28, 38, 0.30));
+  text-align: center;
+}
+.music-node-card strong {
+  color: #fff;
+  font-size: 17px;
+}
+.music-node-card small {
+  max-width: 220px;
+  color: rgba(255,255,255,0.62);
+  font-size: 11px;
+  line-height: 1.35;
+}
+.music-node-card em {
+  color: rgba(255,255,255,0.45);
+  font-style: normal;
+  font-size: 11px;
+}
+.music-node-bars {
+  display: inline-flex;
+  align-items: end;
+  justify-content: center;
+  gap: 3px;
+  height: 30px;
+  color: #93c5fd;
+}
+.music-node-bars span {
+  width: 4px;
+  border-radius: 999px 999px 2px 2px;
+  background: currentColor;
+}
+.music-node-bars span:nth-child(1),
+.music-node-bars span:nth-child(6) { height: 12px; opacity: 0.65; }
+.music-node-bars span:nth-child(2),
+.music-node-bars span:nth-child(5) { height: 22px; opacity: 0.85; }
+.music-node-bars span:nth-child(3) { height: 30px; }
+.music-node-bars span:nth-child(4) { height: 18px; opacity: 0.78; }
 .voice-node-preset strong {
   color: #fff;
   font-size: 17px;
@@ -3690,6 +3743,7 @@ label {
   font-style: normal;
 }
 .voice-node-body audio,
+.music-node-body audio,
 .inspector-audio-player {
   width: 100%;
 }

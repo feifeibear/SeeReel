@@ -6,8 +6,8 @@ const localMediaUrl = "/media/tailframe-shot-1.jpg";
 
 assert.equal(
   assetThumbUrl({ mediaUrl: remoteTosUrl, referenceImageUrl: localMediaUrl }),
-  remoteTosUrl,
-  "generic assets should keep using their primary mediaUrl first"
+  localMediaUrl,
+  "canvas image assets should prefer the stable local media URL over an expiring remote URL"
 );
 
 assert.equal(

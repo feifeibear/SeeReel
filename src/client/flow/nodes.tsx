@@ -11,6 +11,7 @@ import type { SubStoryboardModel } from "../../shared/types";
 import type {
   AudioTrackNodeData,
   AssetNodeData,
+  MusicNodeData,
   ReferenceVideoNodeData,
   StoryboardNodeData,
   ShotNodeData,
@@ -73,6 +74,7 @@ type ShotFlowNode = Node<ShotNodeData, "shotNode">;
 type StitchFlowNode = Node<StitchNodeData, "stitchNode">;
 type AudioTrackFlowNode = Node<AudioTrackNodeData, "audioTrackNode">;
 type VoiceFlowNode = Node<VoiceNodeData, "voiceNode">;
+type MusicFlowNode = Node<MusicNodeData, "musicNode">;
 type ReferenceVideoFlowNode = Node<ReferenceVideoNodeData, "referenceVideoNode">;
 type VideoAssetFlowNode = Node<VideoAssetNodeData, "videoAssetNode">;
 type VideoProcessorFlowNode = Node<VideoProcessorNodeData, "videoProcessorNode">;
@@ -718,6 +720,71 @@ function VoiceNodeImpl({ data, selected }: NodeProps<VoiceFlowNode>) {
 }
 
 // ============================================================================
+// MusicNode — reusable generated BGM/song audio
+// ============================================================================
+
+function MusicNodeImpl({ data, selected }: NodeProps<MusicFlowNode>) {
+  const { lang } = useI18n();
+  const { asset } = data;
+  const audioUrl = asset.musicLocalAudioUrl || asset.mediaUrl || asset.musicAudioUrl;
+  const status = asset.musicStatus || (audioUrl ? "ready" : "idle");
+  const color = status === "ready" ? "#34d399" : status === "generating" ? "#60a5fa" : status === "error" ? "#f87171" : "#6b7280";
+  const label = status === "ready"
+    ? (lang === "en" ? "Music ready" : "音乐已生成")
+    : status === "generating"
+      ? (lang === "en" ? "Generating music" : "音乐生成中")
+      : status === "error"
+        ? (lang === "en" ? "Music failed" : "音乐失败")
+        : (lang === "en" ? "Ready to generate" : "待生成音乐");
+  const modeLabel = asset.musicKind === "song" ? (lang === "en" ? "Song" : "歌曲") : (lang === "en" ? "BGM" : "BGM");
+  const prompt = asset.musicPrompt || asset.description || asset.prompt || (lang === "en" ? "Write a music prompt in Inspector" : "在 Inspector 写音乐提示词");
+  return (
+    <div className={`flow-node music-node ${selected ? "selected" : ""}`} style={{ width: NODE_WIDTH }}>
+      <Handle type="target" position={Position.Left} id="in" />
+      <div className="flow-node-head">
+        <span className="flow-tag tag-audio">音乐</span>
+        <strong className="flow-node-title">{asset.name || (lang === "en" ? "Music node" : "音乐节点")}</strong>
+        {audioUrl && (
+          <DownloadButton
+            href={api.downloadAssetUrl(asset.id)}
+            filename={`${asset.name || asset.id}.mp3`}
+            onTriggered={() => emitDownloadToast(`${asset.name || asset.id}.mp3`)}
+          />
+        )}
+      </div>
+      <div className="flow-node-thumb music-node-body">
+        <div className="music-node-card">
+          <span className="music-node-bars" aria-hidden="true">
+            <span />
+            <span />
+            <span />
+            <span />
+            <span />
+            <span />
+          </span>
+          <strong>{modeLabel}</strong>
+          <small>{prompt}</small>
+          {audioUrl ? (
+            <audio
+              controls
+              src={`${audioUrl}${audioUrl.includes("?") ? "&" : "?"}v=${encodeURIComponent(asset.musicGeneratedAt || asset.updatedAt || asset.id)}`}
+            />
+          ) : (
+            <em>{lang === "en" ? "Generate music in Inspector" : "在 Inspector 生成音乐"}</em>
+          )}
+        </div>
+      </div>
+      <div className="flow-node-foot">
+        <span className="flow-status" style={{ color }}>● {label}</span>
+        <small>{asset.musicDurationSec ? `${asset.musicDurationSec}s` : modeLabel}</small>
+        {asset.musicProgress && <small>{asset.musicProgress}</small>}
+      </div>
+      <Handle type="source" position={Position.Right} id="out" />
+    </div>
+  );
+}
+
+// ============================================================================
 // ReferenceVideoNode — col 0 (below anchors), uploaded reference video that the user wants the
 // session to imitate. Its real output is the parsed shot table inside Inspector; on the canvas it
 // just shows a poster + parse status badge. Has a source handle so the Inspector can offer
@@ -954,6 +1021,9 @@ export const AudioTrackNode = memo(AudioTrackNodeImpl, (prev, next) =>
   && prev.data.legacy === next.data.legacy
 );
 export const VoiceNode = memo(VoiceNodeImpl, (prev, next) =>
+  prev.selected === next.selected && prev.data.asset === next.data.asset
+);
+export const MusicNode = memo(MusicNodeImpl, (prev, next) =>
   prev.selected === next.selected && prev.data.asset === next.data.asset
 );
 export const ReferenceVideoNode = memo(ReferenceVideoNodeImpl, (prev, next) =>

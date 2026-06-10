@@ -11,6 +11,7 @@ import {
   type OnBeforeDelete,
   type ReactFlowInstance,
   type XYPosition,
+  ConnectionMode,
   applyNodeChanges,
   applyEdgeChanges
 } from "@xyflow/react";
@@ -19,7 +20,7 @@ import "@xyflow/react/dist/style.css";
 import { api } from "../api";
 import type { Asset, AssetImageModel, AssetType, SessionWithShots, Shot, StitchJob, StoreSnapshot } from "../../shared/types";
 import { buildSessionGraph, visualNodeIdForAsset, type FlowNodeData } from "./buildGraph";
-import { AssetNode, AudioTrackNode, ReferenceVideoNode, VideoAssetNode, VideoProcessorNode, StoryboardNode, ShotNode, StitchNode, TailframeNode, VoiceNode } from "./nodes";
+import { AssetNode, AudioTrackNode, MusicNode, ReferenceVideoNode, VideoAssetNode, VideoProcessorNode, StoryboardNode, ShotNode, StitchNode, TailframeNode, VoiceNode } from "./nodes";
 import { Inspector } from "./Inspector";
 import { DownloadToast } from "./DownloadToast";
 import { CreateNodeMenu, type CreateMenuOption } from "./CreateNodeMenu";
@@ -28,7 +29,7 @@ import { buildPendingConnectEdge, mergePendingEdges } from "./pendingConnection"
 import type { UndoableAction } from "./useUndoStack";
 import { useI18n, type UiLanguage } from "../i18n";
 
-type AnchorKind = Extract<AssetType, "image" | "character" | "scene" | "prop" | "style" | "voice"> | "moodboard";
+type AnchorKind = Extract<AssetType, "image" | "character" | "scene" | "prop" | "style" | "voice" | "music"> | "moodboard";
 export type UploadImageAssetResult = Asset | {
   asset: Asset;
   completed?: Promise<Asset | undefined>;
@@ -48,6 +49,7 @@ const nodeTypes = {
   shotNode: ShotNode,
   stitchNode: StitchNode,
   voiceNode: VoiceNode,
+  musicNode: MusicNode,
   audioTrackNode: AudioTrackNode,
   referenceVideoNode: ReferenceVideoNode,
   videoAssetNode: VideoAssetNode,
@@ -63,6 +65,7 @@ function isAssetBackedNodeData(data: FlowNodeData): data is Extract<FlowNodeData
   return data.kind === "image"
     || data.kind === "asset"
     || data.kind === "voice"
+    || data.kind === "music"
     || data.kind === "referenceVideo"
     || data.kind === "videoAsset"
     || data.kind === "videoProcessor"
@@ -747,11 +750,6 @@ export function FlowView({ snapshot, session, visionReviewEnabled, defaultImageM
       const sourceShot = (session.shots || []).find((s) => s.id === srcShotId);
       const targetShot = (session.shots || []).find((s) => s.id === tgtShotId);
       if (!sourceShot || !targetShot) return;
-      // Reject if the source shot has no rendered video yet — Seedance can't fetch nothing.
-      if (!sourceShot.videoUrl) {
-        window.alert(`无法连接：源镜头「${sourceShot.title || `Shot ${sourceShot.index}`}」还没有生成的视频，先生成它再连。`);
-        return;
-      }
       const liveBefore = await api.state();
       const liveBeforeShot = liveBefore.shots.find((s) => s.id === tgtShotId);
       // Server expects "" for clearable fields when blanking; `null` for clearable string fields.
@@ -1448,6 +1446,17 @@ export function FlowView({ snapshot, session, visionReviewEnabled, defaultImageM
         }
       });
     }
+    if (option === "music") {
+      return guardCreate("music", async () => {
+        const asset = await onCreateAnchorAsset("music");
+        if (asset) {
+          const nodeId = `music-${asset.id}`;
+          placeNodeAt(nodeId, placement);
+          await persistCreatedNodePosition(nodeId, placement);
+          await onMutated();
+        }
+      });
+    }
     if (option === "uploadImage") {
       pendingFileKindRef.current = "image";
       pendingFilePositionRef.current = placement;
@@ -1581,6 +1590,7 @@ export function FlowView({ snapshot, session, visionReviewEnabled, defaultImageM
             // the user doesn't have to pixel-hunt for the 8-px dot. The CSS below also bumps the
             // invisible hit target around each handle to ~24 px so initiating a drag is forgiving.
             connectionRadius={48}
+            connectionMode={ConnectionMode.Loose}
             proOptions={flowProOptions}
           >
             <Background gap={20} size={1} color="#1f2937" />
