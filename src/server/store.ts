@@ -156,8 +156,8 @@ export class CinemaStore {
   /**
    * Append a single shot to an existing session. Used by the canvas "新建分镜镜头" flow:
    * double-clicking empty space lets the user add one more shot without creating a new session.
-   * The new shot gets the next available index, an empty rawPrompt, and the same default
-   * durationSec the session was created with (or `Math.round(target/count)` as a sane default).
+   * The new shot gets the next available index, an empty rawPrompt, and a full 15s default
+   * duration so manually added video nodes start at Seedance's useful maximum.
    */
   async appendShot(sessionId: string, partial?: Partial<Shot>) {
     const session = this.data.sessions.find((item) => item.id === sessionId);
@@ -165,9 +165,6 @@ export class CinemaStore {
     const ts = now();
     const existing = this.data.shots.filter((s) => s.sessionId === sessionId);
     const nextIndex = existing.length ? Math.max(...existing.map((s) => s.index)) + 1 : 1;
-    const fallbackDuration = existing.length
-      ? existing[0].durationSec
-      : Math.max(4, Math.round(session.targetDurationSec / Math.max(nextIndex, 1)));
     const requestedId = typeof partial?.id === "string" && /^shot_[A-Za-z0-9_-]+$/.test(partial.id)
       ? partial.id
       : "";
@@ -178,7 +175,7 @@ export class CinemaStore {
       title: partial?.title || `Shot ${nextIndex}`,
       script: partial?.script ?? "",
       camera: partial?.camera ?? "",
-      durationSec: Math.max(1, Math.min(15, partial?.durationSec || fallbackDuration)),
+      durationSec: Math.max(1, Math.min(15, partial?.durationSec || 15)),
       assetIds: partial?.assetIds ?? [],
       rawPrompt: partial?.rawPrompt ?? "",
       prompt: partial?.prompt ?? partial?.rawPrompt ?? "",
@@ -411,6 +408,12 @@ export class CinemaStore {
       narrationError: undefined,
       narrationProgress: "",
       narrationRunningSignature: undefined,
+      audioSeparationStatus: sourceSession.audioSeparationStatus === "running" ? "idle" : sourceSession.audioSeparationStatus,
+      audioSeparationStartedAt: undefined,
+      audioSeparationUpdatedAt: sourceSession.audioSeparationStatus ? ts : sourceSession.audioSeparationUpdatedAt,
+      audioSeparationError: undefined,
+      audioSeparationProgress: "",
+      audioSeparationRunningSignature: undefined,
       finalVideoReviewRepairPlan: undefined,
       createdAt: ts,
       updatedAt: ts
@@ -547,6 +550,12 @@ export class CinemaStore {
       narrationError: sourceSession.narrationStatus === "running" ? undefined : sourceSession.narrationError,
       narrationProgress: sourceSession.narrationStatus === "running" ? "" : sourceSession.narrationProgress,
       narrationRunningSignature: undefined,
+      audioSeparationStatus: sourceSession.audioSeparationStatus === "running" ? "idle" : sourceSession.audioSeparationStatus,
+      audioSeparationStartedAt: undefined,
+      audioSeparationUpdatedAt: sourceSession.audioSeparationStatus ? ts : sourceSession.audioSeparationUpdatedAt,
+      audioSeparationError: sourceSession.audioSeparationStatus === "running" ? undefined : sourceSession.audioSeparationError,
+      audioSeparationProgress: sourceSession.audioSeparationStatus === "running" ? "" : sourceSession.audioSeparationProgress,
+      audioSeparationRunningSignature: undefined,
       finalVideoReviewRepairPlan: undefined,
       createdAt: ts,
       updatedAt: ts
@@ -1089,6 +1098,8 @@ function sanitizeGallerySession(session: Session): Session {
   clone.stitchRunningSignature = undefined;
   clone.narrationStartedAt = undefined;
   clone.narrationRunningSignature = undefined;
+  clone.audioSeparationStartedAt = undefined;
+  clone.audioSeparationRunningSignature = undefined;
   return clone;
 }
 
@@ -1110,6 +1121,8 @@ function sanitizePortableSession(session: Session): Session {
   clone.stitchRunningSignature = undefined;
   clone.narrationStartedAt = clone.narrationStatus === "running" ? undefined : clone.narrationStartedAt;
   clone.narrationRunningSignature = undefined;
+  clone.audioSeparationStartedAt = clone.audioSeparationStatus === "running" ? undefined : clone.audioSeparationStartedAt;
+  clone.audioSeparationRunningSignature = undefined;
   return clone;
 }
 

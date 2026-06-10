@@ -20,7 +20,7 @@ const FlowView = lazy(() =>
 
 const clientBuildStamp = "speed-20260604-state-first-canvas";
 
-type AnchorKind = Extract<AssetType, "image" | "character" | "scene" | "prop" | "style"> | "moodboard";
+type AnchorKind = Extract<AssetType, "image" | "character" | "scene" | "prop" | "style" | "voice"> | "moodboard";
 
 type TokenUsageNodeSummary = {
   nodeId: string;
@@ -593,8 +593,8 @@ export function App() {
   const [pendingUploads, setPendingUploads] = useState<Asset[]>([]);
   const pendingSessionCreatePromisesRef = useRef<Map<string, Promise<void>>>(new Map());
 
-  // Global review stays on; per-node Inspector toggles decide which assets/shots opt out.
-  const visionReviewEnabled = true;
+  // Automatic VLM review is disabled by default. Manual review buttons remain explicit actions.
+  const visionReviewEnabled = false;
 
   // Canvas-level undo / redo for structural mutations. Cmd+Z / Cmd+Shift+Z are wired below.
   const undoStack = useUndoStack({
@@ -1619,6 +1619,7 @@ export function App() {
       scene: "Untitled scene",
       prop: "Untitled prop",
       style: "Untitled style",
+      voice: "Untitled voice",
       moodboard: "Untitled moodboard"
     } : {
       image: "未命名图片",
@@ -1626,6 +1627,7 @@ export function App() {
       scene: "未命名场景",
       prop: "未命名道具",
       style: "未命名风格",
+      voice: "未命名声音",
       moodboard: "未命名 Moodboard"
     };
     const seedDescriptions: Record<string, string> = lang === "en" ? {
@@ -1634,6 +1636,7 @@ export function App() {
       scene: "Describe the scene elements, lighting, and set dressing in the Inspector; generate a reference image, then drag a canvas edge to the storyboard that should use it.",
       prop: "Describe the prop shape, material, and key details in the Inspector; generate a baseline prop image, then drag a canvas edge to the storyboard that should use it.",
       style: "Describe the visual style, color palette, brush/texture keywords in the Inspector; generate a style reference, then drag a canvas edge to the storyboard that should use it.",
+      voice: "Describe the reusable speaking voice in the Inspector, set a provider voice id if needed, generate a preview, then use it from an audio-track node for consistent narration.",
       moodboard: "Describe the visual mood: palette, lighting, era, texture, camera taste, and genre references. Generate a moodboard, then wire it to assets, storyboards, or shots that should follow it."
     } : {
       image: "在右侧 Inspector 写清你想要的图片；也可以把其它图片节点连过来做参考图编辑。生成后，再连到需要使用它的分镜板或 shot。",
@@ -1641,6 +1644,7 @@ export function App() {
       scene: "在右侧 Inspector 写清场景元素/光线/布景；先「重新出图」生成参考图，然后从画布拖一根线连到要用它的分镜板。",
       prop: "在右侧 Inspector 写清道具的造型/材质/关键细节；先「重新出图」生成道具基准图，然后从画布拖一根线连到要用它的分镜板。",
       style: "在右侧 Inspector 写清画面风格/色调/笔触/质感关键词；先「重新出图」生成风格基准图，然后从画布拖一根线连到要用它的分镜板。",
+      voice: "在右侧 Inspector 写清可复用的说话声音；需要时填写 provider voice id，生成试听后，可在音轨节点里选择它保持旁白声音一致。",
       moodboard: "在右侧 Inspector 写清视觉情绪：色彩、光影、年代感、质感、镜头审美和类型参考。先生成 Moodboard，再把它连到需要统一风格的资产、分镜板或 shot。"
     };
     const sessionForCreate = visibleSelectedSession;
@@ -1653,6 +1657,16 @@ export function App() {
       ownerSessionId: sessionForCreate.id,
       tags: kind === "moodboard" ? ["anchor", "style", "moodboard", "style-reference"] : ["anchor", kind]
     };
+    if (kind === "voice") {
+      payload.mediaKind = "audio";
+      payload.voiceProvider = "volc-tts";
+      payload.voicePresetId = "young-female";
+      payload.voiceId = "BV001_streaming";
+      payload.voicePreviewStatus = "idle";
+      payload.voicePreviewText = lang === "en"
+        ? "This is a reusable SeeReel voice."
+        : "这是一个可复用的 SeeReel 声音。";
+    }
     await waitForSessionCreate(sessionForCreate.id);
     const asset = await api.saveAsset(payload);
     upsertAssetInState(asset);
@@ -1667,7 +1681,7 @@ export function App() {
     await waitForSessionCreate(sessionForCreate.id);
     const result = await api.appendShot(sessionForCreate.id, {
       title: `Shot ${nextIndex}`,
-      durationSec: Math.max(4, Math.round((sessionForCreate.targetDurationSec || 60) / Math.max(1, nextIndex)))
+      durationSec: 15
     });
     upsertShotAndSessionInState(result.shot, result.session);
     pushShotCreateUndo(result.shot);
@@ -2417,6 +2431,7 @@ export function App() {
               onPushUndo={undoStack.push}
               onCreateAnchorAsset={handleCreateAnchorAsset}
               onCreateShot={handleCreateShot}
+              onCreateStitchJob={handleCreateStitchJob}
               onSetStitchOrder={handleSetStitchOrder}
               onDeleteCanvasAsset={handleDeleteCanvasAsset}
               onDeleteCanvasShot={handleDeleteCanvasShot}

@@ -19,7 +19,7 @@ import "@xyflow/react/dist/style.css";
 import { api } from "../api";
 import type { Asset, AssetImageModel, AssetType, SessionWithShots, Shot, StitchJob, StoreSnapshot } from "../../shared/types";
 import { buildSessionGraph, visualNodeIdForAsset, type FlowNodeData } from "./buildGraph";
-import { AssetNode, AudioTrackNode, ReferenceVideoNode, VideoAssetNode, VideoProcessorNode, StoryboardNode, ShotNode, TailframeNode } from "./nodes";
+import { AssetNode, AudioTrackNode, ReferenceVideoNode, VideoAssetNode, VideoProcessorNode, StoryboardNode, ShotNode, StitchNode, TailframeNode, VoiceNode } from "./nodes";
 import { Inspector } from "./Inspector";
 import { DownloadToast } from "./DownloadToast";
 import { CreateNodeMenu, type CreateMenuOption } from "./CreateNodeMenu";
@@ -28,7 +28,7 @@ import { buildPendingConnectEdge, mergePendingEdges } from "./pendingConnection"
 import type { UndoableAction } from "./useUndoStack";
 import { useI18n, type UiLanguage } from "../i18n";
 
-type AnchorKind = Extract<AssetType, "image" | "character" | "scene" | "prop" | "style"> | "moodboard";
+type AnchorKind = Extract<AssetType, "image" | "character" | "scene" | "prop" | "style" | "voice"> | "moodboard";
 export type UploadImageAssetResult = Asset | {
   asset: Asset;
   completed?: Promise<Asset | undefined>;
@@ -46,6 +46,8 @@ const nodeTypes = {
   imageNode: AssetNode,
   storyboardNode: StoryboardNode,
   shotNode: ShotNode,
+  stitchNode: StitchNode,
+  voiceNode: VoiceNode,
   audioTrackNode: AudioTrackNode,
   referenceVideoNode: ReferenceVideoNode,
   videoAssetNode: VideoAssetNode,
@@ -56,6 +58,16 @@ const nodeTypes = {
 const MemoInspector = memo(Inspector);
 
 const flowProOptions = { hideAttribution: true };
+
+function isAssetBackedNodeData(data: FlowNodeData): data is Extract<FlowNodeData, { asset: Asset }> {
+  return data.kind === "image"
+    || data.kind === "asset"
+    || data.kind === "voice"
+    || data.kind === "referenceVideo"
+    || data.kind === "videoAsset"
+    || data.kind === "videoProcessor"
+    || data.kind === "tailframe";
+}
 
 export interface FlowViewProps {
   snapshot: StoreSnapshot;
@@ -107,7 +119,7 @@ function legacyStitchJobForSession(session: SessionWithShots): StitchJob {
   };
 }
 
-export function FlowView({ snapshot, session, visionReviewEnabled, defaultImageModel, onMutated, onCreateAnchorAsset, onCreateShot, onSetStitchOrder, onDeleteCanvasAsset, onDeleteCanvasShot, onUploadImageAsset, onUploadReferenceVideo, onPushUndo, undo, redo, canUndo, canRedo, undoDescription, redoDescription, toolbarPrimaryAction }: FlowViewProps) {
+export function FlowView({ snapshot, session, visionReviewEnabled, defaultImageModel, onMutated, onCreateAnchorAsset, onCreateShot, onCreateStitchJob, onSetStitchOrder, onDeleteCanvasAsset, onDeleteCanvasShot, onUploadImageAsset, onUploadReferenceVideo, onPushUndo, undo, redo, canUndo, canRedo, undoDescription, redoDescription, toolbarPrimaryAction }: FlowViewProps) {
   const { lang, t } = useI18n();
   const allAssets = snapshot.assets;
   const { nodes: derivedNodes, edges: derivedEdges } = useMemo(() => {
@@ -167,16 +179,32 @@ export function FlowView({ snapshot, session, visionReviewEnabled, defaultImageM
     });
   }, []);
 
+  const persistCreatedNodePosition = useCallback(async (nodeId: string, position: XYPosition | undefined) => {
+    if (!session || !position) return;
+    const canvasNodePositions = {
+      ...(session.canvasNodePositions || {}),
+      ...Object.fromEntries(
+        nodesRef.current.map((node) => [node.id, { x: node.position.x, y: node.position.y }])
+      ),
+      [nodeId]: { x: position.x, y: position.y }
+    };
+    await api.updateSession(session.id, { canvasNodePositions });
+  }, [session]);
+
   const centerUploadImageResult = useCallback((result: UploadImageAssetResult | undefined, placement?: XYPosition) => {
     const upload = normalizeUploadImageAssetResult(result);
     if (!upload) return;
     placeNodeAt(`asset-${upload.asset.id}`, placement);
+    void persistCreatedNodePosition(`asset-${upload.asset.id}`, placement);
     if (upload.completed) {
       void upload.completed.then((asset) => {
-        if (asset) placeNodeAt(`asset-${asset.id}`, placement);
+        if (asset) {
+          placeNodeAt(`asset-${asset.id}`, placement);
+          void persistCreatedNodePosition(`asset-${asset.id}`, placement);
+        }
       });
     }
-  }, [placeNodeAt]);
+  }, [persistCreatedNodePosition, placeNodeAt]);
 
   useEffect(() => {
     setNodes((prev) => {
@@ -663,70 +691,6 @@ export function FlowView({ snapshot, session, visionReviewEnabled, defaultImageM
         await apply();
         onPushUndo?.({
           description: "连接尾帧到镜头首帧",
-          undo: async () => { await revert(); await onMutated(); },
-          redo: async () => { await apply(); await onMutated(); }
-        });
-        await onMutated();
-      });
-      return;
-    }
-
-    if (src.startsWith("shot-") && tgt.startsWith("stitch-")) {
-      const srcShotId = src.slice("shot-".length);
-      const target = nodesRef.current.find((node) => node.id === tgt)?.data;
-      if (!target || target.kind !== "stitch" || target.session.id !== session.id) return;
-      const sourceShot = (session.shots || []).find((s) => s.id === srcShotId);
-      if (!sourceShot) return;
-      const jobId = target.job.id;
-      const legacy = Boolean(target.legacy);
-      const current = target.job.shotIds || [];
-      if (current.includes(srcShotId)) return;
-      const apply = async () => {
-        const live = await api.state();
-        const liveSession = live.sessions.find((item) => item.id === session.id);
-        if (legacy) {
-          const liveIds = liveSession?.stitchShotIds || [];
-          return api.updateSession(session.id, {
-            stitchShotIds: liveIds.includes(srcShotId) ? liveIds : [...liveIds, srcShotId],
-            stitchStatus: "idle",
-            stitchError: "",
-            stitchProgress: ""
-          });
-        }
-        const liveJob = liveSession?.stitchJobs?.find((job) => job.id === jobId);
-        const liveIds = liveJob?.shotIds || [];
-        return api.updateStitchJob(session.id, jobId, {
-          shotIds: liveIds.includes(srcShotId) ? liveIds : [...liveIds, srcShotId],
-          status: "idle",
-          error: "",
-          progress: ""
-        });
-      };
-      const revert = async () => {
-        const live = await api.state();
-        const liveSession = live.sessions.find((item) => item.id === session.id);
-        if (legacy) {
-          const liveIds = liveSession?.stitchShotIds || [];
-          return api.updateSession(session.id, {
-            stitchShotIds: liveIds.filter((id) => id !== srcShotId),
-            stitchStatus: "idle",
-            stitchError: "",
-            stitchProgress: ""
-          });
-        }
-        const liveJob = liveSession?.stitchJobs?.find((job) => job.id === jobId);
-        const liveIds = liveJob?.shotIds || [];
-        return api.updateStitchJob(session.id, jobId, {
-          shotIds: liveIds.filter((id) => id !== srcShotId),
-          status: "idle",
-          error: "",
-          progress: ""
-        });
-      };
-      await runConnectMutation(conn, async () => {
-        await apply();
-        onPushUndo?.({
-          description: "连接视频到拼接",
           undo: async () => { await revert(); await onMutated(); },
           redo: async () => { await apply(); await onMutated(); }
         });
@@ -1259,7 +1223,7 @@ export function FlowView({ snapshot, session, visionReviewEnabled, defaultImageM
     const allowedNodes = deletingNodes;
     const labels = allowedNodes.map((node) => {
       const data = node.data;
-      if (data.kind === "image" || data.kind === "asset" || data.kind === "referenceVideo" || data.kind === "videoAsset" || data.kind === "videoProcessor" || data.kind === "tailframe") {
+      if (isAssetBackedNodeData(data)) {
         return data.asset.name || data.asset.id;
       }
       if (data.kind === "shot") return data.shot.title || `Shot ${data.shot.index}`;
@@ -1309,7 +1273,7 @@ export function FlowView({ snapshot, session, visionReviewEnabled, defaultImageM
         const data = node.data;
         try {
           let ok = false;
-          if (data.kind === "image" || data.kind === "asset" || data.kind === "referenceVideo" || data.kind === "videoAsset" || data.kind === "videoProcessor" || data.kind === "tailframe") {
+          if (isAssetBackedNodeData(data)) {
             ok = await onDeleteCanvasAsset(data.asset);
           } else if (data.kind === "shot") {
             ok = await onDeleteCanvasShot(data.shot);
@@ -1421,7 +1385,11 @@ export function FlowView({ snapshot, session, visionReviewEnabled, defaultImageM
     if (option === "image") {
       return guardCreate("image", async () => {
         const asset = await onCreateAnchorAsset("image");
-        if (asset) placeNodeAt(visualNodeIdForAsset(asset) || `image-${asset.id}`, placement);
+        if (asset) {
+          const nodeId = visualNodeIdForAsset(asset) || `image-${asset.id}`;
+          placeNodeAt(nodeId, placement);
+          await persistCreatedNodePosition(nodeId, placement);
+        }
       });
     }
     if (option === "storyboard") {
@@ -1429,14 +1397,33 @@ export function FlowView({ snapshot, session, visionReviewEnabled, defaultImageM
         const shot = await onCreateShot();
         if (!shot) return;
         await api.updateShot(shot.id, { subShotPanelCount: 9 });
-        placeNodeAt(`storyboard-${shot.id}`, placement);
+        const nodeId = `storyboard-${shot.id}`;
+        placeNodeAt(nodeId, placement);
+        await persistCreatedNodePosition(nodeId, placement);
         await onMutated();
       });
     }
     if (option === "shot") {
       return guardCreate("shot", async () => {
         const shot = await onCreateShot();
-        if (shot) placeNodeAt(`shot-${shot.id}`, placement);
+        if (shot) {
+          const nodeId = `shot-${shot.id}`;
+          placeNodeAt(nodeId, placement);
+          await persistCreatedNodePosition(nodeId, placement);
+        }
+      });
+    }
+    if (option === "stitch") {
+      return guardCreate("stitch", async () => {
+        if (!session) return;
+        const job = onCreateStitchJob ? await onCreateStitchJob() : undefined;
+        const nodeId = job ? `stitch-${session.id}-${job.id}` : `stitch-${session.id}-legacy`;
+        if (!job && session.stitchHidden) {
+          await api.updateSession(session.id, { stitchHidden: false });
+        }
+        placeNodeAt(nodeId, placement);
+        await persistCreatedNodePosition(nodeId, placement);
+        await onMutated();
       });
     }
     if (option === "audioTrack") {
@@ -1447,7 +1434,18 @@ export function FlowView({ snapshot, session, visionReviewEnabled, defaultImageM
           audioTrackStitchJobIds: Array.from(new Set([...(session.audioTrackStitchJobIds || []), "legacy"]))
         });
         placeNodeAt("audio-legacy", placement);
+        await persistCreatedNodePosition("audio-legacy", placement);
         await onMutated();
+      });
+    }
+    if (option === "voice") {
+      return guardCreate("voice", async () => {
+        const asset = await onCreateAnchorAsset("voice");
+        if (asset) {
+          const nodeId = `voice-${asset.id}`;
+          placeNodeAt(nodeId, placement);
+          await persistCreatedNodePosition(nodeId, placement);
+        }
       });
     }
     if (option === "uploadImage") {
@@ -1461,7 +1459,7 @@ export function FlowView({ snapshot, session, visionReviewEnabled, defaultImageM
       videoInputRef.current?.click();
       return;
     }
-  }, [createMenu?.flowPosition, guardCreate, onCreateAnchorAsset, onCreateShot, onMutated, placeNodeAt, session]);
+  }, [createMenu?.flowPosition, guardCreate, onCreateAnchorAsset, onCreateShot, onCreateStitchJob, onMutated, persistCreatedNodePosition, placeNodeAt, session]);
 
   /** Drop-on-canvas handler: route file by mime type. Image → character anchor; video → reference. */
   const onDrop = useCallback((event: React.DragEvent<HTMLDivElement>) => {
@@ -1476,11 +1474,15 @@ export function FlowView({ snapshot, session, visionReviewEnabled, defaultImageM
     }
     if (file.type.startsWith("video/")) {
       void Promise.resolve(onUploadReferenceVideo(file)).then((asset) => {
-        if (asset) placeNodeAt(`refvideo-${asset.id}`, placement);
+        if (asset) {
+          const nodeId = `refvideo-${asset.id}`;
+          placeNodeAt(nodeId, placement);
+          void persistCreatedNodePosition(nodeId, placement);
+        }
       });
       return;
     }
-  }, [centerUploadImageResult, flowPositionFromClient, onUploadImageAsset, onUploadReferenceVideo, placeNodeAt]);
+  }, [centerUploadImageResult, flowPositionFromClient, onUploadImageAsset, onUploadReferenceVideo, persistCreatedNodePosition, placeNodeAt]);
 
   if (!session) {
     return (
@@ -1641,7 +1643,11 @@ export function FlowView({ snapshot, session, visionReviewEnabled, defaultImageM
           const placement = pendingFilePositionRef.current;
           pendingFilePositionRef.current = undefined;
           const asset = await onUploadReferenceVideo(file);
-          if (asset) placeNodeAt(`refvideo-${asset.id}`, placement);
+          if (asset) {
+            const nodeId = `refvideo-${asset.id}`;
+            placeNodeAt(nodeId, placement);
+            await persistCreatedNodePosition(nodeId, placement);
+          }
         }}
       />
       <DownloadToast />

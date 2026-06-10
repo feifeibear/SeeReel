@@ -148,27 +148,6 @@ export function buildPendingConnectEdge(input: PendingConnectInput): Edge | unde
     };
   }
 
-  if (source.startsWith("shot-") && target.startsWith("stitch-") && input.targetNodeData?.kind === "stitch") {
-    const shotId = source.slice("shot-".length);
-    const shot = input.session.shots?.find((item) => item.id === shotId);
-    const job = input.targetNodeData.job;
-    if (!shot || job.shotIds?.includes(shotId)) return undefined;
-    return {
-      id: `e-stitch-${shot.id}-${input.session.id}-${job.id}`,
-      source,
-      target,
-      animated: true,
-      data: { canDisconnectStitch: true, stitchShotId: shot.id, stitchJobId: job.id, stitchOrderIndex: job.shotIds?.length || 0 },
-      label: String((job.shotIds?.length || 0) + 1),
-      style: {
-        stroke: "#34d399",
-        strokeWidth: 2,
-        opacity: 0.8,
-        ...(shot.videoUrl ? {} : { strokeDasharray: "4 3" })
-      }
-    };
-  }
-
   if (source.startsWith("stitch-") && target.startsWith("audio-") && input.targetNodeData?.kind === "audioTrack") {
     const job = input.targetNodeData.job;
     if (input.session.audioTrackStitchJobIds?.includes(job.id)) return undefined;

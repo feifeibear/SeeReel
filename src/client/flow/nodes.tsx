@@ -6,6 +6,7 @@ import { usePendingGeneration } from "./PendingGenerations";
 import { useI18n, type Dictionary } from "../i18n";
 import { assetThumbUrl, tailframeThumbUrl } from "./mediaUrls";
 import { selectedShotPendingRender } from "../../shared/shotGenerationState";
+import { voicePresetForId } from "../../shared/voicePresets";
 import type { SubStoryboardModel } from "../../shared/types";
 import type {
   AudioTrackNodeData,
@@ -15,6 +16,7 @@ import type {
   ShotNodeData,
   StitchNodeData,
   TailframeNodeData,
+  VoiceNodeData,
   VideoAssetNodeData,
   VideoProcessorNodeData
 } from "./buildGraph";
@@ -70,6 +72,7 @@ type StoryboardFlowNode = Node<StoryboardNodeData, "storyboardNode">;
 type ShotFlowNode = Node<ShotNodeData, "shotNode">;
 type StitchFlowNode = Node<StitchNodeData, "stitchNode">;
 type AudioTrackFlowNode = Node<AudioTrackNodeData, "audioTrackNode">;
+type VoiceFlowNode = Node<VoiceNodeData, "voiceNode">;
 type ReferenceVideoFlowNode = Node<ReferenceVideoNodeData, "referenceVideoNode">;
 type VideoAssetFlowNode = Node<VideoAssetNodeData, "videoAssetNode">;
 type VideoProcessorFlowNode = Node<VideoProcessorNodeData, "videoProcessorNode">;
@@ -231,6 +234,22 @@ function statusBadge(status: string | undefined, phase: string | undefined, t: D
 
 function selectedShotRender(shot: ShotNodeData["shot"]) {
   return (shot.renders || []).find((render) => render.videoUrl === shot.videoUrl || render.remoteVideoUrl === shot.videoUrl);
+}
+
+function formatDurationLabel(durationSec: number | undefined | null) {
+  if (durationSec === undefined || durationSec === null || !Number.isFinite(durationSec) || durationSec <= 0) return "";
+  const total = Math.max(1, Math.round(durationSec));
+  const hours = Math.floor(total / 3600);
+  const minutes = Math.floor((total % 3600) / 60);
+  const seconds = total % 60;
+  if (hours > 0) return `${hours}:${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
+  return `${minutes}:${String(seconds).padStart(2, "0")}`;
+}
+
+function VideoDurationBadge({ seconds }: { seconds?: number | null }) {
+  const label = formatDurationLabel(seconds);
+  if (!label) return null;
+  return <span className="flow-node-duration-badge" title={`Duration ${label}`}>{label}</span>;
 }
 
 function reviewBadge(t: Dictionary, status?: string, score?: number, stale?: boolean) {
@@ -467,12 +486,14 @@ function ShotNodeImpl({ data, selected }: NodeProps<ShotFlowNode>) {
   const videoCacheKey = selectedRender?.id || videoUrl;
   const startedAt = pendingRender?.generationStartedAt || shot.generationStartedAt || undefined;
   const elapsed = useElapsedLabel(startedAt, isGenerating);
+  const durationSec = selectedRender?.durationSec ?? shot.durationSec;
   return (
     <div className={`flow-node shot-node ${selected ? "selected" : ""}`} style={{ width: NODE_WIDTH }}>
       <Handle type="target" position={Position.Left} id="in" />
       <div className="flow-node-head">
         <span className="flow-tag tag-shot">{t.nodes.video}</span>
         <strong className="flow-node-title" title={shot.title}>{shot.title || `Shot ${shot.index}`}</strong>
+        <VideoDurationBadge seconds={durationSec} />
       </div>
       <div className="flow-node-thumb fit-contain">
         {isGenerating ? (
@@ -507,8 +528,9 @@ function StitchNodeImpl({ data, selected }: NodeProps<StitchFlowNode>) {
   // user doesn't think the old version is the new one.
   const isStitching = status === "running";
   const final = isStitching ? undefined : job.finalVideoUrl;
-  const label = status === "ready" ? t.nodes.stitched : status === "running" ? t.nodes.stitching : status === "error" ? t.nodes.stitchError : t.nodes.notStitched;
-  const color = status === "ready" ? "#34d399" : status === "running" ? "#60a5fa" : status === "error" ? "#f87171" : "#6b7280";
+  const finalVideoStale = Boolean(job.finalVideoStale || (legacy && session.finalVideoStale));
+  const label = finalVideoStale && final ? "源视频已更新" : status === "ready" ? t.nodes.stitched : status === "running" ? t.nodes.stitching : status === "error" ? t.nodes.stitchError : t.nodes.notStitched;
+  const color = finalVideoStale && final ? "#f59e0b" : status === "ready" ? "#34d399" : status === "running" ? "#60a5fa" : status === "error" ? "#f87171" : "#6b7280";
   const reviewStale = Boolean(job.finalVideoReviewBuiltForSignature && job.finalVideoSignature && job.finalVideoReviewBuiltForSignature !== job.finalVideoSignature);
   const finalReviewInfo = reviewBadge(t, job.finalVideoReviewStatus, job.finalVideoReview?.score, reviewStale);
   const finalCacheKey = job.finalVideoGeneratedAt || job.finalVideoUrl || job.finalVideoSignature || job.updatedAt;
@@ -575,6 +597,7 @@ function StitchNodeImpl({ data, selected }: NodeProps<StitchFlowNode>) {
 function AudioTrackNodeImpl({ data, selected }: NodeProps<AudioTrackFlowNode>) {
   const { session, job } = data;
   const status = session.narrationStatus || "idle";
+  const separationStatus = session.audioSeparationStatus || "idle";
   const isRunning = status === "running";
   const videoUrl = isRunning ? undefined : session.narrationVideoUrl;
   const isMusic = session.audioTrackMode === "music";
@@ -587,6 +610,13 @@ function AudioTrackNodeImpl({ data, selected }: NodeProps<AudioTrackFlowNode>) {
     : session.narrationSubtitleMode === "burn"
     ? `烧录字幕 · ${session.narrationSubtitlePosition === "top" ? "顶部" : session.narrationSubtitlePosition === "middle" ? "中部" : "底部"}`
     : "不加字幕";
+  const separationLabel = separationStatus === "ready"
+    ? "已分离人声/背景"
+    : separationStatus === "running"
+    ? "分离人声/背景中"
+    : separationStatus === "error"
+    ? "分离失败"
+    : "";
   const cacheKey = session.narrationUpdatedAt || session.narrationSignature || session.narrationVideoUrl || session.id;
   return (
     <div className={`flow-node audio-track-node ${selected ? "selected" : ""}`} style={{ width: NODE_WIDTH }}>
@@ -623,7 +653,66 @@ function AudioTrackNodeImpl({ data, selected }: NodeProps<AudioTrackFlowNode>) {
         <span className="flow-status" style={{ color }}>● {label}</span>
         <small>{subtitleLabel}</small>
         {session.narrationProgress && <small>{session.narrationProgress}</small>}
+        {separationLabel && <small>{separationLabel}</small>}
+        {session.audioSeparationProgress && <small>{session.audioSeparationProgress}</small>}
       </div>
+    </div>
+  );
+}
+
+// ============================================================================
+// VoiceNode — reusable TTS / voice identity for consistent dialogue or narration
+// ============================================================================
+
+function VoiceNodeImpl({ data, selected }: NodeProps<VoiceFlowNode>) {
+  const { lang } = useI18n();
+  const { asset } = data;
+  const audioUrl = asset.voicePreviewAudioUrl || asset.mediaUrl;
+  const status = asset.voicePreviewStatus || (audioUrl ? "ready" : "idle");
+  const color = status === "ready" ? "#34d399" : status === "generating" ? "#60a5fa" : status === "error" ? "#f87171" : "#6b7280";
+  const label = status === "ready" ? "声音已试听" : status === "generating" ? "生成试听中" : status === "error" ? "试听失败" : "待生成试听";
+  const preset = voicePresetForId(asset.voicePresetId || asset.voiceId);
+  const presetLabel = preset
+    ? (lang === "en" ? preset.labelEn : preset.labelZh)
+    : asset.voiceId
+      ? "自定义音色"
+      : "选择音色";
+  const presetDescription = preset
+    ? (lang === "en" ? preset.descriptionEn : preset.descriptionZh)
+    : asset.voicePrompt || asset.description || "在 Inspector 选择音色并生成试听";
+  return (
+    <div className={`flow-node voice-node ${selected ? "selected" : ""}`} style={{ width: NODE_WIDTH }}>
+      <Handle type="target" position={Position.Left} id="in" />
+      <div className="flow-node-head">
+        <span className="flow-tag tag-audio">声音</span>
+        <strong className="flow-node-title">{asset.name || "声音节点"}</strong>
+      </div>
+      <div className="flow-node-thumb voice-node-body">
+        <div className="voice-node-preset">
+          <span className="voice-node-wave" aria-hidden="true">
+            <span />
+            <span />
+            <span />
+            <span />
+            <span />
+          </span>
+          <strong>{presetLabel}</strong>
+          <small>{presetDescription}</small>
+          {audioUrl ? (
+            <audio
+              controls
+              src={`${audioUrl}${audioUrl.includes("?") ? "&" : "?"}v=${encodeURIComponent(asset.voiceGeneratedAt || asset.updatedAt || asset.id)}`}
+            />
+          ) : (
+            <em>在 Inspector 生成试听</em>
+          )}
+        </div>
+      </div>
+      <div className="flow-node-foot">
+        <span className="flow-status" style={{ color }}>● {label}</span>
+        <small>{preset?.voiceId || asset.voiceId || "默认声音"}</small>
+      </div>
+      <Handle type="source" position={Position.Right} id="out" />
     </div>
   );
 }
@@ -654,6 +743,7 @@ function ReferenceVideoNodeImpl({ data, selected }: NodeProps<ReferenceVideoFlow
       <div className="flow-node-head">
         <span className="flow-tag tag-refvideo">{t.nodes.referenceVideo}</span>
         <strong className="flow-node-title" title={asset.name}>{asset.name}</strong>
+        <VideoDurationBadge seconds={asset.clipDurationSec ?? asset.originalDurationSec} />
         {videoUrl && (
           <DownloadButton
             href={api.downloadAssetUrl(asset.id)}
@@ -700,6 +790,7 @@ function VideoAssetNodeImpl({ data, selected }: NodeProps<VideoAssetFlowNode>) {
       <div className="flow-node-head">
         <span className="flow-tag tag-shot">{t.nodes.video}</span>
         <strong className="flow-node-title" title={asset.name}>{asset.name}</strong>
+        <VideoDurationBadge seconds={asset.clipDurationSec ?? asset.originalDurationSec} />
         {videoUrl && (
           <DownloadButton
             href={api.downloadAssetUrl(asset.id)}
@@ -755,6 +846,7 @@ function VideoProcessorNodeImpl({ data, selected }: NodeProps<VideoProcessorFlow
       <div className="flow-node-head">
         <span className="flow-tag tag-videoproc">{t.nodes.videoProcessor}</span>
         <strong className="flow-node-title" title={asset.name}>{asset.name}</strong>
+        <VideoDurationBadge seconds={asset.clipDurationSec ?? asset.originalDurationSec} />
         {videoUrl && (
           <DownloadButton
             href={api.downloadAssetUrl(asset.id)}
@@ -860,6 +952,9 @@ export const AudioTrackNode = memo(AudioTrackNodeImpl, (prev, next) =>
   && prev.data.session === next.data.session
   && prev.data.job === next.data.job
   && prev.data.legacy === next.data.legacy
+);
+export const VoiceNode = memo(VoiceNodeImpl, (prev, next) =>
+  prev.selected === next.selected && prev.data.asset === next.data.asset
 );
 export const ReferenceVideoNode = memo(ReferenceVideoNodeImpl, (prev, next) =>
   prev.selected === next.selected && prev.data.asset === next.data.asset

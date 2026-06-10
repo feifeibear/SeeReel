@@ -64,16 +64,14 @@ const pendingStitchEdge = buildPendingConnectEdge({
     job: { id: "stitchA", name: "Stitch", shotIds: [], status: "idle", createdAt: "", updatedAt: "" }
   }
 });
-assertEqual(pendingStitchEdge?.id, "e-stitch-shotA-sesA-stitchA", "pending stitch edge uses the final derived edge id");
-assertEqual(pendingStitchEdge?.source, "shot-shotA", "pending stitch edge source");
-assertEqual(pendingStitchEdge?.target, "stitch-sesA-stitchA", "pending stitch edge target");
+assertEqual(pendingStitchEdge, undefined, "shot-to-stitch canvas wiring is disabled; stitch order is managed in the stitch panel");
 
 const mergedPendingEdges = mergePendingEdges(
   [{ id: "edge-live", source: "a", target: "b" }],
-  [pendingStitchEdge].filter((edge): edge is NonNullable<typeof edge> => Boolean(edge))
+  [{ id: "edge-pending", source: "b", target: "c" }]
 );
 assertEqual(mergedPendingEdges.length, 2, "pending edge appears immediately before server refresh");
-assertEqual(mergePendingEdges([pendingStitchEdge!], [pendingStitchEdge!]).length, 1, "server-confirmed edge replaces pending duplicate");
+assertEqual(mergePendingEdges([{ id: "edge-pending", source: "b", target: "c" }], [{ id: "edge-pending", source: "b", target: "c" }]).length, 1, "server-confirmed edge replaces pending duplicate");
 
 const visualReferenceSnapshot = {
   runtime: { seedreamDefaultModel: "seedream-4-5" as const },

@@ -38,6 +38,11 @@ export interface AudioTrackNodeData extends Record<string, unknown> {
   legacy?: boolean;
 }
 
+export interface VoiceNodeData extends Record<string, unknown> {
+  kind: "voice";
+  asset: Asset;
+}
+
 export interface ReferenceVideoNodeData extends Record<string, unknown> {
   kind: "referenceVideo";
   asset: Asset;
@@ -70,6 +75,7 @@ export type FlowNodeData =
   | ShotNodeData
   | StitchNodeData
   | AudioTrackNodeData
+  | VoiceNodeData
   | ReferenceVideoNodeData
   | VideoAssetNodeData
   | VideoProcessorNodeData
@@ -101,6 +107,30 @@ function isStoryboardAsset(asset: Asset | undefined) {
 }
 
 function legacyAudioSourceJobForSession(session: SessionWithShots): StitchJob {
+  return {
+    id: "legacy",
+    name: "完整视频",
+    shotIds: session.stitchShotIds || [],
+    status: session.stitchStatus,
+    progress: session.stitchProgress,
+    error: session.stitchError,
+    finalVideoUrl: session.finalVideoUrl,
+    finalVideoSignature: session.finalVideoSignature,
+    finalVideoGeneratedAt: session.finalVideoGeneratedAt,
+    finalVideoReviewStatus: session.finalVideoReviewStatus,
+    finalVideoReview: session.finalVideoReview,
+    finalVideoReviewError: session.finalVideoReviewError,
+    finalVideoReviewUpdatedAt: session.finalVideoReviewUpdatedAt,
+    finalVideoReviewRunningSignature: session.finalVideoReviewRunningSignature,
+    finalVideoReviewBuiltForSignature: session.finalVideoReviewBuiltForSignature,
+    runningSignature: session.stitchRunningSignature,
+    startedAt: session.stitchStartedAt,
+    updatedAt: session.stitchUpdatedAt,
+    createdAt: session.createdAt
+  };
+}
+
+function legacyStitchJobForSession(session: SessionWithShots): StitchJob {
   return {
     id: "legacy",
     name: "完整视频",
@@ -185,7 +215,8 @@ export function buildSessionGraph(snapshot: StoreSnapshot, session: SessionWithS
   const sourceShotIdForTailframe = (asset: Asset) =>
     (asset.tags || []).find((tag) => tag.startsWith("source-shot:"))?.slice("source-shot:".length) || asset.ownerShotId;
   const isDerivedClip = (asset: Asset) => Boolean(asset.derivedFromAssetId);
-  const anchorAssets = sessionAssets.filter((asset) => asset.type !== "other" && !isReferenceVideo(asset) && !isFrameAnchor(asset));
+  const voiceAssets = sessionAssets.filter((asset) => asset.type === "voice");
+  const anchorAssets = sessionAssets.filter((asset) => asset.type !== "other" && asset.type !== "voice" && !isReferenceVideo(asset) && !isFrameAnchor(asset));
   const frameAnchorAssets = sessionAssets.filter(isFrameAnchor);
   const tailClipVideoAssets = sessionAssets.filter((a) => isReferenceVideo(a) && isTailClipVideo(a) && !isDerivedClip(a));
   const referenceVideoAssets = sessionAssets.filter((a) => isReferenceVideo(a) && !isTailClipVideo(a) && !isDerivedClip(a));
@@ -214,13 +245,22 @@ export function buildSessionGraph(snapshot: StoreSnapshot, session: SessionWithS
       data: { kind: "image", asset, referenceAssets, defaultImageModel } satisfies AssetNodeData
     });
   });
+  voiceAssets.forEach((asset, index) => {
+    const nodeId = `voice-${asset.id}`;
+    nodes.push({
+      id: nodeId,
+      type: "voiceNode",
+      position: positionFor(nodeId, { x: COLUMN_X.asset, y: 60 + (anchorAssets.length + index) * ROW_HEIGHT }),
+      data: { kind: "voice", asset } satisfies VoiceNodeData
+    });
+  });
   // Stack reference-video nodes below the anchor list. They have no edges by default — they live
   // off the main pipeline; the user "applies" a parsed shot to a target shot via the Inspector.
   referenceVideoAssets.forEach((asset, index) => {
     nodes.push({
       id: `refvideo-${asset.id}`,
       type: "referenceVideoNode",
-      position: positionFor(`refvideo-${asset.id}`, { x: COLUMN_X.asset, y: 60 + (anchorAssets.length + index) * ROW_HEIGHT }),
+      position: positionFor(`refvideo-${asset.id}`, { x: COLUMN_X.asset, y: 60 + (anchorAssets.length + voiceAssets.length + index) * ROW_HEIGHT }),
       data: { kind: "referenceVideo", asset } satisfies ReferenceVideoNodeData
     });
   });
@@ -535,6 +575,19 @@ export function buildSessionGraph(snapshot: StoreSnapshot, session: SessionWithS
     if (!nextShotId) return;
     const existing = edges.find((edge) => edge.id === `e-shotref-${shotId}-${nextShotId}`);
     if (existing) existing.label = String(index + 1);
+  });
+
+  const stitchJobs = session.stitchJobs?.length
+    ? session.stitchJobs.map((job) => ({ job, legacy: false }))
+    : session.stitchHidden ? [] : [{ job: legacyStitchJobForSession(session), legacy: true }];
+  stitchJobs.forEach(({ job, legacy }, index) => {
+    const nodeId = `stitch-${session.id}-${job.id}`;
+    nodes.push({
+      id: nodeId,
+      type: "stitchNode",
+      position: positionFor(nodeId, { x: COLUMN_X.stitch, y: 60 + index * ROW_HEIGHT }),
+      data: { kind: "stitch", session, job, legacy } satisfies StitchNodeData
+    });
   });
 
   const shouldShowAudioTrack = session.audioTrackHidden === false || Boolean(session.narrationVideoUrl);

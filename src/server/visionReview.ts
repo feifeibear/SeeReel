@@ -41,7 +41,7 @@ function missingAgentPlanReviewModelMessage() {
   return "[skip] no Agent/Coding Plan-compatible vision review model configured";
 }
 
-const reviewDefaultEnabled = () => (process.env.VISION_REVIEW_DEFAULT || "on").toLowerCase() !== "off";
+const reviewDefaultEnabled = () => process.env.SEEREEL_ENABLE_AUTO_VLM_REVIEW === "1";
 
 export const VISION_REVIEW_MAX_ATTEMPTS_HARD_CAP = 5;
 
@@ -89,6 +89,7 @@ const SYSTEM_PROMPT_VIDEO = [
 ].join("\n");
 
 export function shouldEnableReview(requested: boolean | undefined): boolean {
+  if (!reviewDefaultEnabled()) return false;
   if (requested === false) return false;
   if (requested === true) return true;
   return reviewDefaultEnabled();

@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { resolveVideoDeliveryUrl, shouldRedirectVideoDelivery } from "../src/shared/videoDelivery";
 
 assert.equal(
@@ -37,5 +38,17 @@ assert.equal(
 assert.equal(shouldRedirectVideoDelivery("https://media.example.com/fast/shot.mp4"), true);
 assert.equal(shouldRedirectVideoDelivery("/media/local-only.mp4"), false);
 assert.equal(shouldRedirectVideoDelivery("http://localhost:5173/media/local.mp4"), false);
+
+const indexSource = readFileSync("src/server/index.ts", "utf8");
+assert.match(
+  indexSource,
+  /publishLocalMediaToTosWithTimeout/,
+  "final video TOS/CDN publish should be bounded so completed local stitches do not remain running forever"
+);
+assert.match(
+  indexSource,
+  /FINAL_VIDEO_PUBLISH_TIMEOUT_MS/,
+  "final video publish timeout should be configurable"
+);
 
 console.log("video delivery smoke passed");

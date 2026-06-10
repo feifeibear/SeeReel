@@ -231,6 +231,13 @@ export const api = {
       method: asset.id ? "PATCH" : "POST",
       body: JSON.stringify(asset)
     }),
+  generateVoicePreview: (
+    assetId: string,
+    payload: { voicePrompt?: string; voicePresetId?: string; voiceId?: string; voicePreviewText?: string }
+  ) => request<Asset>(`/api/assets/${assetId}/voice-preview`, {
+    method: "POST",
+    body: JSON.stringify(payload)
+  }),
   deleteAsset: (assetId: string) => request<{ ok: true }>(`/api/assets/${assetId}`, { method: "DELETE" }),
   uploadImageAsset: (file: File, payload: { ownerSessionId?: string; name?: string; tags?: string[] }) => {
     const params = new URLSearchParams();
@@ -515,6 +522,7 @@ export const api = {
       script: string;
       mode?: AudioTrackMode;
       voice?: string;
+      voiceAssetId?: string;
       strategy?: NarrationStrategy;
       jobId?: string;
       subtitleMode?: NarrationSubtitleMode;
@@ -542,7 +550,25 @@ export const api = {
   },
   pollNarrationOnce: (sessionId: string) =>
     request<SessionWithShots>(`/api/sessions/${sessionId}/narration/poll`, { method: "POST" }),
-  downloadNarrationVideoUrl: (sessionId: string) => `/api/sessions/${sessionId}/narration/download?kind=video`
+  downloadNarrationVideoUrl: (sessionId: string) => `/api/sessions/${sessionId}/narration/download?kind=video`,
+  separateFinalAudio: async (
+    sessionId: string,
+    payload: { jobId?: string },
+    onProgress?: (snapshot: SessionWithShots) => void
+  ): Promise<SessionWithShots> => {
+    const initial = await request<SessionWithShots>(`/api/sessions/${sessionId}/audio-separation`, {
+      method: "POST",
+      body: JSON.stringify(payload)
+    });
+    onProgress?.(initial);
+    if (initial.audioSeparationStatus === "ready") return initial;
+    if (initial.audioSeparationStatus === "error") {
+      throw new Error(initial.audioSeparationError || "Audio separation failed");
+    }
+    return await pollAudioSeparation(sessionId, onProgress);
+  },
+  pollAudioSeparationOnce: (sessionId: string) =>
+    request<SessionWithShots>(`/api/sessions/${sessionId}/audio-separation/poll`, { method: "POST" })
 };
 
 async function pollStitch(
@@ -578,6 +604,21 @@ async function pollNarration(
     if (snapshot.narrationStatus === "ready") return snapshot;
     if (snapshot.narrationStatus === "error") {
       throw new Error(snapshot.narrationError || "Narration failed");
+    }
+  }
+}
+
+async function pollAudioSeparation(
+  sessionId: string,
+  onProgress?: (snapshot: SessionWithShots) => void
+): Promise<SessionWithShots> {
+  for (;;) {
+    await new Promise((resolve) => setTimeout(resolve, 3000));
+    const snapshot = await request<SessionWithShots>(`/api/sessions/${sessionId}/audio-separation/poll`, { method: "POST" });
+    onProgress?.(snapshot);
+    if (snapshot.audioSeparationStatus === "ready") return snapshot;
+    if (snapshot.audioSeparationStatus === "error") {
+      throw new Error(snapshot.audioSeparationError || "Audio separation failed");
     }
   }
 }

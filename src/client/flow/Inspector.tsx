@@ -22,7 +22,7 @@ import { usePendingGenerationActions } from "./PendingGenerations";
 import { useI18n } from "../i18n";
 import { resolveNodeReviewEnabled } from "../../shared/reviewSettings";
 import { selectedShotPendingRender } from "../../shared/shotGenerationState";
-import { deriveConnectedShotOrder } from "./stitchOrder";
+import { VOICE_PRESETS, voicePresetForId } from "../../shared/voicePresets";
 
 const INSPECTOR_SEEDANCE_OPTIONS: Array<{ value: SeedanceVariant; label: string }> = [
   { value: "standard", label: "Seedance 2.0" },
@@ -388,7 +388,10 @@ export function Inspector({ selected, session, allAssets, visionReviewEnabled, d
     return <StitchInspector session={selected.session} job={selected.job} legacy={selected.legacy} onMutated={onMutated} onSetStitchOrder={onSetStitchOrder} onClose={onClose} />;
   }
   if (selected.kind === "audioTrack") {
-    return <AudioTrackInspector session={selected.session} job={selected.job} onMutated={onMutated} onClose={onClose} />;
+    return <AudioTrackInspector session={selected.session} job={selected.job} allAssets={allAssets} onMutated={onMutated} onClose={onClose} />;
+  }
+  if (selected.kind === "voice") {
+    return <VoiceInspector asset={selected.asset} onMutated={onMutated} onDeleteCanvasAsset={onDeleteCanvasAsset} onClose={onClose} />;
   }
   if (selected.kind === "referenceVideo" || selected.kind === "videoAsset") {
     return <ReferenceVideoInspector asset={selected.asset} session={session} onMutated={onMutated} onDeleteCanvasAsset={onDeleteCanvasAsset} onClose={onClose} />;
@@ -699,18 +702,6 @@ function AssetInspector({ asset, session, allAssets, onMutated, onDeleteCanvasAs
             <option key={option.value} value={option.value}>{option.label}</option>
           ))}
         </select>
-      </label>
-
-      <label className="vision-review-toggle" title={t.inspector.vlmImageToggleTitle}>
-        <input
-          type="checkbox"
-          checked={asset.vlmReviewEnabled !== false}
-          onChange={async (e) => {
-            await api.saveAsset({ id: asset.id, vlmReviewEnabled: e.target.checked });
-            await onMutated();
-          }}
-        />
-        {t.inspector.vlmImageToggle}
       </label>
 
       <div className="inspector-actions">
@@ -1334,6 +1325,14 @@ function useInspectorElapsedLabel(startedAt: string | null | undefined, active: 
   return `${min}:${String(sec).padStart(2, "0")}`;
 }
 
+function reorderStitchIds(ids: string[], fromIndex: number, toIndex: number) {
+  if (fromIndex === toIndex || fromIndex < 0 || toIndex < 0 || fromIndex >= ids.length || toIndex >= ids.length) return ids;
+  const next = [...ids];
+  const [moved] = next.splice(fromIndex, 1);
+  next.splice(toIndex, 0, moved);
+  return next;
+}
+
 function ShotInspector({ shot, session, allAssets, visionReviewEnabled, onMutated, onDeleteCanvasShot, onClose }: {
   shot: Shot;
   session?: SessionWithShots;
@@ -1344,19 +1343,72 @@ function ShotInspector({ shot, session, allAssets, visionReviewEnabled, onMutate
   onClose: () => void;
 }) {
   const [rawPrompt, setRawPrompt] = useState(shot.rawPrompt || shot.prompt || "");
-  const [durationSec, setDurationSec] = useState<number>(shot.durationSec || 12);
+  const [durationSec, setDurationSec] = useState<number>(shot.durationSec || 15);
   const [title, setTitle] = useState<string>(shot.title || "");
   const [busy, setBusy] = useState<"" | "save" | "generate" | "rename" | "derive-switch" | "restore" | "delete-render" | "review" | "firstframe" | "tailframe" | "tailclip">("");
   const [error, setError] = useState<string>("");
+  const [saveStatus, setSaveStatus] = useState<"saved" | "saving" | "dirty">("saved");
   const { lang, t } = useI18n();
   const tr = (zh: string, en: string) => (lang === "en" ? en : zh);
   const [showFailedHistory, setShowFailedHistory] = useState(false);
+  const pendingFlushRef = useRef<{ flush: () => Promise<void> } | null>(null);
+  const lastSavedRef = useRef<{ rawPrompt: string; durationSec: number }>({
+    rawPrompt: shot.rawPrompt || shot.prompt || "",
+    durationSec: shot.durationSec || 15
+  });
   useEffect(() => {
-    setRawPrompt(shot.rawPrompt || shot.prompt || "");
-    setDurationSec(shot.durationSec || 12);
+    const nextRawPrompt = shot.rawPrompt || shot.prompt || "";
+    const nextDurationSec = shot.durationSec || 15;
+    setRawPrompt(nextRawPrompt);
+    setDurationSec(nextDurationSec);
     setTitle(shot.title || "");
     setError("");
+    setSaveStatus("saved");
+    pendingFlushRef.current = null;
+    lastSavedRef.current = { rawPrompt: nextRawPrompt, durationSec: nextDurationSec };
   }, [shot.id]);
+
+  useEffect(() => {
+    const current = { rawPrompt, durationSec };
+    const last = lastSavedRef.current;
+    if (current.rawPrompt === last.rawPrompt && current.durationSec === last.durationSec) return;
+
+    setSaveStatus("dirty");
+    let cancelled = false;
+    let resolveFlush: () => void = () => {};
+    const flushed = new Promise<void>((resolve) => { resolveFlush = resolve; });
+    const doSave = async () => {
+      if (cancelled) return;
+      setSaveStatus("saving");
+      try {
+        await api.updateShot(shot.id, { rawPrompt, prompt: rawPrompt, durationSec, composedSeedancePromptDraft: "" });
+        if (cancelled) return;
+        lastSavedRef.current = current;
+        setSaveStatus("saved");
+        await onMutated();
+      } catch (err) {
+        if (cancelled) return;
+        setSaveStatus("dirty");
+        setError(err instanceof Error ? err.message : t.inspector.autoSaveFailed);
+      } finally {
+        resolveFlush();
+      }
+    };
+    const timer = window.setTimeout(doSave, 600);
+    pendingFlushRef.current = {
+      flush: async () => {
+        if (cancelled) return;
+        window.clearTimeout(timer);
+        await doSave();
+        await flushed;
+      }
+    };
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+      resolveFlush();
+    };
+  }, [rawPrompt, durationSec, shot.id, onMutated, t.inspector.autoSaveFailed]);
 
   const currentRender = (shot.renders || []).find((render) => render.videoUrl === shot.videoUrl || render.remoteVideoUrl === shot.videoUrl);
   const videoCacheKey = currentRender?.id || shot.videoUrl;
@@ -1413,19 +1465,21 @@ function ShotInspector({ shot, session, allAssets, visionReviewEnabled, onMutate
     } finally { setBusy(""); }
   };
 
-  const save = async () => {
-    setBusy("save"); setError("");
-    try {
-      await api.updateShot(shot.id, { rawPrompt, prompt: rawPrompt, durationSec, composedSeedancePromptDraft: "" });
-      await onMutated();
-    } catch (err) { setError(err instanceof Error ? err.message : "保存失败"); }
-    finally { setBusy(""); }
+  const flushPendingSave = async () => {
+    if (pendingFlushRef.current) {
+      await pendingFlushRef.current.flush();
+      pendingFlushRef.current = null;
+    }
+    const last = lastSavedRef.current;
+    if (last.rawPrompt !== rawPrompt || last.durationSec !== durationSec) {
+      throw new Error(t.inspector.saveFailed);
+    }
   };
 
   const regenerate = async () => {
     setBusy("generate"); setError("");
     try {
-      await api.updateShot(shot.id, { rawPrompt, prompt: rawPrompt, durationSec, composedSeedancePromptDraft: "" });
+      await flushPendingSave();
       await api.generateShot(shot.id, {
         visionReview: resolveNodeReviewEnabled(visionReviewEnabled, shot.vlmReviewEnabled),
         composedPrompt: undefined
@@ -1601,12 +1655,12 @@ function ShotInspector({ shot, session, allAssets, visionReviewEnabled, onMutate
       {generating && (
         <div className="inspector-hint">
           {inFlightPromptEdited
-            ? tr("已保存生成中的 prompt 修改；当前已提交任务不变，VLM 审核和后续自动重试会使用新 prompt。", "In-flight prompt edits saved. The already-submitted task is unchanged; VLM review and later auto-retry will use the new prompt.")
-            : tr("生成中也可以继续改 prompt 并保存；当前已提交任务不变，保存后 VLM 审核和后续自动重试会使用新 prompt。", "You can keep editing and saving the prompt while generating. The already-submitted task is unchanged; after saving, VLM review and later auto-retry will use the new prompt.")}
+            ? tr("生成中的 prompt 修改已自动保存；当前已提交任务不变，下一次手动生成会使用新 prompt。", "In-flight prompt edits are auto-saved. The already-submitted task is unchanged; the next manual generation will use the new prompt.")
+            : tr("生成中也可以继续改 prompt，修改会自动保存；当前已提交任务不变。", "You can keep editing the prompt while generating; edits auto-save. The already-submitted task is unchanged.")}
         </div>
       )}
       <div className="inspector-row">
-        <label>{tr("时长 (秒)", "Duration (sec)")}<input type="number" min={1} max={15} value={durationSec} onChange={(e) => setDurationSec(Number(e.target.value) || 12)} /></label>
+        <label>{tr("时长 (秒)", "Duration (sec)")}<input type="number" min={1} max={15} value={durationSec} onChange={(e) => setDurationSec(Number(e.target.value) || 15)} /></label>
         <label>{tr("状态", "Status")}<input value={status} disabled /></label>
       </div>
       <label>{tr("Seedance 模型", "Seedance model")}
@@ -1701,17 +1755,6 @@ function ShotInspector({ shot, session, allAssets, visionReviewEnabled, onMutate
           {tr("连接进这个视频节点的尾帧/帧锚点会出现在候选里；拖尾帧节点到视频节点会自动设为首帧。", "Tail-frame/frame-anchor nodes connected to this video appear as candidates; dragging a tail-frame node to a video node sets it as the first-frame reference.")}
         </div>
       </div>
-      <label className="vision-review-toggle" title={tr("勾选后，这个视频节点参与 VLM 审核；审核失败可一键修当前/前序依赖 prompt。", "When checked, this video node participates in VLM review; failed review can repair current/upstream prompts.")}>
-        <input
-          type="checkbox"
-          checked={shot.vlmReviewEnabled !== false}
-          onChange={async (e) => {
-            await api.updateShot(shot.id, { vlmReviewEnabled: e.target.checked });
-            await onMutated();
-          }}
-        />
-        {tr("VLM 审核此节点", "VLM review this node")}
-      </label>
       <ReviewSummaryCard
         label={tr("最近一次 VLM 审片", "Latest VLM video review")}
         verdict={latestVideoReview}
@@ -1720,9 +1763,6 @@ function ShotInspector({ shot, session, allAssets, visionReviewEnabled, onMutate
         reviewNote={latestReviewNote}
       />
       <div className="inspector-actions">
-        <button onClick={save} disabled={Boolean(busy)}>
-          {busy === "save" ? "..." : generating ? tr("保存生成中修改", "Save in-flight edits") : tr("保存", "Save")}
-        </button>
         <button onClick={regenerate} disabled={Boolean(busy) || generating} className="primary">
           {busy === "generate" || generating ? t.nodes.generating + "..." : shot.videoUrl ? tr("重生", "Regenerate") : tr("出片", "Generate video")}
         </button>
@@ -1762,6 +1802,11 @@ function ShotInspector({ shot, session, allAssets, visionReviewEnabled, onMutate
         >
           {busy === "delete-render" ? "..." : t.inspector.delete}
         </button>
+        <span className="inspector-save-status" data-status={saveStatus}>
+          {saveStatus === "saved" && t.inspector.saved}
+          {saveStatus === "saving" && t.inspector.saving}
+          {saveStatus === "dirty" && t.inspector.dirty}
+        </span>
       </div>
       {/* Opt-in to sub-storyboard mode: only emit the StoryboardNode placeholder once the user
           asks for it. Sets subShotPanelCount=9 → buildGraph picks up showStoryboardNode → the
@@ -1978,26 +2023,36 @@ function StitchInspector({ session, job, legacy, onMutated, onSetStitchOrder, on
 }) {
   const [busy, setBusy] = useState<"" | "stitch" | "review" | "order">("");
   const [error, setError] = useState<string>("");
+  const [dragIndex, setDragIndex] = useState<number | null>(null);
   const { lang, t } = useI18n();
   const tr = (zh: string, en: string) => (lang === "en" ? en : zh);
 
-  const orderedShots = (session.shots || []).slice().sort((a, b) => a.index - b.index);
+  const orderedShots = (session.shots || []).slice().sort((a, b) => {
+    const createdDelta = new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime();
+    if (Number.isFinite(createdDelta) && createdDelta !== 0) return createdDelta;
+    return a.index - b.index;
+  });
   const shotById = new Map(orderedShots.map((shot) => [shot.id, shot]));
+  const stitchableShots = orderedShots.filter((shot) => shot.videoUrl);
   const explicitIds = job.shotIds || [];
-  const connectedIds = deriveConnectedShotOrder(orderedShots);
-  const effectiveIds = explicitIds.length > 0 ? explicitIds : connectedIds;
+  const defaultStitchIds = stitchableShots.map((shot) => shot.id);
+  const effectiveIds = explicitIds.length > 0 ? explicitIds : defaultStitchIds;
   const explicitMode = effectiveIds.length > 0;
   const missingShotIds = explicitMode ? effectiveIds.filter((id) => !shotById.has(id)) : [];
   const stitchShots = explicitMode
     ? effectiveIds.map((id) => shotById.get(id)).filter((s): s is Shot => Boolean(s))
     : orderedShots;
-  const defaultReady = orderedShots.length > 0 && orderedShots.every((s) => s.videoUrl);
   const explicitReady = explicitMode && !missingShotIds.length && stitchShots.length > 0 && stitchShots.every((s) => s.videoUrl);
-  const canStitch = explicitMode ? explicitReady : defaultReady;
+  const canStitch = explicitReady;
   const isStitching = job.status === "running";
   const finalCacheKey = job.finalVideoGeneratedAt || job.finalVideoUrl || job.finalVideoSignature || job.updatedAt;
   const jobId = legacy ? undefined : job.id;
   const title = job.name || t.nodes.fullVideo;
+  const finalVideoStale = Boolean(job.finalVideoStale || (legacy && session.finalVideoStale));
+  const unlistedShotIds = job.unlistedShotIds || (legacy ? session.stitchUnlistedShotIds || [] : []);
+  const unlistedShots = unlistedShotIds.map((shotId) => shotById.get(shotId)).filter((shot): shot is Shot => Boolean(shot));
+  const effectiveIdSet = new Set(effectiveIds);
+  const availableStitchShots = stitchableShots.filter((shot) => !effectiveIdSet.has(shot.id));
 
   const saveOrder = async (nextIds: string[]) => {
     setBusy("order"); setError("");
@@ -2035,16 +2090,25 @@ function StitchInspector({ session, job, legacy, onMutated, onSetStitchOrder, on
   const stitch = async () => {
     setBusy("stitch"); setError("");
     try {
-      if (!explicitIds.length && connectedIds.length > 1) {
-        onSetStitchOrder(job.id, connectedIds, legacy);
-        await api.updateSession(session.id, {
-          stitchShotIds: connectedIds,
-          stitchStatus: "idle",
-          stitchError: "",
-          stitchProgress: ""
-        });
+      if (!explicitIds.length && effectiveIds.length > 0) {
+        onSetStitchOrder(job.id, effectiveIds, legacy);
+        if (legacy) {
+          await api.updateSession(session.id, {
+            stitchShotIds: effectiveIds,
+            stitchStatus: "idle",
+            stitchError: "",
+            stitchProgress: ""
+          });
+        } else {
+          await api.updateStitchJob(session.id, job.id, {
+            shotIds: effectiveIds,
+            status: "idle",
+            error: "",
+            progress: ""
+          });
+        }
       }
-      await api.stitch(session.id, { force: explicitMode, jobId });
+      await api.stitch(session.id, { force: true, jobId });
       await onMutated();
     } catch (err) { setError(err instanceof Error ? err.message : tr("拼接失败", "Stitch failed")); }
     finally { setBusy(""); }
@@ -2068,14 +2132,66 @@ function StitchInspector({ session, job, legacy, onMutated, onSetStitchOrder, on
       <div className="inspector-section">
         <div>{tr(`共 ${session.shots?.length || 0} 个分镜，目标 ${session.targetDurationSec}s。`, `${session.shots?.length || 0} shots · target ${session.targetDurationSec}s.`)}</div>
         <div className="inspector-hint">
-          {explicitMode ? tr("将按视频节点之间的连接顺序合成视频。", "The video will be stitched in the order of the video-node chain.") : tr("未连接视频时，将按分镜顺序拼接全片。", "With no connected videos, the full film is stitched by shot order.")}
+          {tr("默认按画布视频节点创建顺序拼接；你可以把可选视频拖进来、拖动调整顺序，或从列表里删除。", "By default, videos are stitched in canvas creation order. Drag available videos in, reorder the playlist, or remove items from the list.")}
         </div>
+      </div>
+      {finalVideoStale && job.finalVideoUrl && !isStitching && (
+        <div className="inspector-stale-warn">
+          <strong>{tr("源视频已更新，请重新拼接", "Source videos changed. Restitch to sync.")}</strong>
+          <span>
+            {tr("旧完整视频会继续保留和播放；点击重新拼接后，将按当前列表使用最新视频生成完整片。", "The previous full video stays playable. Restitch uses the latest videos in the current playlist.")}
+          </span>
+        </div>
+      )}
+      {unlistedShots.length > 0 && (
+        <div className="inspector-stale-warn">
+          <strong>{tr(`新视频未加入：${unlistedShots.length} 个`, `${unlistedShots.length} new videos not in playlist`)}</strong>
+          <span>
+            {tr("当前拼接列表是自定义顺序，新生成的视频不会自动插入。", "This playlist is custom, so newly generated videos are not inserted automatically.")}
+          </span>
+          <div className="inspector-stale-actions">
+            <button
+              type="button"
+              onClick={() => saveOrder([...effectiveIds, ...unlistedShots.map((shot) => shot.id)])}
+              disabled={Boolean(busy)}
+            >
+              {tr("加入末尾", "Add to end")}
+            </button>
+          </div>
+        </div>
+      )}
+      <div className="inspector-section">
+        <strong>{tr("可选视频节点", "Available video nodes")}</strong>
+        {availableStitchShots.length > 0 ? (
+          <div className="inspector-chip-row">
+            {availableStitchShots.map((shot) => (
+              <button
+                key={shot.id}
+                type="button"
+                className="asset-chip"
+                draggable
+                onDragStart={(e) => {
+                  e.dataTransfer.effectAllowed = "copy";
+                  e.dataTransfer.setData("application/x-seereel-shot-id", shot.id);
+                  e.dataTransfer.setData("text/plain", shot.id);
+                }}
+                onClick={() => saveOrder([...effectiveIds, shot.id])}
+                disabled={Boolean(busy)}
+                title={shot.videoUrl ? tr("点击或拖入拼接列表", "Click or drag into the stitch playlist") : tr("还没生成视频，加入后需先出片", "This video has not been generated yet")}
+              >
+                {shot.title || `Shot ${shot.index}`}
+              </button>
+            ))}
+          </div>
+        ) : (
+          <div className="inspector-hint">{tr("所有视频节点都已在拼接列表中。", "All video nodes are already in the stitch playlist.")}</div>
+        )}
       </div>
       <div className="inspector-section">
         <strong>{tr("拼接顺序", "Stitch order")}</strong>
         {!explicitMode ? (
           <>
-            <div className="inspector-hint">{tr("像 LibTV 一样，直接把视频节点连到下一个视频节点即可定义拼接顺序。", "Like LibTV, connect one video node directly to the next video node to define stitch order.")}</div>
+            <div className="inspector-hint">{tr("当前画布还没有已生成的视频节点。先生成视频，再拼接。", "This canvas has no generated video nodes yet. Generate videos before stitching.")}</div>
             {missingShotIds.length > 0 && (
               <div className="inspector-error">
                 {tr(`存在 ${missingShotIds.length} 个失效镜头引用：${missingShotIds.join(", ")}`, `${missingShotIds.length} invalid shot references: ${missingShotIds.join(", ")}`)}
@@ -2092,14 +2208,25 @@ function StitchInspector({ session, job, legacy, onMutated, onSetStitchOrder, on
             <button
               type="button"
               className="ghost-action"
-              onClick={() => saveOrder(orderedShots.map((s) => s.id))}
-              disabled={Boolean(busy) || orderedShots.length === 0}
+              onClick={() => saveOrder(stitchableShots.map((s) => s.id))}
+              disabled={Boolean(busy) || stitchableShots.length === 0}
             >
-              {tr("用当前分镜建立顺序", "Build order from current shots")}
+              {tr("用当前视频建立顺序", "Build order from current videos")}
             </button>
           </>
         ) : (
-          <div className="inspector-history-list">
+          <div
+            className="inspector-history-list"
+            onDragOver={(e) => {
+              if (e.dataTransfer.types.includes("application/x-seereel-shot-id")) e.preventDefault();
+            }}
+            onDrop={(e) => {
+              const shotId = e.dataTransfer.getData("application/x-seereel-shot-id") || e.dataTransfer.getData("text/plain");
+              if (!shotId || effectiveIdSet.has(shotId) || !shotById.has(shotId)) return;
+              e.preventDefault();
+              void saveOrder([...effectiveIds, shotId]);
+            }}
+          >
             {missingShotIds.length > 0 && (
               <div className="inspector-error">
                 {tr(`存在 ${missingShotIds.length} 个失效镜头引用：${missingShotIds.join(", ")}`, `${missingShotIds.length} invalid shot references: ${missingShotIds.join(", ")}`)}
@@ -2136,7 +2263,26 @@ function StitchInspector({ session, job, legacy, onMutated, onSetStitchOrder, on
                 );
               }
               return (
-                <div key={`${shotId}-${index}`} className="inspector-history-item">
+                <div
+                  key={`${shotId}-${index}`}
+                  className="inspector-history-item"
+                  draggable={effectiveIds.length > 1}
+                  onDragStart={(e) => {
+                    setDragIndex(index);
+                    e.dataTransfer.effectAllowed = "move";
+                    e.dataTransfer.setData("text/plain", shotId);
+                  }}
+                  onDragOver={(e) => {
+                    if (dragIndex !== null && dragIndex !== index) e.preventDefault();
+                  }}
+                  onDragEnd={() => setDragIndex(null)}
+                  onDrop={(e) => {
+                    e.preventDefault();
+                    if (dragIndex === null) return;
+                    void saveOrder(reorderStitchIds(effectiveIds, dragIndex, index));
+                    setDragIndex(null);
+                  }}
+                >
                   <div className="inspector-history-meta">
                     <strong>{index + 1}. {shot.title || `Shot ${shot.index}`}</strong>
                     <span className="inspector-history-status">{shot.videoUrl ? t.nodes.statusReady : t.nodes.notGenerated}</span>
@@ -2156,12 +2302,9 @@ function StitchInspector({ session, job, legacy, onMutated, onSetStitchOrder, on
                 </div>
               );
             })}
-            <div className="inspector-actions">
-              <button type="button" onClick={() => saveOrder(orderedShots.map((s) => s.id))} disabled={Boolean(busy)}>
-                {tr("重置为分镜顺序", "Reset to shot order")}
-              </button>
-              <button type="button" className="ghost-action" onClick={() => saveOrder([])} disabled={Boolean(busy)}>
-                {tr("清空连接顺序", "Clear connected order")}
+            <div className="inspector-secondary-actions">
+              <button type="button" onClick={() => saveOrder(stitchableShots.map((s) => s.id))} disabled={Boolean(busy) || stitchableShots.length === 0}>
+                {tr("重置为创建顺序", "Reset to creation order")}
               </button>
             </div>
           </div>
@@ -2169,7 +2312,7 @@ function StitchInspector({ session, job, legacy, onMutated, onSetStitchOrder, on
       </div>
       <div className="inspector-actions">
         <button onClick={stitch} disabled={Boolean(busy) || !canStitch} className="primary">
-          {busy === "stitch" ? "..." : explicitMode ? t.flow.stitchByConnections : (job.finalVideoUrl ? tr("重新拼接", "Restitch") : tr("按分镜顺序拼接全片", "Stitch full film by shot order"))}
+          {busy === "stitch" ? "..." : job.finalVideoUrl ? tr("重新拼接", "Restitch") : t.flow.stitchByConnections}
         </button>
         <button onClick={reviewFinal} disabled={Boolean(busy) || !job.finalVideoUrl || isStitching}>
           {busy === "review" ? tr("终审中...", "Final reviewing...") : t.nodes.finalReview}
@@ -2179,7 +2322,7 @@ function StitchInspector({ session, job, legacy, onMutated, onSetStitchOrder, on
         <div className="inspector-hint">
           {missingShotIds.length > 0
             ? tr("拼接顺序里有已删除/已替换的镜头引用，请先移除失效引用。", "The stitch order contains deleted/replaced shot references. Remove invalid references first.")
-            : explicitMode ? tr("已连接的视频中还有未生成的镜头。", "Some connected videos have not been generated yet.") : tr("还有分镜没生成视频。", "Some shots have not generated videos yet.")}
+            : explicitMode ? tr("拼接列表里还有未生成的视频。", "Some videos in the stitch playlist have not generated videos yet.") : tr("拼接列表为空。请先创建或加入视频节点。", "The stitch playlist is empty. Create or add video nodes first.")}
         </div>
       )}
       {job.finalVideoUrl && !isStitching && (
@@ -2234,13 +2377,235 @@ function StitchInspector({ session, job, legacy, onMutated, onSetStitchOrder, on
   );
 }
 
+function VoiceInspector({ asset, onMutated, onDeleteCanvasAsset, onClose }: {
+  asset: Asset;
+  onMutated: () => Promise<void> | void;
+  onDeleteCanvasAsset?: (asset: Asset) => Promise<boolean> | boolean;
+  onClose: () => void;
+}) {
+  const { lang } = useI18n();
+  const tr = (zh: string, en: string) => (lang === "en" ? en : zh);
+  const [name, setName] = useState(asset.name || "");
+  const [voicePrompt, setVoicePrompt] = useState(asset.voicePrompt || asset.description || asset.prompt || "");
+  const [voicePresetId, setVoicePresetId] = useState(asset.voicePresetId || voicePresetForId(asset.voiceId)?.id || "");
+  const [voiceId, setVoiceId] = useState(asset.voiceId || "");
+  const [previewText, setPreviewText] = useState(asset.voicePreviewText || tr("这是一个可复用的 SeeReel 声音。", "This is a reusable SeeReel voice."));
+  const [busy, setBusy] = useState<"" | "save" | "preview" | "delete">("");
+  const [error, setError] = useState("");
+  const audioUrl = asset.voicePreviewAudioUrl || asset.mediaUrl;
+  const selectedPreset = voicePresetForId(voicePresetId || voiceId);
+
+  useEffect(() => {
+    setName(asset.name || "");
+    setVoicePrompt(asset.voicePrompt || asset.description || asset.prompt || "");
+    setVoicePresetId(asset.voicePresetId || voicePresetForId(asset.voiceId)?.id || "");
+    setVoiceId(asset.voiceId || "");
+    setPreviewText(asset.voicePreviewText || tr("这是一个可复用的 SeeReel 声音。", "This is a reusable SeeReel voice."));
+    setError("");
+  }, [asset.id, asset.updatedAt, asset.voiceGeneratedAt, lang]);
+
+  const saveVoice = async () => {
+    setBusy("save");
+    setError("");
+    try {
+      await api.saveAsset({
+        id: asset.id,
+        name: name.trim() || asset.name || tr("未命名声音", "Untitled voice"),
+        type: "voice",
+        mediaKind: "audio",
+        description: voicePrompt.trim(),
+        prompt: voicePrompt.trim(),
+        voicePrompt: voicePrompt.trim(),
+        voicePresetId: voicePresetId || undefined,
+        voiceId: voiceId.trim() || undefined,
+        voiceProvider: "volc-tts",
+        voicePreviewText: previewText.trim() || undefined,
+        voicePreviewStatus: asset.voicePreviewStatus || "idle"
+      });
+      await onMutated();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : tr("保存声音失败", "Failed to save voice"));
+    } finally {
+      setBusy("");
+    }
+  };
+
+  const generatePreview = async () => {
+    const text = previewText.trim();
+    if (!text) {
+      setError(tr("请先填写试听文本。", "Write preview text first."));
+      return;
+    }
+    setBusy("preview");
+    setError("");
+    try {
+      await api.generateVoicePreview(asset.id, {
+        voicePrompt: voicePrompt.trim(),
+        voicePresetId: voicePresetId || undefined,
+        voiceId: voiceId.trim() || undefined,
+        voicePreviewText: text
+      });
+      await onMutated();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : tr("生成试听失败", "Voice preview failed"));
+      await onMutated();
+    } finally {
+      setBusy("");
+    }
+  };
+
+  const deleteVoice = async () => {
+    if (!window.confirm(tr(`删除声音节点「${asset.name || asset.id}」？删除后可在画布顶部「↶ 撤销」恢复。`, `Delete voice node “${asset.name || asset.id}”? You can restore it with “↶ Undo” in the canvas toolbar.`))) return;
+    setBusy("delete");
+    setError("");
+    try {
+      if (onDeleteCanvasAsset) {
+        const deleted = await onDeleteCanvasAsset(asset);
+        if (!deleted) return;
+        await onMutated();
+      } else {
+        await api.deleteAsset(asset.id);
+        await onMutated();
+      }
+      onClose();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : tr("删除声音节点失败", "Failed to delete voice node"));
+    } finally {
+      setBusy("");
+    }
+  };
+
+  return (
+    <aside className="inspector">
+      <header>
+        <span className="inspector-tag">{tr("声音节点", "Voice node")}</span>
+        <button onClick={onClose} className="inspector-close" title={tr("关闭", "Close")}>×</button>
+      </header>
+      <div className="inspector-section">
+        <label>
+          {tr("名称", "Name")}
+          <input value={name} onChange={(e) => setName(e.target.value)} />
+        </label>
+        <label>
+          {tr("声音描述", "Voice prompt")}
+          <textarea
+            value={voicePrompt}
+            onChange={(e) => setVoicePrompt(e.target.value)}
+            rows={4}
+            placeholder={tr("例如：1880 年代纽约报童，语速快，带一点讽刺喜剧感。", "Example: 1880s New York newsboy, quick delivery, dry satirical comedy tone.")}
+          />
+        </label>
+        <div className="voice-preset-picker">
+          <div className="voice-preset-head">
+            <strong>{tr("选择音色", "Choose voice")}</strong>
+            {selectedPreset && (
+              <span>{lang === "en" ? selectedPreset.labelEn : selectedPreset.labelZh}</span>
+            )}
+          </div>
+          <div className="voice-preset-grid">
+            {VOICE_PRESETS.map((preset) => {
+              const active = voicePresetId === preset.id || (!voicePresetId && voiceId === preset.voiceId);
+              const label = lang === "en" ? preset.labelEn : preset.labelZh;
+              const description = lang === "en" ? preset.descriptionEn : preset.descriptionZh;
+              const tags = lang === "en" ? preset.tagsEn : preset.tagsZh;
+              return (
+                <button
+                  key={preset.id}
+                  type="button"
+                  className={`voice-preset-card ${active ? "active" : ""}`}
+                  onClick={() => {
+                    setVoicePresetId(preset.id);
+                    setVoiceId(preset.voiceId);
+                    if (!voicePrompt.trim()) setVoicePrompt(description);
+                  }}
+                >
+                  <span className="voice-preset-wave" aria-hidden="true">
+                    <span />
+                    <span />
+                    <span />
+                    <span />
+                  </span>
+                  <span className="voice-preset-copy">
+                    <strong>{label}</strong>
+                    <small>{description}</small>
+                  </span>
+                  <span className="voice-preset-tags">
+                    {tags.slice(0, 3).map((tag) => <em key={tag}>{tag}</em>)}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+          <div className="inspector-hint">
+            {tr("选择卡片会自动设置 provider voice id；下面的声音 ID 只用于高级覆盖。", "Selecting a card sets the provider voice id automatically; the Voice ID field below is only for advanced overrides.")}
+          </div>
+        </div>
+        <label>
+          {tr("高级：声音 ID（可选）", "Advanced: Voice ID (optional)")}
+          <input
+            value={voiceId}
+            onChange={(e) => {
+              const next = e.target.value;
+              setVoiceId(next);
+              setVoicePresetId(voicePresetForId(next)?.id || "");
+            }}
+            placeholder="zh_male_M392_conversation_wvae_bigtts"
+          />
+        </label>
+        <label>
+          {tr("试听文本", "Preview text")}
+          <textarea value={previewText} onChange={(e) => setPreviewText(e.target.value)} rows={3} />
+        </label>
+        <div className="inspector-actions compact-actions">
+          <button type="button" className="ghost-action" disabled={Boolean(busy)} onClick={saveVoice}>
+            {busy === "save" ? tr("保存中...", "Saving...") : tr("保存声音", "Save voice")}
+          </button>
+          <button type="button" className="primary" disabled={Boolean(busy)} onClick={generatePreview}>
+            {busy === "preview" ? tr("生成试听中...", "Generating preview...") : tr("生成试听", "Generate preview")}
+          </button>
+          <button type="button" className="danger" disabled={Boolean(busy)} onClick={deleteVoice}>
+            {busy === "delete" ? "..." : tr("删除声音", "Delete voice")}
+          </button>
+        </div>
+      </div>
+      <div className="inspector-section">
+        <strong>{tr("试听", "Preview")}</strong>
+        {audioUrl ? (
+          <audio
+            className="inspector-audio-player"
+            controls
+            src={`${audioUrl}${audioUrl.includes("?") ? "&" : "?"}v=${encodeURIComponent(asset.voiceGeneratedAt || asset.updatedAt || asset.id)}`}
+          />
+        ) : (
+          <div className="inspector-hint">{tr("生成试听后，这里会出现可播放音频。", "Generate a preview to play it here.")}</div>
+        )}
+        {asset.voicePreviewStatus && (
+          <div className="inspector-hint">
+            {tr("状态：", "Status: ")}
+            <strong>{asset.voicePreviewStatus}</strong>
+          </div>
+        )}
+        {asset.voicePreviewError && <div className="inspector-error">{asset.voicePreviewError}</div>}
+        {error && <div className="inspector-error">{error}</div>}
+      </div>
+      <div className="inspector-section">
+        <strong>{tr("如何使用", "How to use")}</strong>
+        <div className="inspector-hint">
+          {tr("创建或选择音轨节点，在「声音节点」下拉框里选中这个声音；添加旁白时会使用它的 voice id。", "Create or select an audio-track node, then choose this voice from the Voice node selector. The generated voiceover uses its voice id.")}
+        </div>
+      </div>
+    </aside>
+  );
+}
+
 // ============================================================================
 // AudioTrack inspector — post-stitch narration/audio mix and optional burned subtitles.
 // ============================================================================
 
-function AudioTrackInspector({ session, job, onMutated, onClose }: {
+function AudioTrackInspector({ session, job, allAssets, onMutated, onClose }: {
   session: SessionWithShots;
   job: StitchJob;
+  allAssets: Asset[];
   onMutated: () => Promise<void> | void;
   onClose: () => void;
 }) {
@@ -2257,6 +2622,7 @@ function AudioTrackInspector({ session, job, onMutated, onClose }: {
   const [mode, setMode] = useState<AudioTrackMode>(session.audioTrackMode || "voiceover");
   const [script, setScript] = useState(session.narrationScript || "");
   const [voice, setVoice] = useState(session.narrationVoice || "");
+  const [voiceAssetId, setVoiceAssetId] = useState(session.narrationVoiceAssetId || "");
   const [musicKind, setMusicKind] = useState<MusicGenerationKind>(session.musicKind || "bgm");
   const [musicPrompt, setMusicPrompt] = useState(session.musicPrompt || "");
   const [musicLyrics, setMusicLyrics] = useState(session.musicLyrics || "");
@@ -2265,14 +2631,17 @@ function AudioTrackInspector({ session, job, onMutated, onClose }: {
   const [subtitlePosition, setSubtitlePosition] = useState<NarrationSubtitlePosition>(session.narrationSubtitlePosition || "bottom");
   const [narrationVolume, setNarrationVolume] = useState(session.narrationVolume ?? (session.audioTrackMode === "music" ? 0.35 : 1.25));
   const [sourceVolume, setSourceVolume] = useState(session.narrationSourceVolume ?? (session.audioTrackMode === "music" ? 0.85 : 0.12));
-  const [busy, setBusy] = useState<"" | "narrate">("");
+  const [busy, setBusy] = useState<"" | "narrate" | "separate">("");
   const [error, setError] = useState("");
   const [progress, setProgress] = useState(session.narrationProgress || "");
+  const [separationProgress, setSeparationProgress] = useState(session.audioSeparationProgress || "");
+  const voiceAssets = allAssets.filter((item) => item.ownerSessionId === session.id && item.type === "voice");
 
   useEffect(() => {
     setMode(session.audioTrackMode || "voiceover");
     setScript(session.narrationScript || "");
     setVoice(session.narrationVoice || "");
+    setVoiceAssetId(session.narrationVoiceAssetId || "");
     setMusicKind(session.musicKind || "bgm");
     setMusicPrompt(session.musicPrompt || "");
     setMusicLyrics(session.musicLyrics || "");
@@ -2282,15 +2651,22 @@ function AudioTrackInspector({ session, job, onMutated, onClose }: {
     setNarrationVolume(session.narrationVolume ?? ((session.audioTrackMode || "voiceover") === "music" ? 0.35 : 1.25));
     setSourceVolume(session.narrationSourceVolume ?? ((session.audioTrackMode || "voiceover") === "music" ? 0.85 : 0.12));
     setProgress(session.narrationProgress || "");
+    setSeparationProgress(session.audioSeparationProgress || "");
     setError("");
-  }, [session.id, session.narrationSignature, session.narrationUpdatedAt, defaultMusicDurationSec]);
+  }, [session.id, session.narrationSignature, session.narrationUpdatedAt, session.narrationVoiceAssetId, session.audioSeparationSignature, session.audioSeparationUpdatedAt, defaultMusicDurationSec]);
 
   const isRunning = busy === "narrate" || session.narrationStatus === "running";
+  const isSeparating = busy === "separate" || session.audioSeparationStatus === "running";
   const hasFinal = Boolean(job.finalVideoUrl);
   const isStale = Boolean(
     session.narrationBuiltForFinalVideoSignature
     && job.finalVideoSignature
     && session.narrationBuiltForFinalVideoSignature !== job.finalVideoSignature
+  );
+  const separationStale = Boolean(
+    session.audioSeparationBuiltForFinalVideoSignature
+    && job.finalVideoSignature
+    && session.audioSeparationBuiltForFinalVideoSignature !== job.finalVideoSignature
   );
   const jobId = job.id === "legacy" ? undefined : job.id;
 
@@ -2313,6 +2689,7 @@ function AudioTrackInspector({ session, job, onMutated, onClose }: {
         mode,
         script: mode === "music" ? trimmedMusicPrompt : trimmed,
         voice: voice.trim() || undefined,
+        voiceAssetId: voiceAssetId || undefined,
         strategy: "natural",
         jobId,
         subtitleMode,
@@ -2334,6 +2711,22 @@ function AudioTrackInspector({ session, job, onMutated, onClose }: {
     }
   };
 
+  const runAudioSeparation = async () => {
+    setBusy("separate");
+    setError("");
+    setSeparationProgress("queued");
+    try {
+      await api.separateFinalAudio(session.id, { jobId }, (snapshot) => {
+        setSeparationProgress(snapshot.audioSeparationProgress || snapshot.audioSeparationStatus || "");
+      });
+      await onMutated();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : tr("人声/背景分离失败", "Voice/background separation failed"));
+    } finally {
+      setBusy("");
+    }
+  };
+
   return (
     <aside className="inspector">
       <header>
@@ -2348,6 +2741,49 @@ function AudioTrackInspector({ session, job, onMutated, onClose }: {
             ? tr(`基于拼接节点「${job.name || "完整视频"}」生成后期音轨版本。`, `Generates a post-production audio version from stitch node "${job.name || "Full video"}".`)
             : tr("先在左侧拼接节点生成完整视频，再添加音轨。", "Generate the stitched video first, then add the audio track.")}
         </div>
+      </div>
+
+      <div className="inspector-section">
+        <strong>{tr("人声/背景分离", "Voice/background separation")}</strong>
+        <div className="inspector-hint">
+          {tr("从当前完整视频里拆出人声轨和背景轨，结果保留在这个 session 的音轨节点里。", "Splits the current full video into voice and background stems and keeps both results on this session's audio node.")}
+        </div>
+        <div className="inspector-actions compact-actions">
+          <button onClick={runAudioSeparation} disabled={isSeparating || !hasFinal} className="ghost-action">
+            {isSeparating
+              ? tr("分离中...", "Separating...")
+              : session.audioSeparationStatus === "ready"
+              ? tr("重新分离人声/背景", "Regenerate stems")
+              : tr("分离人声/背景", "Separate voice/background")}
+          </button>
+        </div>
+        {(separationProgress || session.audioSeparationStatus) && (
+          <div className="inspector-hint">
+            {tr("分离状态：", "Separation status: ")}
+            <strong>{separationProgress || session.audioSeparationStatus}</strong>
+            {session.audioSeparationMethod && <span> · {session.audioSeparationMethod}</span>}
+            {separationStale && <span style={{ color: "#fbbf24" }}> {tr("拼接视频已更新，请重新分离。", "The stitched video changed; regenerate the stems.")}</span>}
+          </div>
+        )}
+        {session.audioSeparationVocalsUrl && session.audioSeparationBackgroundUrl && session.audioSeparationStatus === "ready" && (
+          <div className="audio-stem-list">
+            <label>
+              {tr("人声轨", "Voice stem")}
+              <audio controls src={`${session.audioSeparationVocalsUrl}?v=${encodeURIComponent(session.audioSeparationUpdatedAt || session.audioSeparationSignature || session.id)}`} />
+            </label>
+            <a className="inspector-download secondary-download" href={session.audioSeparationVocalsUrl} download={`${session.title || session.id}-voice.m4a`}>
+              {tr("⬇ 下载人声轨", "⬇ Download voice stem")}
+            </a>
+            <label>
+              {tr("背景轨", "Background stem")}
+              <audio controls src={`${session.audioSeparationBackgroundUrl}?v=${encodeURIComponent(session.audioSeparationUpdatedAt || session.audioSeparationSignature || session.id)}`} />
+            </label>
+            <a className="inspector-download secondary-download" href={session.audioSeparationBackgroundUrl} download={`${session.title || session.id}-background.m4a`}>
+              {tr("⬇ 下载背景轨", "⬇ Download background stem")}
+            </a>
+          </div>
+        )}
+        {session.audioSeparationError && <div className="inspector-error">{session.audioSeparationError}</div>}
       </div>
 
       <div className="inspector-section">
@@ -2388,6 +2824,24 @@ function AudioTrackInspector({ session, job, onMutated, onClose }: {
               placeholder={tr("把要听见的旁白写在这里。脚本会自动切句并压到视频时长内。", "Write the voiceover here. It will be split into lines and fit to the video duration.")}
               disabled={isRunning}
             />
+          </label>
+          <label>
+            {tr("声音节点（可选）", "Voice node (optional)")}
+            <select
+              value={voiceAssetId}
+              onChange={(e) => {
+                const nextId = e.target.value;
+                setVoiceAssetId(nextId);
+                const selectedVoice = voiceAssets.find((item) => item.id === nextId);
+                if (selectedVoice?.voiceId) setVoice(selectedVoice.voiceId);
+              }}
+              disabled={isRunning}
+            >
+              <option value="">{tr("不使用声音节点", "No voice node")}</option>
+              {voiceAssets.map((item) => (
+                <option key={item.id} value={item.id}>{item.name || item.id}</option>
+              ))}
+            </select>
           </label>
           <label>
             {tr("声音 ID（可选）", "Voice ID (optional)")}

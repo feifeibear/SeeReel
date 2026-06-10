@@ -37,7 +37,8 @@ import {
   seedanceTimeoutMs,
   stitchShotVideos
 } from "./generators";
-import { computeNarrationSignature, resolveEffectiveVoice, runNarrationPipeline } from "./narration";
+import { computeNarrationSignature, resolveEffectiveVoice, resolveVoiceIdFromVoicePrompt, runNarrationPipeline, synthesizeViaDoubao } from "./narration";
+import { computeAudioSeparationSignature, runAudioSeparationPipeline } from "./audioSeparation";
 import { CinemaStore } from "./store";
 import { inferTokenUsageModelFamily, tokenUsageEventFromRaw } from "./tokenUsage";
 import { publishAssetImageToTos, publishLocalMediaToTos, hasTosConfig } from "./tos";
@@ -129,6 +130,7 @@ await store.load();
 const serviceStartedAt = Date.now();
 const buildVersion = process.env.SEEREEL_VERSION || process.env.REELYAI_VERSION || process.env.npm_package_version || "dev";
 const buildCommit = process.env.SEEREEL_COMMIT_SHA || process.env.REELYAI_COMMIT_SHA || process.env.GITHUB_SHA || "";
+const FINAL_VIDEO_PUBLISH_TIMEOUT_MS = Math.max(1000, Number(process.env.FINAL_VIDEO_PUBLISH_TIMEOUT_MS || 15_000));
 const shotGenerateSubmissions = new Map<string, Promise<{ status: number; body: unknown }>>();
 const ADMIN_COOKIE = "seereel_admin_session";
 const adminSessions = new Map<string, { createdAt: number }>();
@@ -141,6 +143,8 @@ const localSessionReviewContext = new AsyncLocalStorage<{ enabled: boolean }>();
 const stitchInflight = new Map<string, string>();
 // Same idea but for the narration pipeline (TTS + ffmpeg subtitle/audio mix).
 const narrationInflight = new Map<string, string>();
+// Same idea but for the post-stitch human voice / background stem separation pipeline.
+const audioSeparationInflight = new Map<string, string>();
 // Vision-review lock keyed by renderId. Concurrent /poll calls for the same render must not each
 // fire an independent reviewVideo + resubmit, otherwise we burn N parallel Seedance retries that
 // all read reviewAttempts=0 and bump it once each. The first poll claims this lock by storing
@@ -193,8 +197,25 @@ async function resetOrphanNarrationJobs() {
     });
   }
 }
+
+async function resetOrphanAudioSeparationJobs() {
+  const snapshot = store.snapshot();
+  const orphans = snapshot.sessions.filter((session) => session.audioSeparationStatus === "running");
+  if (!orphans.length) return;
+  console.log(`[audio-separation] resetting ${orphans.length} orphan running job(s) from previous process`);
+  for (const session of orphans) {
+    await store.updateSession(session.id, {
+      audioSeparationStatus: "error",
+      audioSeparationError: "Server restarted while separating audio; please retry.",
+      audioSeparationUpdatedAt: new Date().toISOString(),
+      audioSeparationProgress: "",
+      audioSeparationRunningSignature: undefined
+    });
+  }
+}
 await resetOrphanStitchJobs();
 await resetOrphanNarrationJobs();
+await resetOrphanAudioSeparationJobs();
 
 const inflightByRoute = new Map<string, number>();
 function normalizeMetricRoute(req: Request) {
@@ -326,6 +347,7 @@ async function collectServiceMetrics() {
   setGauge("reelyai_inflight_shot_generate_submissions", "In-process shot generation submissions currently in flight.", undefined, shotGenerateSubmissions.size);
   setGauge("reelyai_inflight_stitch_jobs", "In-process stitch jobs currently in flight.", undefined, stitchInflight.size);
   setGauge("reelyai_inflight_narration_jobs", "In-process narration jobs currently in flight.", undefined, narrationInflight.size);
+  setGauge("reelyai_inflight_audio_separation_jobs", "In-process audio separation jobs currently in flight.", undefined, audioSeparationInflight.size);
   setGauge("reelyai_inflight_review_locks", "In-process vision review locks currently in flight.", undefined, reviewLocks.size);
   const genLimit = generationLimitSnapshot();
   setGauge("reelyai_generation_daily_cap", "Configured per-session daily generation cap (0 = disabled).", undefined, genLimit.cap);
@@ -376,6 +398,7 @@ app.get("/api/diagnostics", async (_req, res) => {
       shotGenerateSubmissions: shotGenerateSubmissions.size,
       stitchJobs: stitchInflight.size,
       narrationJobs: narrationInflight.size,
+      audioSeparationJobs: audioSeparationInflight.size,
       reviewLocks: reviewLocks.size
     },
     storage: {
@@ -892,9 +915,113 @@ function ownsAsset(asset: Asset | undefined, userId = userIdForRequest()) {
   return legacyPublicSessionsEnabled();
 }
 
+function compareShotsByCreationOrder(a: Shot, b: Shot) {
+  const aTime = Date.parse(a.createdAt || "");
+  const bTime = Date.parse(b.createdAt || "");
+  if (Number.isFinite(aTime) && Number.isFinite(bTime) && aTime !== bTime) return aTime - bTime;
+  return a.index - b.index;
+}
+
+function stitchFreshnessForPlaylist(
+  session: Session,
+  shots: Shot[],
+  playlistIds: string[] | undefined,
+  finalVideoUrl: string | undefined,
+  finalVideoSignature: string | undefined
+) {
+  const orderedShots = shots.slice().sort(compareShotsByCreationOrder);
+  const byId = new Map(orderedShots.map((shot) => [shot.id, shot]));
+  const explicitIds = (playlistIds || []).filter(Boolean);
+  const hasCustomPlaylist = explicitIds.length > 0;
+  const selectedIds = hasCustomPlaylist
+    ? explicitIds
+    : orderedShots.filter((shot) => shot.videoUrl).map((shot) => shot.id);
+  const selectedIdSet = new Set(selectedIds);
+  const missingShotIds = hasCustomPlaylist ? selectedIds.filter((id) => !byId.has(id)) : [];
+  const pendingShotIds = hasCustomPlaylist
+    ? selectedIds.filter((id) => {
+        const shot = byId.get(id);
+        return Boolean(shot && !shot.videoUrl);
+      })
+    : [];
+  const selectedShots = selectedIds
+    .map((id) => byId.get(id))
+    .filter((shot): shot is Shot => Boolean(shot && shot.videoUrl));
+  const currentInputSignature = missingShotIds.length || pendingShotIds.length || !selectedShots.length
+    ? undefined
+    : computeStitchSignaturePreview(selectedShots);
+  const finalVideoStale = Boolean(
+    finalVideoUrl
+    && (
+      missingShotIds.length > 0
+      || pendingShotIds.length > 0
+      || (currentInputSignature && finalVideoSignature && currentInputSignature !== finalVideoSignature)
+    )
+  );
+  const unlistedShotIds = hasCustomPlaylist
+    ? orderedShots
+        .filter((shot) => shot.videoUrl && !selectedIdSet.has(shot.id))
+        .map((shot) => shot.id)
+    : [];
+
+  return {
+    currentInputSignature,
+    finalVideoStale,
+    unlistedShotIds,
+    sessionId: session.id
+  };
+}
+
+function enrichSnapshotWithStitchFreshness(snapshot: StoreSnapshot): StoreSnapshot {
+  const shotsBySession = new Map<string, Shot[]>();
+  for (const shot of snapshot.shots) {
+    const list = shotsBySession.get(shot.sessionId) || [];
+    list.push(shot);
+    shotsBySession.set(shot.sessionId, list);
+  }
+
+  const sessions = snapshot.sessions.map((session) => {
+    const shots = shotsBySession.get(session.id) || [];
+    const legacyFreshness = stitchFreshnessForPlaylist(
+      session,
+      shots,
+      session.stitchShotIds,
+      session.finalVideoUrl,
+      session.finalVideoSignature
+    );
+    const stitchJobs = (session.stitchJobs || []).map((job) => {
+      const freshness = stitchFreshnessForPlaylist(
+        session,
+        shots,
+        job.shotIds,
+        job.finalVideoUrl,
+        job.finalVideoSignature
+      );
+      return {
+        ...job,
+        currentInputSignature: freshness.currentInputSignature,
+        finalVideoStale: freshness.finalVideoStale,
+        unlistedShotIds: freshness.unlistedShotIds
+      };
+    });
+
+    return {
+      ...session,
+      currentStitchSignature: legacyFreshness.currentInputSignature,
+      finalVideoStale: legacyFreshness.finalVideoStale,
+      stitchUnlistedShotIds: legacyFreshness.unlistedShotIds,
+      stitchJobs
+    };
+  });
+
+  return { ...snapshot, sessions };
+}
+
 function snapshotForCurrentUser(): StoreSnapshot {
-  if (localSessionReviewEnabled()) return store.snapshotForLocalReview();
-  return store.snapshotForOwner(userIdForRequest(), legacyPublicSessionsEnabled());
+  const snapshot = localSessionReviewEnabled()
+    ? store.snapshotForLocalReview()
+    : store.snapshotForOwner(userIdForRequest(), legacyPublicSessionsEnabled());
+  return enrichSnapshotWithStitchFreshness(snapshot);
 }
 
 function normalizeLocalMediaUrl(value: unknown) {
@@ -1475,7 +1602,7 @@ app.delete("/api/sessions/:sessionId", async (req, res) => {
 
 app.post("/api/assets", async (req, res) => {
   const body: Record<string, unknown> = { ...((req.body as Record<string, unknown>) || {}), ownerUserId: userIdForRequest() };
-  if (!body.generationModel && body.mediaKind !== "video") {
+  if (!body.generationModel && (!body.mediaKind || body.mediaKind === "image")) {
     body.generationModel = defaultSeedreamAssetImageModel();
   }
   res.json(await store.upsertAsset(withAssetOwner(body)));
@@ -1485,6 +1612,77 @@ app.patch("/api/assets/:assetId", async (req, res) => {
   const asset = await store.upsertAsset(withAssetOwner({ ...req.body, id: req.params.assetId }));
   if (!asset) return res.status(404).json({ error: "Asset not found" });
   res.json(asset);
+});
+
+app.post("/api/assets/:assetId/voice-preview", async (req, res) => {
+  const assetId = req.params.assetId;
+  const existing = store.snapshot().assets.find((asset) => asset.id === assetId);
+  if (!existing) return res.status(404).json({ error: "Asset not found" });
+  if (existing.ownerSessionId && !ownsSession(sessionById(existing.ownerSessionId))) {
+    return res.status(404).json({ error: "Asset not found" });
+  }
+  const voicePrompt = typeof req.body?.voicePrompt === "string" ? req.body.voicePrompt.trim() : "";
+  const voiceId = typeof req.body?.voiceId === "string" ? req.body.voiceId.trim() : "";
+  const voicePresetId = typeof req.body?.voicePresetId === "string" ? req.body.voicePresetId.trim() : "";
+  const voicePreviewText = typeof req.body?.voicePreviewText === "string" && req.body.voicePreviewText.trim()
+    ? req.body.voicePreviewText.trim()
+    : "这是一个可复用的 SeeReel 声音。";
+  const resolvedVoiceId = resolveVoiceIdFromVoicePrompt({ voiceId, voicePresetId, voicePrompt, previewText: voicePreviewText });
+  const started = await store.upsertAsset(withAssetOwner({
+    id: assetId,
+    type: "voice",
+    mediaKind: "audio",
+    description: voicePrompt || existing.description,
+    prompt: voicePrompt || existing.prompt,
+    voicePrompt,
+    voicePresetId: voicePresetId || undefined,
+    voiceId: resolvedVoiceId || undefined,
+    voiceProvider: "volc-tts",
+    voicePreviewText,
+    voicePreviewStatus: "generating",
+    voicePreviewError: undefined
+  }));
+  if (!started) return res.status(404).json({ error: "Asset not found" });
+  try {
+    await mkdir(MEDIA_DIR, { recursive: true });
+    const signature = createHash("sha1")
+      .update(JSON.stringify({ assetId, voicePrompt, voicePresetId, voiceId: resolvedVoiceId, voicePreviewText, version: "voice-preview-v3" }))
+      .digest("hex")
+      .slice(0, 12);
+    const fileName = `voice-${assetId}-${signature}.mp3`;
+    const audio = await synthesizeViaDoubao(voicePreviewText, resolvedVoiceId || undefined);
+    await writeFile(path.join(MEDIA_DIR, fileName), audio);
+    const ready = await store.upsertAsset(withAssetOwner({
+      id: assetId,
+      type: "voice",
+      mediaKind: "audio",
+      mediaUrl: `/media/${fileName}`,
+      voicePreviewAudioUrl: `/media/${fileName}`,
+      voicePrompt,
+      voicePresetId: voicePresetId || undefined,
+      voiceId: resolvedVoiceId || undefined,
+      voiceProvider: "volc-tts",
+      voicePreviewText,
+      voicePreviewStatus: "ready",
+      voicePreviewError: undefined,
+      voiceGeneratedAt: new Date().toISOString()
+    }));
+    res.json(ready);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Voice preview failed";
+    const failed = await store.upsertAsset(withAssetOwner({
+      id: assetId,
+      type: "voice",
+      mediaKind: "audio",
+      voicePreviewStatus: "error",
+      voicePreviewError: message,
+      voicePrompt,
+      voicePresetId: voicePresetId || undefined,
+      voiceId: resolvedVoiceId || undefined,
+      voicePreviewText
+    }));
+    res.status(500).json(failed || { error: message });
+  }
 });
 
 app.delete("/api/assets/:assetId", async (req, res) => {
@@ -5618,7 +5816,7 @@ async function publishVideoForAcceleratedDelivery(
   if (source.playbackVideoUrl || source.downloadVideoUrl) return source;
   if (source.videoUrl?.startsWith("/media/") && hasTosConfig()) {
     try {
-      const published = await publishLocalMediaToTos(source.videoUrl, { keyHint });
+      const published = await publishLocalMediaToTosWithTimeout(source.videoUrl, { keyHint });
       const publishedAt = new Date().toISOString();
       return {
         ...source,
@@ -5646,6 +5844,21 @@ async function publishVideoForAcceleratedDelivery(
     playbackVideoUrl: remote,
     downloadVideoUrl: remote
   };
+}
+
+function publishLocalMediaToTosWithTimeout(
+  mediaUrl: string,
+  options: Parameters<typeof publishLocalMediaToTos>[1]
+) {
+  let timer: NodeJS.Timeout | undefined;
+  return Promise.race([
+    publishLocalMediaToTos(mediaUrl, options),
+    new Promise<never>((_, reject) => {
+      timer = setTimeout(() => reject(new Error(`TOS/CDN publish timed out after ${FINAL_VIDEO_PUBLISH_TIMEOUT_MS}ms`)), FINAL_VIDEO_PUBLISH_TIMEOUT_MS);
+    })
+  ]).finally(() => {
+    if (timer) clearTimeout(timer);
+  });
 }
 
 function appendCacheWarning(note: string | undefined, warning: string | undefined) {
@@ -6081,7 +6294,7 @@ function resolveStitchShots(session: NonNullable<ReturnType<CinemaStore["getSess
   if (!explicitIds.length) {
     const shots = session.shots
       .filter((shot) => shot.videoUrl)
-      .sort((a, b) => a.index - b.index);
+      .sort(compareShotsByCreationOrder);
     return shots.length ? { shots } : { shots: [], error: "No generated shots to stitch" };
   }
 
@@ -6247,6 +6460,19 @@ app.post("/api/sessions/:sessionId/narration", async (req, res) => {
   const mode = parseAudioTrackMode(req.body?.mode);
   const script: string = typeof req.body?.script === "string" ? req.body.script : "";
   const voice: string = typeof req.body?.voice === "string" && req.body.voice.trim() ? req.body.voice.trim() : DEFAULT_NARRATION_VOICE;
+  const voiceAssetId: string | undefined = typeof req.body?.voiceAssetId === "string" && req.body.voiceAssetId.trim()
+    ? req.body.voiceAssetId.trim()
+    : undefined;
+  const voiceAsset = voiceAssetId ? store.snapshot().assets.find((asset) => asset.id === voiceAssetId && asset.type === "voice") : undefined;
+  if (voiceAsset?.ownerSessionId && voiceAsset.ownerSessionId !== sessionId) {
+    return res.status(404).json({ error: "Voice asset not found" });
+  }
+  const resolvedVoice = resolveVoiceIdFromVoicePrompt({
+    voiceId: typeof req.body?.voice === "string" ? req.body.voice : voiceAsset?.voiceId,
+    voicePresetId: voiceAsset?.voicePresetId,
+    voicePrompt: voiceAsset?.voicePrompt || voiceAsset?.description || voiceAsset?.prompt,
+    script
+  }) || voice;
   const strategy: NarrationStrategy = req.body?.strategy === "natural" ? "natural" : DEFAULT_NARRATION_STRATEGY;
   const subtitleMode = parseNarrationSubtitleMode(req.body?.subtitleMode);
   const subtitlePosition = parseNarrationSubtitlePosition(req.body?.subtitlePosition);
@@ -6270,7 +6496,8 @@ app.post("/api/sessions/:sessionId/narration", async (req, res) => {
   const result = await triggerNarrationJob(sessionId, {
     mode,
     script,
-    voice,
+    voice: resolvedVoice,
+    voiceAssetId,
     strategy,
     jobId,
     subtitleMode,
@@ -6293,6 +6520,22 @@ app.post("/api/sessions/:sessionId/narration/poll", (req, res) => {
   res.json(session);
 });
 
+app.post("/api/sessions/:sessionId/audio-separation", async (req, res) => {
+  const sessionId = req.params.sessionId;
+  const jobId: string | undefined = typeof req.body?.jobId === "string" && req.body.jobId.trim()
+    ? req.body.jobId.trim()
+    : undefined;
+  const result = await triggerAudioSeparationJob(sessionId, { jobId });
+  if ("status" in result) return res.status(result.status).json({ error: result.error });
+  res.json(result.session);
+});
+
+app.post("/api/sessions/:sessionId/audio-separation/poll", (req, res) => {
+  const session = store.getSession(req.params.sessionId);
+  if (!session) return res.status(404).json({ error: "Session not found" });
+  res.json(session);
+});
+
 app.get("/api/sessions/:sessionId/narration/download", async (req, res) => {
   const session = store.getSession(req.params.sessionId);
   if (!session) return res.status(404).json({ error: "Session not found" });
@@ -6310,6 +6553,129 @@ app.get("/api/sessions/:sessionId/narration/download", async (req, res) => {
   );
 });
 
+async function triggerAudioSeparationJob(
+  sessionId: string,
+  input: { jobId?: string }
+): Promise<{ session: ReturnType<CinemaStore["getSession"]> } | { status: number; error: string }> {
+  const session = store.getSession(sessionId);
+  if (!session) return { status: 404, error: "Session not found" };
+  const resolved = resolveFinalArtifact(session, input.jobId);
+  if (resolved.error) {
+    return { status: resolved.error.status === 404 ? 400 : resolved.error.status, error: "Final video not ready — please run stitch first." };
+  }
+  const finalArtifact = resolved.artifact;
+  if (!finalArtifact.finalVideoSignature) {
+    return { status: 400, error: "Final video signature missing — please re-run stitch first." };
+  }
+  const sourceJobId = input.jobId || finalArtifact.job?.id || "legacy";
+  const signature = computeAudioSeparationSignature({ finalVideoSignature: finalArtifact.finalVideoSignature });
+
+  if (
+    session.audioSeparationVocalsUrl &&
+    session.audioSeparationBackgroundUrl &&
+    session.audioSeparationSignature === signature &&
+    session.audioSeparationStatus !== "running"
+  ) {
+    if (session.audioSeparationStatus !== "ready") {
+      const updated = await store.updateSession(sessionId, {
+        audioSeparationStatus: "ready",
+        audioSeparationUpdatedAt: new Date().toISOString(),
+        audioSeparationError: undefined,
+        audioSeparationProgress: "",
+        audioSeparationRunningSignature: undefined
+      });
+      return { session: updated };
+    }
+    return { session };
+  }
+
+  const inflightSignature = audioSeparationInflight.get(sessionId);
+  if (inflightSignature === signature) return { session };
+  if (inflightSignature && inflightSignature !== signature) {
+    return { status: 409, error: "An audio separation job for an earlier version is still running. Please wait." };
+  }
+
+  audioSeparationInflight.set(sessionId, signature);
+  const startedAt = new Date().toISOString();
+  const queued = await store.updateSession(sessionId, {
+    audioTrackHidden: false,
+    audioSeparationStatus: "running",
+    audioSeparationStartedAt: startedAt,
+    audioSeparationUpdatedAt: startedAt,
+    audioSeparationError: undefined,
+    audioSeparationProgress: "queued",
+    audioSeparationRunningSignature: signature,
+    audioSeparationStitchJobId: sourceJobId,
+    audioSeparationSignature: signature,
+    audioSeparationBuiltForFinalVideoSignature: finalArtifact.finalVideoSignature
+  });
+
+  setImmediate(() => {
+    void runAudioSeparationJobInBackground(sessionId, {
+      finalVideoUrl: finalArtifact.finalVideoUrl,
+      finalVideoSignature: finalArtifact.finalVideoSignature!,
+      jobId: sourceJobId
+    }, signature);
+  });
+
+  return { session: queued };
+}
+
+async function runAudioSeparationJobInBackground(
+  sessionId: string,
+  input: { finalVideoUrl: string; finalVideoSignature: string; jobId: string },
+  signature: string
+) {
+  const startedAt = Date.now();
+  try {
+    const result = await runAudioSeparationPipeline(
+      {
+        sessionId,
+        finalVideoUrl: input.finalVideoUrl,
+        finalVideoSignature: input.finalVideoSignature
+      },
+      {
+        onProgress: async (phase) => {
+          await store.updateSession(sessionId, {
+            audioSeparationProgress: phase,
+            audioSeparationUpdatedAt: new Date().toISOString()
+          });
+        }
+      }
+    );
+    await store.updateSession(sessionId, {
+      audioSeparationVocalsUrl: result.vocalsUrl,
+      audioSeparationBackgroundUrl: result.backgroundUrl,
+      audioSeparationSignature: result.signature,
+      audioSeparationMethod: result.method,
+      audioSeparationStitchJobId: input.jobId,
+      audioSeparationBuiltForFinalVideoSignature: input.finalVideoSignature,
+      audioSeparationStatus: "ready",
+      audioSeparationUpdatedAt: new Date().toISOString(),
+      audioSeparationError: undefined,
+      audioSeparationProgress: "",
+      audioSeparationRunningSignature: undefined
+    });
+    console.log(
+      `[audio-separation ${sessionId}] DONE in ${((Date.now() - startedAt) / 1000).toFixed(1)}s -> ${result.vocalsUrl}, ${result.backgroundUrl}`
+    );
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    console.error(`[audio-separation ${sessionId}] FAILED in ${((Date.now() - startedAt) / 1000).toFixed(1)}s: ${message}`);
+    await store.updateSession(sessionId, {
+      audioSeparationStatus: "error",
+      audioSeparationError: message,
+      audioSeparationUpdatedAt: new Date().toISOString(),
+      audioSeparationProgress: "",
+      audioSeparationRunningSignature: undefined
+    });
+  } finally {
+    if (audioSeparationInflight.get(sessionId) === signature) {
+      audioSeparationInflight.delete(sessionId);
+    }
+  }
+}
+
 /**
  * Same fire-and-forget shape as /stitch:
  *   - 404 if the session does not exist
@@ -6324,6 +6690,7 @@ async function triggerNarrationJob(
     mode: AudioTrackMode;
     script: string;
     voice: string;
+    voiceAssetId?: string;
     strategy: NarrationStrategy;
     jobId?: string;
     subtitleMode: NarrationSubtitleMode;
@@ -6403,6 +6770,7 @@ async function triggerNarrationJob(
   const queued = await store.updateSession(sessionId, {
     narrationScript: input.script,
     narrationVoice: effectiveVoice,
+    narrationVoiceAssetId: input.voiceAssetId,
     narrationStrategy: input.strategy,
     narrationStitchJobId: audioSourceJobId,
     audioTrackStitchJobIds: Array.from(new Set([...(session.audioTrackStitchJobIds || []), audioSourceJobId])),

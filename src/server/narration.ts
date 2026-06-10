@@ -18,6 +18,7 @@ import type {
   NarrationSubtitlePosition,
   Session
 } from "../shared/types";
+import { voicePresetForId } from "../shared/voicePresets";
 
 // Bumped whenever rendering / timing / TTS request shape changes so cached narration artifacts get
 // re-rendered (signature is part of the output filename).
@@ -29,8 +30,9 @@ const NARRATION_SIGNATURE_VERSION = "narr-v11-timed-lines";
 const VOLC_TTS_DEFAULT_BASE = "https://openspeech.bytedance.com/api/v3/tts/unidirectional/sse";
 const VOLC_TTS_DEFAULT_VOICE = "zh_male_M392_conversation_wvae_bigtts";
 const VOLC_TTS_DEFAULT_VOICE_EN = "en_male_jason_conversation_wvae_bigtts";
-// Most appids only have seed-tts-1.0 authorized. The *_bigtts speaker IDs still work fine under
-// seed-tts-1.0; if a user actually has 2.0 access they can override via env.
+const VOLC_TTS_DEFAULT_VOICE_ZH_FEMALE = "BV001_streaming";
+const VOLC_TTS_RESOURCE_SEED_1 = "seed-tts-1.0";
+const VOLC_TTS_RESOURCE_SEED_2 = "seed-tts-2.0";
 const VOLC_TTS_DEFAULT_RESOURCE_ID = "seed-tts-1.0";
 const VOLC_TTS_DEFAULT_RATE = 24000;
 
@@ -168,6 +170,47 @@ export function resolveEffectiveVoice(script: string, requestedVoice: string): s
   if (scriptLang === voiceLang) return requestedVoice;
   return scriptLang === "en" ? VOLC_TTS_DEFAULT_VOICE_EN : VOLC_TTS_DEFAULT_VOICE;
 }
+
+function containsAny(text: string, patterns: string[]) {
+  return patterns.some((pattern) => text.includes(pattern));
+}
+
+export function resolveVoiceIdFromVoicePrompt(input: {
+  voiceId?: string;
+  voicePresetId?: string;
+  voicePrompt?: string;
+  previewText?: string;
+  script?: string;
+}): string | undefined {
+  const explicit = input.voiceId?.trim();
+  if (explicit) return explicit;
+  const preset = voicePresetForId(input.voicePresetId);
+  if (preset) return preset.voiceId;
+  const text = [
+    input.voicePrompt,
+    input.previewText,
+    input.script
+  ].filter(Boolean).join(" ").toLowerCase();
+  if (!text.trim()) return undefined;
+
+  const wantsFemale = containsAny(text, [
+    "女", "女人", "女生", "女孩", "少女", "姑娘", "大姐", "阿姨", "奶奶", "母亲", "妈妈",
+    "female", "woman", "girl", "lady", "young woman"
+  ]);
+  const wantsMale = containsAny(text, [
+    "男", "男人", "男生", "男孩", "少年", "大哥", "叔叔", "爷爷", "父亲", "爸爸",
+    "male", "man", "boy", "gentleman"
+  ]);
+  const northeast = containsAny(text, ["东北", "东北话", "东北口音", "northeast", "dongbei"]);
+  const english = containsAny(text, ["英文", "英语", "美式", "英式", "english", "american", "british"]);
+
+  if (northeast && wantsFemale) return voicePresetForId("dongbei-female")?.voiceId || "BV020_streaming";
+  if (northeast && wantsMale) return voicePresetForId("dongbei-male")?.voiceId || "BV021_streaming";
+  if (english) return VOLC_TTS_DEFAULT_VOICE_EN;
+  if (wantsFemale) return voicePresetForId("young-female")?.voiceId || VOLC_TTS_DEFAULT_VOICE_ZH_FEMALE;
+  if (wantsMale) return VOLC_TTS_DEFAULT_VOICE;
+  return undefined;
+}
 const SOFT_LIMIT = 80;
 const HARD_LIMIT = 180;
 
@@ -295,6 +338,26 @@ function readVolcConfig(voiceOverride?: string): VolcConfig {
   };
 }
 
+export function inferVolcTtsResourceIdForVoice(voice: string): string {
+  const normalized = voice.trim();
+  if (normalized.includes("_bigtts")) return VOLC_TTS_RESOURCE_SEED_2;
+  if (/^BV\d+_streaming$/i.test(normalized)) return VOLC_TTS_RESOURCE_SEED_1;
+  return VOLC_TTS_DEFAULT_RESOURCE_ID;
+}
+
+export function resolveVolcTtsResourceCandidates(voice: string, configuredResourceId: string): string[] {
+  return Array.from(new Set([
+    configuredResourceId,
+    inferVolcTtsResourceIdForVoice(voice),
+    VOLC_TTS_RESOURCE_SEED_1,
+    VOLC_TTS_RESOURCE_SEED_2
+  ].filter(Boolean)));
+}
+
+function isVolcTtsResourceMismatch(err: Error) {
+  return /resource ID is mismatched|mismatched with speaker related resource/i.test(err.message);
+}
+
 /**
  * Synthesize one line of text via Volcengine OpenSpeech v3 single-shot SSE endpoint.
  *
@@ -317,6 +380,7 @@ function readVolcConfig(voiceOverride?: string): VolcConfig {
  */
 export async function synthesizeViaDoubao(text: string, voice?: string): Promise<Buffer> {
   const cfg = readVolcConfig(voice);
+  const resourceCandidates = resolveVolcTtsResourceCandidates(cfg.voice, cfg.resourceId);
   const payload = {
     user: { uid: `cinema_agent_${cfg.appid}` },
     req_params: {
@@ -330,33 +394,36 @@ export async function synthesizeViaDoubao(text: string, voice?: string): Promise
   };
 
   let lastErr: Error | undefined;
-  for (let attempt = 1; attempt <= 3; attempt += 1) {
-    try {
-      const response = await fetch(cfg.base, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "X-Api-App-Id": cfg.appid,
-          "X-Api-Access-Key": cfg.token,
-          "X-Api-Resource-Id": cfg.resourceId,
-          "X-Api-Request-Id": randomUUID()
-        },
-        body: JSON.stringify(payload)
-      });
-      if (!response.ok) {
-        const errBody = await response.text().catch(() => "");
-        throw new Error(`Volcengine TTS HTTP ${response.status} ${response.statusText}: ${errBody.slice(0, 200)}`);
-      }
-      if (!response.body) throw new Error("Volcengine TTS returned no body");
+  for (const resourceId of resourceCandidates) {
+    for (let attempt = 1; attempt <= 3; attempt += 1) {
+      try {
+        const response = await fetch(cfg.base, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "X-Api-App-Id": cfg.appid,
+            "X-Api-Access-Key": cfg.token,
+            "X-Api-Resource-Id": resourceId,
+            "X-Api-Request-Id": randomUUID()
+          },
+          body: JSON.stringify(payload)
+        });
+        if (!response.ok) {
+          const errBody = await response.text().catch(() => "");
+          throw new Error(`Volcengine TTS HTTP ${response.status} ${response.statusText}: ${errBody.slice(0, 200)}`);
+        }
+        if (!response.body) throw new Error("Volcengine TTS returned no body");
 
-      const audio = await consumeVolcSseStream(response.body);
-      if (!audio.length) {
-        throw new Error("Volcengine TTS returned empty audio (no audio chunks in stream)");
+        const audio = await consumeVolcSseStream(response.body);
+        if (!audio.length) {
+          throw new Error("Volcengine TTS returned empty audio (no audio chunks in stream)");
+        }
+        return audio;
+      } catch (err) {
+        lastErr = err instanceof Error ? err : new Error(String(err));
+        if (isVolcTtsResourceMismatch(lastErr)) break;
+        if (attempt < 3) await new Promise((r) => setTimeout(r, 800 * attempt));
       }
-      return audio;
-    } catch (err) {
-      lastErr = err instanceof Error ? err : new Error(String(err));
-      if (attempt < 3) await new Promise((r) => setTimeout(r, 800 * attempt));
     }
   }
   throw lastErr || new Error("Volcengine TTS failed");

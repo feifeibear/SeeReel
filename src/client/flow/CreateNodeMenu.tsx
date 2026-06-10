@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactElement } from "react";
-import { Film, Globe, Image as ImageIcon, Music2, Plus, Upload } from "lucide-react";
+import { Film, GitMerge, Globe, Image as ImageIcon, Mic2, Music2, Plus, Upload } from "lucide-react";
 import { useI18n } from "../i18n";
 import { resolveCreateNodeMenuLayout } from "./createNodeMenuPosition";
 
-export type CreateMenuOption = "image" | "storyboard" | "shot" | "audioTrack" | "uploadImage" | "uploadVideo";
+export type CreateMenuOption = "image" | "storyboard" | "shot" | "stitch" | "voice" | "audioTrack" | "uploadImage" | "uploadVideo";
 
 interface CreateNodeMenuProps {
   /** Anchor position in viewport coords (clientX/Y from the context-menu event). */
@@ -61,6 +61,8 @@ export function CreateNodeMenu({ x, y, onPick, onClose }: CreateNodeMenuProps) {
       if (e.key === "i" || e.key === "I") return safePick("image");
       if (e.key === "b" || e.key === "B") return safePick("storyboard");
       if (e.key === "n" || e.key === "N") return safePick("shot");
+      if (e.key === "j" || e.key === "J") return safePick("stitch");
+      if (e.key === "v" || e.key === "V") return safePick("voice");
       if (e.key === "a" || e.key === "A") return safePick("audioTrack");
       if (e.key === "u" || e.key === "U") return safePick("uploadImage");
       if (e.key === "r" || e.key === "R") return safePick("uploadVideo");
@@ -89,6 +91,8 @@ export function CreateNodeMenu({ x, y, onPick, onClose }: CreateNodeMenuProps) {
     { key: "image", icon: <ImageIcon size={14} />, label: t.menu.image, hint: t.menu.imageHint, tag: "I" },
     { key: "storyboard", icon: <ImageIcon size={14} />, label: t.menu.storyboard, hint: t.menu.storyboardHint, tag: "B" },
     { key: "shot", icon: <Plus size={14} />, label: t.menu.shot, hint: t.menu.shotHint, tag: "N" },
+    { key: "stitch", icon: <GitMerge size={14} />, label: t.menu.stitch, hint: t.menu.stitchHint, tag: "J" },
+    { key: "voice", icon: <Mic2 size={14} />, label: t.menu.voice, hint: t.menu.voiceHint, tag: "V" },
     { key: "audioTrack", icon: <Music2 size={14} />, label: t.menu.audioTrack, hint: t.menu.audioTrackHint, tag: "A" },
     { key: "uploadImage", icon: <Upload size={14} />, label: t.menu.uploadImage, hint: t.menu.uploadImageHint, tag: "U" },
     { key: "uploadVideo", icon: <Film size={14} />, label: t.menu.uploadVideo, hint: t.menu.uploadVideoHint, tag: "R" }

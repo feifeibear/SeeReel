@@ -73,7 +73,9 @@ const snapshot: StoreSnapshot = {
 };
 
 const defaultGraph = buildSessionGraph(snapshot, session);
-assert.equal(defaultGraph.nodes.some((node) => node.id.startsWith("stitch-")), false, "stitch nodes should not render on the LibTV-style canvas");
+const defaultStitchNode = defaultGraph.nodes.find((node) => node.id === "stitch-ses_audio_smoke-stitch_main");
+assert.ok(defaultStitchNode, "stitch nodes should render so videos can connect to them");
+assert.equal(defaultStitchNode.type, "stitchNode");
 assert.equal(defaultGraph.nodes.some((node) => node.id.startsWith("audio-")), false, "audio track should not auto-render from a hidden stitch node");
 assert.equal(defaultGraph.edges.some((edge) => edge.id.startsWith("e-audio-")), false, "stitch should not auto-connect to audio track");
 

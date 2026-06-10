@@ -39,7 +39,7 @@ const VOLCENGINE_CN_SEEDANCE_FAST_MODEL = "doubao-seedance-2-0-fast";
 const AGENT_PLAN_SEEDANCE_MODEL = "doubao-seedance-2-0-260128";
 const AGENT_PLAN_SEEDANCE_FAST_MODEL = "doubao-seedance-2-0-fast-260128";
 const TERMINAL_STATUSES = new Set(["succeeded", "failed", "cancelled", "canceled"]);
-const STITCH_SIGNATURE_VERSION = "stitch-v3-crf18-high";
+const STITCH_SIGNATURE_VERSION = "stitch-v4-normalized-crf18-high";
 const openAIKey = () => process.env.OAI_KEY || process.env.OPENAI_API_KEY;
 export const seedanceTimeoutMs = () => Number(process.env.SEEDANCE_TIMEOUT_MS || 45 * 60 * 1000);
 const stitchDownloadConcurrency = () => Math.max(1, Number(process.env.STITCH_DOWNLOAD_CONCURRENCY || 2));
@@ -1920,12 +1920,17 @@ export async function stitchShotVideos(sessionId: string, shots: Shot[], options
   }
 
   const total = urls.length;
-  const inputs = await mapWithConcurrency(urls, stitchDownloadConcurrency(), async (url, index) => {
+  const materializedInputs = await mapWithConcurrency(urls, stitchDownloadConcurrency(), async (url, index) => {
     const isHttp = isHttpUrl(url);
     if (isHttp) await report(`downloading shot ${index + 1}/${total}`);
     const localPath = await materializeVideo(url, sessionId, index, signature);
     if (isHttp) await report(`downloaded shot ${index + 1}/${total} -> ${path.basename(localPath)}`);
     return localPath;
+  });
+  const targetSize = await probeVideoDimensions(materializedInputs[0]).catch(() => ({ width: 1280, height: 720 }));
+  const inputs = await mapWithConcurrency(materializedInputs, Math.min(2, stitchDownloadConcurrency()), async (input, index) => {
+    await report(`normalizing shot ${index + 1}/${total}`);
+    return normalizeStitchInputVideo(input, sessionId, index, signature, targetSize);
   });
 
   const listPath = path.join(MEDIA_DIR, `${sessionId}-${signature}-concat.txt`);
@@ -1980,6 +1985,79 @@ async function materializeVideo(url: string, sessionId: string, index: number, s
   await unlink(outputPath).catch(() => undefined);
   await downloadVideoToFile(url, outputPath, `shot ${index + 1}`);
   return outputPath;
+}
+
+async function normalizeStitchInputVideo(
+  inputPath: string,
+  sessionId: string,
+  index: number,
+  signature: string,
+  targetSize: { width: number; height: number }
+) {
+  const width = Math.max(2, Math.floor(targetSize.width / 2) * 2);
+  const height = Math.max(2, Math.floor(targetSize.height / 2) * 2);
+  const outputPath = path.join(MEDIA_DIR, `stitch-${sessionId}-${signature}-shot-${index + 1}-normalized.mp4`);
+  if (await hasUsableMediaFile(outputPath)) return outputPath;
+  await unlink(outputPath).catch(() => undefined);
+  await runFfmpeg([
+    "-y",
+    "-hide_banner",
+    "-loglevel",
+    "error",
+    "-fflags",
+    "+genpts",
+    "-i",
+    inputPath,
+    "-map",
+    "0:v:0",
+    "-map",
+    "0:a:0?",
+    "-vf",
+    `scale=${width}:${height}:force_original_aspect_ratio=decrease,pad=${width}:${height}:(ow-iw)/2:(oh-ih)/2,setsar=1,setpts=PTS-STARTPTS`,
+    "-af",
+    "aresample=async=1:first_pts=0",
+    "-r",
+    "30",
+    "-c:v",
+    "libx264",
+    "-preset",
+    "veryfast",
+    "-crf",
+    "18",
+    "-pix_fmt",
+    "yuv420p",
+    "-profile:v",
+    "high",
+    "-level",
+    "4.0",
+    "-c:a",
+    "aac",
+    "-b:a",
+    "192k",
+    "-shortest",
+    "-movflags",
+    "+faststart",
+    outputPath
+  ]);
+  return outputPath;
+}
+
+function probeVideoDimensions(filePath: string) {
+  return new Promise<{ width: number; height: number }>((resolve, reject) => {
+    const child = spawn(ffmpeg.path, ["-hide_banner", "-i", filePath], { stdio: ["ignore", "ignore", "pipe"] });
+    let stderr = "";
+    child.stderr?.setEncoding("utf8");
+    child.stderr?.on("data", (chunk: string) => {
+      stderr = `${stderr}${chunk}`.slice(-8192);
+    });
+    child.on("error", reject);
+    child.on("close", () => {
+      const match = stderr.match(/Video:.*?,\s*(\d+)x(\d+)(?:\s|\[|,)/);
+      if (!match) return reject(new Error(`Could not probe video dimensions: ${filePath}`));
+      const [, width, height] = match;
+      resolve({ width: Number(width), height: Number(height) });
+    });
+  });
 }
 
 async function downloadVideoToFile(url: string, outputPath: string, label: string) {
@@ -2085,7 +2163,8 @@ async function hasUsableFinalVideo(filePath: string, shots: Shot[]) {
 
   const actualDurationSec = await probeVideoDurationSec(filePath).catch(() => 0);
   const minDurationSec = Math.max(1, expectedDurationSec * 0.92);
-  if (actualDurationSec >= minDurationSec) return true;
+  const maxDurationSec = Math.max(minDurationSec + 2, expectedDurationSec * 1.2 + 2);
+  if (actualDurationSec >= minDurationSec && actualDurationSec <= maxDurationSec) return true;
 
   await unlink(filePath).catch(() => undefined);
   return false;
