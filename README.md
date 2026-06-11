@@ -37,7 +37,6 @@ This 30-second one-shot drone route was created from a single chat request and o
 Reference this image and generate a 30-second
 first-person drone video that follows the route
 drawn in the image, as a single continuous shot.</code></pre>
-      <p><strong>Reference image</strong></p>
       <img src="docs/demo/fpv-shanghai-route-reference.png" alt="FPV Shanghai route reference image" width="460" />
     </td>
     <td width="58%" valign="top">
@@ -51,8 +50,20 @@ drawn in the image, as a single continuous shot.</code></pre>
           https://seereel.studio/api/sessions/ses_f65954c9/download
         </a>
       </p>
-      <p><strong>The final video has been downloaded locally:</strong></p>
-      <video src="https://github.com/user-attachments/assets/e2c518ec-a8de-42b6-8e7f-953a0bbd2ad6" controls></video>
+      <table>
+        <tr>
+          <th align="center" width="32%">Final video</th>
+          <th align="center" width="68%">Canvas</th>
+        </tr>
+        <tr>
+          <td valign="top" align="center">
+            <video src="https://github.com/user-attachments/assets/e2c518ec-a8de-42b6-8e7f-953a0bbd2ad6" controls playsinline muted poster="docs/demo/fpv-shanghai-result-screenshot.png" width="240"></video>
+          </td>
+          <td valign="top">
+            <img src="docs/demo/fpv-shanghai-workflow-canvas.png" alt="SeeReel FPV Shanghai workflow canvas with intermediate nodes" width="100%" />
+          </td>
+        </tr>
+      </table>
       <p>
         <strong>Validation result:</strong> 30.167s, 720x1280, 6.0 MB MP4 preview. SeeReel confirms that both shots are ready, stitch is ready, and there are 0 failed shots. The workflow keeps the uploaded reference image, two cloud storyboard segments, two 15s Seedance shots, shot 1's tail-frame asset <code>asset_4166c2e4</code>, and shot 2 is configured with <code>firstFrameAssetId=asset_4166c2e4</code> for first-frame continuity.
       </p>
@@ -65,11 +76,28 @@ drawn in the image, as a single continuous shot.</code></pre>
 
 The handoff link opens this session's workflow in the SeeReel web app.
 
-![SeeReel FPV Shanghai workflow canvas with intermediate nodes](docs/demo/fpv-shanghai-workflow-canvas.png)
-
 The user does not only watch the final video. They can return to this canvas, revise the reference image, prompt, storyboard, generated shots, first-frame continuity bridge, or stitch node, and then continue production from the edited point.
 
 Reference image source: [4K Wallpapers](https://4kwallpapers.com/world/shanghai-city-9420.html).
+
+## Canvas: Hands-On Co-Creation
+
+Letting an AI vibe-create the entire script is fun, but it neither gives you the satisfaction of directing the piece yourself nor lets you precisely control the result. SeeReel turns the canvas into a creative workbench where you connect and combine images, videos, and audio to compose every beat by hand — for example, a minutes-long animated drama.
+
+<table>
+  <tr>
+    <th align="center" width="32%">Final video</th>
+    <th align="center" width="68%">Canvas</th>
+  </tr>
+  <tr>
+    <td valign="top" align="center">
+      <video src="https://github.com/feifeibear/seereel_assets/raw/main/videos/baimenlou-animation-full-preview.mp4" controls playsinline muted width="240"></video>
+    </td>
+    <td valign="top">
+      <img src="docs/demo/baimenlou-animation-canvas.png" alt="SeeReel canvas for the Baimenlou animation drama" width="100%" />
+    </td>
+  </tr>
+</table>
 
 ## What SeeReel Does
 

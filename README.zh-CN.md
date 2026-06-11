@@ -36,7 +36,6 @@
       <pre style="white-space: pre-wrap;"><code>使用 SeeReel。
 参考这张图，生成 30 秒无人机第一视角视频，
 按照图中路线飞行，一镜到底。</code></pre>
-      <p><strong>参考图</strong></p>
       <img src="docs/demo/fpv-shanghai-route-reference.png" alt="上海无人机路线参考图" width="460" />
     </td>
     <td width="58%" valign="top">
@@ -50,8 +49,20 @@
           https://seereel.studio/api/sessions/ses_f65954c9/download
         </a>
       </p>
-      <p><strong>本地最终视频已经下载到：</strong></p>
-      <video src="https://github.com/user-attachments/assets/e2c518ec-a8de-42b6-8e7f-953a0bbd2ad6" controls></video>
+      <table>
+        <tr>
+          <th align="center" width="32%">最终视频</th>
+          <th align="center" width="68%">画布</th>
+        </tr>
+        <tr>
+          <td valign="top" align="center">
+            <video src="https://github.com/user-attachments/assets/e2c518ec-a8de-42b6-8e7f-953a0bbd2ad6" controls playsinline muted poster="docs/demo/fpv-shanghai-result-screenshot.png" width="240"></video>
+          </td>
+          <td valign="top">
+            <img src="docs/demo/fpv-shanghai-workflow-canvas.png" alt="SeeReel 上海无人机路线 workflow" width="100%" />
+          </td>
+        </tr>
+      </table>
       <p>
         <strong>验证结果：</strong>30.167s，720x1280，MP4 预览版 6.0 MB。SeeReel 状态确认 2 个 shot 都 ready，stitch ready，0 failed。工作流里保留了上传参考图、两段云端 storyboard、两个 15s Seedance shot、shot 1 尾帧资产 <code>asset_4166c2e4</code>，并且 shot 2 已设置 <code>firstFrameAssetId=asset_4166c2e4</code> 做首尾帧接力。
       </p>
@@ -64,11 +75,28 @@
 
 Handoff link 点开后，可以在 SeeReel 网页中查看这次生成的 workflow。
 
-![SeeReel 上海无人机路线 workflow](docs/demo/fpv-shanghai-workflow-canvas.png)
-
 用户不只是观看最终视频，还可以回到这个画布继续修改参考图、prompt、故事板、分镜视频、首帧连续性桥接或拼接节点，然后从修改点继续生产。
 
 参考图片来源：[4K Wallpapers](https://4kwallpapers.com/world/shanghai-city-9420.html)。
+
+## 画布：亲手共创
+
+让 AI 一次性 vibe 出完整剧本确实有趣，但它既给不了你亲手执导的成就感，也无法让你精确控制结果。SeeReel 把画布变成创作工作台，你可以手动连接、组合图片、视频和音频，逐段编排每一个节拍——例如一部长达数分钟的动画短剧。
+
+<table>
+  <tr>
+    <th align="center" width="32%">最终视频</th>
+    <th align="center" width="68%">画布</th>
+  </tr>
+  <tr>
+    <td valign="top" align="center">
+      <video src="https://github.com/feifeibear/seereel_assets/raw/main/videos/baimenlou-animation-full-preview.mp4" controls playsinline muted width="240"></video>
+    </td>
+    <td valign="top">
+      <img src="docs/demo/baimenlou-animation-canvas.png" alt="SeeReel 百门楼动画短剧画布" width="100%" />
+    </td>
+  </tr>
+</table>
 
 ## SeeReel 能做什么
 

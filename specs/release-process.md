@@ -38,11 +38,13 @@ Define the release path that keeps local, GitHub, Docker, ECS, and production be
 - ECS rsync deploys must exclude local generated or private workspace directories such as `outputs/`, `assets/generated/`, `assets/references/`, `.vscode/`, `data/`, `.env*`, and runtime skill mirrors. Deployment should ship committed source and build/runtime config, not local creative media.
 - Release artifacts, Docker images, logs, and deployment commands must not expose AK/SK, tokens, passwords, API keys, or private keys.
 - Release verification must include local checks, GitHub Actions, deployment to the online site, and online smoke verification when the user asks to publish.
+- The public `seereel.studio` UI is served by a Vercel static frontend. A production release is incomplete if only ECS/API is updated; after any frontend-visible change, deploy `dist/client` with `deploy/vercel-static-frontend.json` and re-alias `seereel.studio` to the new Vercel deployment.
 - If `packages/seereel-cli/`, the CLI bin, CLI docs, or public CLI behavior changes, publish `seereelcli` to npm and verify the published package instead of relying only on the local workspace.
 - The ECS deploy script must accept both current `SEEREEL_*` and legacy `REELYAI_*` environment names for deployment secrets while writing canonical `SEEREEL_*` runtime keys.
 - ECS SSH/rsync operations must be non-interactive and bounded by connection timeout / keepalive settings so a blocked runner or fallback host cannot hang the release indefinitely.
 - ECS deploys must inject the current Git SHA into `SEEREEL_COMMIT_SHA` so `/api/healthz` and `/api/diagnostics` can identify the running commit.
 - A release is not complete until `origin/main`, the local `HEAD`, and production `/api/healthz.commit` all identify the same commit.
+- For UI-affecting releases, `https://seereel.studio/` must also serve the matching Vercel static deployment; verify frontend freshness with the Vercel alias/deployment result plus changed UI markers, not only `/api/healthz.commit`.
 - GitHub Deploy workflow SSH timeouts are an infrastructure reachability failure, not a code failure. If the latest GitHub CI is green, use the direct ECS fallback instead of reworking unrelated code.
 
 ## Acceptance Criteria
@@ -57,6 +59,8 @@ Define the release path that keeps local, GitHub, Docker, ECS, and production be
 - [ ] `seereelcli` is published to npm and registry-verified when CLI package files or CLI behavior changed.
 - [ ] Release checks include secret scanning and no credential values appear in CI logs.
 - [ ] Online behavior is spot-checked after deploy for the changed feature.
+- [ ] UI-affecting releases deploy the Vercel static frontend and alias `seereel.studio` to that deployment.
+- [ ] Online verification proves both API commit freshness and Vercel-served UI freshness.
 - [ ] GitHub deploy workflow inputs and secrets can drive `deploy/deploy-to-ecs.sh` without renaming legacy `REELYAI_*` secrets.
 - [ ] ECS deploy SSH calls fail fast on unreachable hosts and do not wait for interactive prompts.
 - [ ] `/api/healthz` includes the Git commit served by production after deploy.
@@ -140,7 +144,25 @@ bash deploy/deploy-to-ecs.sh
 
 Keep host names, keys, tokens, and AK/SK values outside git. The fallback command must print the intended public URL and commit before remote build starts.
 
-### 5. Verify Online
+### 5. Deploy Vercel Static UI
+
+For any frontend-visible change, update the Vercel static layer after the ECS/API deploy. Build from the same committed workspace, package only the static client, and point `seereel.studio` at the fresh Vercel deployment:
+
+```bash
+npm run build
+tmp=/tmp/seereel-vercel-static
+rm -rf "$tmp"
+mkdir -p "$tmp/.vercel"
+cp -R dist/client/. "$tmp/"
+cp deploy/vercel-static-frontend.json "$tmp/vercel.json"
+cp .vercel/project.json "$tmp/.vercel/project.json"
+(cd "$tmp" && npx vercel deploy --prod --yes)
+npx vercel alias set <deployment-host>.vercel.app seereel.studio
+```
+
+Do not call a UI-affecting release done while `https://seereel.studio/` still serves an older Vercel deployment, even when `/api/healthz` already reports the new ECS commit.
+
+### 6. Verify Online
 
 ```bash
 curl -fsS https://seereel.studio/api/healthz
@@ -156,9 +178,16 @@ for route in / /gallery /canvas/ses /ai-use-me.html; do
 done
 ```
 
+For UI-affecting releases, also verify the Vercel-served static page is fresh:
+
+```bash
+curl -fsSI https://seereel.studio/
+curl -fsS https://seereel.studio/ | rg "<changed-ui-marker>"
+```
+
 For ECS fallback deploys, also verify the remote containers are healthy with `docker compose -f deploy/docker-compose.volcengine.yml --env-file deploy/.env.production ps`.
 
-### 6. Publish `seereelcli` When Changed
+### 7. Publish `seereelcli` When Changed
 
 If `packages/seereel-cli/`, CLI docs, CLI skill behavior, or the CLI bin changed:
 
@@ -170,11 +199,11 @@ npm view seereelcli version dist-tags --json
 
 If npm auth is unavailable (`E401`) or the registry rejects publish, do not call this item done. Record npm publish as blocked and include the registry's current `latest` version.
 
-### 7. Close The Release
+### 8. Close The Release
 
 - Stop any local dev/prod server started only for smoke testing.
 - Confirm `git status --short --branch` is clean and aligned with `origin/main`.
-- Final release notes must include the deployed commit, CI run, deploy path used, online verification result, and npm publish status.
+- Final release notes must include the deployed commit, CI run, deploy path used, Vercel UI deployment/alias result when applicable, online verification result, and npm publish status.
 
 ## Verification
 
@@ -186,6 +215,7 @@ If npm auth is unavailable (`E401`) or the registry rejects publish, do not call
 - [ ] `npm run install:skill -- --agent all` when skills or skill installation changed.
 - [ ] `npm run smoke:seereel-cli` and published-package verification when `seereelcli` changed.
 - [ ] For deployment work, verify `https://seereel.studio` after the server is updated, including `/api/healthz`, `/api/readyz`, `npm run smoke:production`, and the changed frontend routes.
+- [ ] For UI-affecting deployment work, deploy the Vercel static frontend, alias `seereel.studio` to the new deployment, and verify changed UI markers on `https://seereel.studio/`.
 
 ## Change Policy
 
