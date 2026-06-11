@@ -81,9 +81,7 @@ Letting an AI vibe-create the entire script is fun, but it neither gives you the
   </tr>
   <tr>
     <td valign="top" align="center">
-      <a href="https://github.com/feifeibear/seereel_assets/blob/main/videos/baimenlou-animation-full-preview.mp4">
-        <img src="docs/demo/baimenlou-animation-preview.gif" alt="Animated preview of the Baimenlou final video" width="240" />
-      </a>
+      <video src="https://github.com/user-attachments/assets/efdc9104-8197-40a6-945c-51d2e2667313" controls></video>
       <p>
         <a href="https://github.com/feifeibear/seereel_assets/blob/main/videos/baimenlou-animation-full-preview.mp4">
           Open MP4 preview
