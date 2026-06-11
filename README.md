@@ -50,20 +50,10 @@ drawn in the image, as a single continuous shot.</code></pre>
           https://seereel.studio/api/sessions/ses_f65954c9/download
         </a>
       </p>
-      <table>
-        <tr>
-          <th align="center" width="32%">Final video</th>
-          <th align="center" width="68%">Canvas</th>
-        </tr>
-        <tr>
-          <td valign="top" align="center">
-            <video src="https://github.com/user-attachments/assets/e2c518ec-a8de-42b6-8e7f-953a0bbd2ad6" controls playsinline muted poster="docs/demo/fpv-shanghai-result-screenshot.png" width="240"></video>
-          </td>
-          <td valign="top">
-            <img src="docs/demo/fpv-shanghai-workflow-canvas.png" alt="SeeReel FPV Shanghai workflow canvas with intermediate nodes" width="100%" />
-          </td>
-        </tr>
-      </table>
+      <p><strong>Final video preview:</strong></p>
+      <video src="https://github.com/user-attachments/assets/e2c518ec-a8de-42b6-8e7f-953a0bbd2ad6" controls></video>
+      <p><strong>Canvas:</strong></p>
+      <img src="docs/demo/fpv-shanghai-workflow-canvas.png" alt="SeeReel FPV Shanghai workflow canvas with intermediate nodes" width="100%" />
       <p>
         <strong>Validation result:</strong> 30.167s, 720x1280, 6.0 MB MP4 preview. SeeReel confirms that both shots are ready, stitch is ready, and there are 0 failed shots. The workflow keeps the uploaded reference image, two cloud storyboard segments, two 15s Seedance shots, shot 1's tail-frame asset <code>asset_4166c2e4</code>, and shot 2 is configured with <code>firstFrameAssetId=asset_4166c2e4</code> for first-frame continuity.
       </p>
@@ -86,12 +76,19 @@ Letting an AI vibe-create the entire script is fun, but it neither gives you the
 
 <table>
   <tr>
-    <th align="center" width="32%">Final video</th>
+    <th align="center" width="32%">Final video preview</th>
     <th align="center" width="68%">Canvas</th>
   </tr>
   <tr>
     <td valign="top" align="center">
-      <video src="https://github.com/feifeibear/seereel_assets/raw/main/videos/baimenlou-animation-full-preview.mp4" controls playsinline muted width="240"></video>
+      <a href="https://github.com/feifeibear/seereel_assets/blob/main/videos/baimenlou-animation-full-preview.mp4">
+        <img src="docs/demo/baimenlou-animation-preview.gif" alt="Animated preview of the Baimenlou final video" width="240" />
+      </a>
+      <p>
+        <a href="https://github.com/feifeibear/seereel_assets/blob/main/videos/baimenlou-animation-full-preview.mp4">
+          Open MP4 preview
+        </a>
+      </p>
     </td>
     <td valign="top">
       <img src="docs/demo/baimenlou-animation-canvas.png" alt="SeeReel canvas for the Baimenlou animation drama" width="100%" />
