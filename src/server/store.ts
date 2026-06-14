@@ -414,6 +414,12 @@ export class CinemaStore {
       audioSeparationError: undefined,
       audioSeparationProgress: "",
       audioSeparationRunningSignature: undefined,
+      postProductionStatus: sourceSession.postProductionStatus === "running" ? "idle" : sourceSession.postProductionStatus,
+      postProductionStartedAt: undefined,
+      postProductionUpdatedAt: sourceSession.postProductionStatus ? ts : sourceSession.postProductionUpdatedAt,
+      postProductionError: undefined,
+      postProductionProgress: "",
+      postProductionRunningSignature: undefined,
       finalVideoReviewRepairPlan: undefined,
       createdAt: ts,
       updatedAt: ts
@@ -556,6 +562,12 @@ export class CinemaStore {
       audioSeparationError: sourceSession.audioSeparationStatus === "running" ? undefined : sourceSession.audioSeparationError,
       audioSeparationProgress: sourceSession.audioSeparationStatus === "running" ? "" : sourceSession.audioSeparationProgress,
       audioSeparationRunningSignature: undefined,
+      postProductionStatus: sourceSession.postProductionStatus === "running" ? "idle" : sourceSession.postProductionStatus,
+      postProductionStartedAt: undefined,
+      postProductionUpdatedAt: sourceSession.postProductionStatus ? ts : sourceSession.postProductionUpdatedAt,
+      postProductionError: sourceSession.postProductionStatus === "running" ? undefined : sourceSession.postProductionError,
+      postProductionProgress: sourceSession.postProductionStatus === "running" ? "" : sourceSession.postProductionProgress,
+      postProductionRunningSignature: undefined,
       finalVideoReviewRepairPlan: undefined,
       createdAt: ts,
       updatedAt: ts
@@ -665,6 +677,13 @@ export class CinemaStore {
       if (!existing) return undefined;
       const mediaKind = asset.mediaKind ?? existing.mediaKind ?? (asset.imageUrl || asset.mediaUrl ? "image" : "none");
       const mediaUrl = asset.mediaUrl ?? asset.imageUrl ?? existing.mediaUrl ?? existing.imageUrl;
+      const mediaChanged = (Object.hasOwn(asset, "mediaUrl") && asset.mediaUrl !== existing.mediaUrl)
+        || (Object.hasOwn(asset, "imageUrl") && asset.imageUrl !== existing.imageUrl);
+      const thumbnailUrl = Object.hasOwn(asset, "thumbnailUrl")
+        ? asset.thumbnailUrl
+        : mediaKind === "image" && (mediaChanged || !existing.thumbnailUrl)
+          ? mediaUrl
+          : existing.thumbnailUrl;
       // Honour explicit clear-to-empty for scope fields so the UI can demote a session asset to
       // global (or vice-versa) by sending "" / null. Object.assign happens after this so the
       // value below survives unless `asset` also sets the same key explicitly.
@@ -681,6 +700,7 @@ export class CinemaStore {
         mediaKind,
         mediaUrl,
         imageUrl: mediaKind === "image" ? mediaUrl : asset.imageUrl ?? existing.imageUrl,
+        thumbnailUrl,
         updatedAt: ts
       });
       await this.save();
@@ -702,6 +722,8 @@ export class CinemaStore {
       prompt: asset.prompt ?? "",
       mediaUrl: asset.mediaUrl ?? asset.imageUrl,
       imageUrl: asset.imageUrl,
+      thumbnailUrl: asset.thumbnailUrl,
+      sourceImageUrl: asset.sourceImageUrl,
       referenceImageUrl: asset.referenceImageUrl,
       tosObjectKey: asset.tosObjectKey,
       tosPublishedAt: asset.tosPublishedAt,
@@ -786,6 +808,8 @@ export class CinemaStore {
       prompt: source.prompt,
       mediaUrl: source.mediaUrl,
       imageUrl: source.imageUrl,
+      thumbnailUrl: source.thumbnailUrl,
+      sourceImageUrl: source.sourceImageUrl,
       referenceImageUrl: source.referenceImageUrl,
       tosObjectKey: source.tosObjectKey,
       tosPublishedAt: source.tosPublishedAt,
@@ -1100,6 +1124,8 @@ function sanitizeGallerySession(session: Session): Session {
   clone.narrationRunningSignature = undefined;
   clone.audioSeparationStartedAt = undefined;
   clone.audioSeparationRunningSignature = undefined;
+  clone.postProductionStartedAt = undefined;
+  clone.postProductionRunningSignature = undefined;
   return clone;
 }
 
@@ -1123,6 +1149,8 @@ function sanitizePortableSession(session: Session): Session {
   clone.narrationRunningSignature = undefined;
   clone.audioSeparationStartedAt = clone.audioSeparationStatus === "running" ? undefined : clone.audioSeparationStartedAt;
   clone.audioSeparationRunningSignature = undefined;
+  clone.postProductionStartedAt = clone.postProductionStatus === "running" ? undefined : clone.postProductionStartedAt;
+  clone.postProductionRunningSignature = undefined;
   return clone;
 }
 

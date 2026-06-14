@@ -11,6 +11,7 @@ import express, { type Request, type Response } from "express";
 import type {
   NarrationSubtitleMode,
   NarrationSubtitlePosition,
+  AssetImageSize,
   StandardApiKeyRoute
 } from "../shared/types";
 import {
@@ -30,6 +31,7 @@ import {
   generateStoryPlanDetailed,
   generateStoryboardDetailed,
   MEDIA_DIR,
+  probeMediaDurationSec,
   pollSeedanceVideoTask,
   resolveSeedanceCredential,
   resolveSeedanceModel,
@@ -38,8 +40,20 @@ import {
   seedanceTimeoutMs,
   stitchShotVideos
 } from "./generators";
+import { normalizeAssetImageModel, normalizeSubStoryboardModel } from "../shared/imageModels";
 import { computeNarrationSignature, downloadRemoteAudio, generateVolcMusic, resolveEffectiveVoice, resolveVoiceIdFromVoicePrompt, runNarrationPipeline, synthesizeViaDoubao } from "./narration";
 import { computeAudioSeparationSignature, runAudioSeparationPipeline } from "./audioSeparation";
+import {
+  buildAutoSubtitleSrtFromScript,
+  computeHyperframesPostProductionSignature,
+  materializePostProductionMedia,
+  renderHyperframesPostProduction,
+  transcribeMediaToSrtWithHyperframes
+} from "./hyperframesPost";
+import {
+  resolvePostProductionAsrProvider,
+  transcribeMediaToSrtWithVolcAsr
+} from "./volcAsr";
 import { CinemaStore } from "./store";
 import { inferTokenUsageModelFamily, tokenUsageEventFromRaw } from "./tokenUsage";
 import { publishAssetImageToTos, publishLocalMediaToTos, hasTosConfig } from "./tos";
@@ -65,6 +79,7 @@ import {
 import { agentPlanCredentialStoreReadiness, listAgentPlanCredentialsForAdmin } from "./agentPlanKeyStore";
 import { freeTrialStatus, generationCapMessage, generationLimitSnapshot, tryConsumeGeneration } from "./generationLimits";
 import { condenseForSeedanceR2V, probeVideo, type CondenseStrategy } from "./videoCondense";
+import { createCanvasImagePreview, createGeneratedImageCanvasFields } from "./imagePreview";
 import { buildShotFrameAssignments, generateStoryboardGrid } from "./storyboardGrid";
 import { buildSubStoryboardAssetPayload, generateSubStoryboardGrid, generateSubStoryboardSequential, type SubStoryboardResult } from "./subStoryboard";
 import { analyzeReferenceVideo } from "./videoAnalyze";
@@ -97,6 +112,8 @@ import type {
   GalleryPublishPayload,
   MusicGenerationKind,
   NarrationStrategy,
+  PostProductionAudioMode,
+  PostProductionSubtitleMode,
   SeedancePhase,
   Session,
   SessionPackage,
@@ -146,6 +163,8 @@ const stitchInflight = new Map<string, string>();
 const narrationInflight = new Map<string, string>();
 // Same idea but for the post-stitch human voice / background stem separation pipeline.
 const audioSeparationInflight = new Map<string, string>();
+// Same idea for HyperFrames post-production package renders.
+const postProductionInflight = new Map<string, string>();
 // Vision-review lock keyed by renderId. Concurrent /poll calls for the same render must not each
 // fire an independent reviewVideo + resubmit, otherwise we burn N parallel Seedance retries that
 // all read reviewAttempts=0 and bump it once each. The first poll claims this lock by storing
@@ -214,9 +233,25 @@ async function resetOrphanAudioSeparationJobs() {
     });
   }
 }
+async function resetOrphanPostProductionJobs() {
+  const snapshot = store.snapshot();
+  const orphans = snapshot.sessions.filter((session) => session.postProductionStatus === "running");
+  if (!orphans.length) return;
+  console.log(`[post-production] resetting ${orphans.length} orphan running job(s) from previous process`);
+  for (const session of orphans) {
+    await store.updateSession(session.id, {
+      postProductionStatus: "error",
+      postProductionError: "Server restarted while rendering post-production package; please retry.",
+      postProductionUpdatedAt: new Date().toISOString(),
+      postProductionProgress: "",
+      postProductionRunningSignature: undefined
+    });
+  }
+}
 await resetOrphanStitchJobs();
 await resetOrphanNarrationJobs();
 await resetOrphanAudioSeparationJobs();
+await resetOrphanPostProductionJobs();
 
 const inflightByRoute = new Map<string, number>();
 function normalizeMetricRoute(req: Request) {
@@ -349,6 +384,7 @@ async function collectServiceMetrics() {
   setGauge("reelyai_inflight_stitch_jobs", "In-process stitch jobs currently in flight.", undefined, stitchInflight.size);
   setGauge("reelyai_inflight_narration_jobs", "In-process narration jobs currently in flight.", undefined, narrationInflight.size);
   setGauge("reelyai_inflight_audio_separation_jobs", "In-process audio separation jobs currently in flight.", undefined, audioSeparationInflight.size);
+  setGauge("reelyai_inflight_post_production_jobs", "In-process HyperFrames post-production jobs currently in flight.", undefined, postProductionInflight.size);
   setGauge("reelyai_inflight_review_locks", "In-process vision review locks currently in flight.", undefined, reviewLocks.size);
   const genLimit = generationLimitSnapshot();
   setGauge("reelyai_generation_daily_cap", "Configured per-session daily generation cap (0 = disabled).", undefined, genLimit.cap);
@@ -749,11 +785,11 @@ function consumeGenerationOr429(res: Response, sessionId: string | undefined, op
 }
 
 function assetImageModelFromActual(actualModelId: string | undefined, fallback: "gpt-image-2" | "seedream-4" | "seedream-4-5" | "seedream-5-lite") {
-  const actual = (actualModelId || "").toLowerCase();
-  if (actual.includes("seedream-5.0-lite") || actual.includes("seedream-5-lite")) return "seedream-5-lite";
-  if (actual.includes("seedream-4-5")) return "seedream-4-5";
-  if (actual.includes("seedream-4-0") || actual.includes("seedream-4")) return "seedream-4";
-  return fallback;
+  return normalizeAssetImageModel(actualModelId) || fallback;
+}
+
+function normalizeAssetImageSize(value: unknown): AssetImageSize | undefined {
+  return value === "4K" || value === "2K" ? value : undefined;
 }
 
 function runtimeInfo() {
@@ -1050,6 +1086,8 @@ function visibleLocalMediaUrls() {
   const addAssetMedia = (asset: Asset) => {
     add(asset.mediaUrl);
     add(asset.imageUrl);
+    add(asset.thumbnailUrl);
+    add(asset.sourceImageUrl);
     add(asset.referenceImageUrl);
   };
   const addShotMedia = (shot: Shot) => {
@@ -1065,6 +1103,7 @@ function visibleLocalMediaUrls() {
   const addSessionMedia = (session: Session) => {
     add(session.finalVideoUrl);
     add(session.narrationVideoUrl);
+    add(session.postProductionVideoUrl);
     for (const job of session.stitchJobs || []) {
       add(job.finalVideoUrl);
     }
@@ -1808,7 +1847,7 @@ app.get("/api/assets/:assetId/download", async (req, res) => {
 
   const safeName = `${asset.name || asset.id}`.replace(/[^\w\u4e00-\u9fff.-]+/g, "-").replace(/^-+|-+$/g, "") || asset.id;
   try {
-    const candidates = [asset.mediaUrl, asset.imageUrl, asset.referenceImageUrl].filter(Boolean) as string[];
+    const candidates = [asset.sourceImageUrl, asset.referenceImageUrl, asset.mediaUrl, asset.imageUrl, asset.thumbnailUrl].filter(Boolean) as string[];
     if (!candidates.length) return res.status(404).json({ error: "Asset has no downloadable media" });
     const downloaded = await downloadAssetMedia(candidates);
     res.type(downloaded.contentType);
@@ -2002,6 +2041,14 @@ app.post("/api/assets/upload-image", rawImageUpload, async (req, res) => {
   await mkdir(mediaDir, { recursive: true });
   await writeFile(localPath, buf);
   const localUrl = `/media/${fileName}`;
+  let previewLocalUrl = localUrl;
+  try {
+    const preview = await createCanvasImagePreview(localPath, { keyHint: safeStem });
+    previewLocalUrl = preview.localUrl;
+  } catch (err) {
+    const previewWarning = err instanceof Error ? err.message : String(err);
+    console.warn(`[upload-image] preview generation failed (will use original image): ${previewWarning}`);
+  }
 
   let publishedRemoteUrl: string | undefined;
   let publishedKey: string | undefined;
@@ -2021,8 +2068,10 @@ app.post("/api/assets/upload-image", rawImageUpload, async (req, res) => {
     mediaKind: "image",
     description: "用户上传的参考图片（Seedream/Seedance reference）",
     prompt: "",
-    mediaUrl: publishedRemoteUrl || localUrl,
-    imageUrl: publishedRemoteUrl || localUrl,
+    mediaUrl: previewLocalUrl,
+    imageUrl: previewLocalUrl,
+    thumbnailUrl: previewLocalUrl,
+    sourceImageUrl: publishedRemoteUrl || localUrl,
     referenceImageUrl: localUrl,
     tags,
     ownerSessionId,
@@ -2355,21 +2404,13 @@ app.post("/api/shots/:shotId/renders/:renderId/restore", async (req, res) => {
 // Library and DON'T contaminate @mention scanning for other shots. They are also automatically
 // cleaned up when the shot (or its session) is deleted.
 //
-// Body: { prompt?: string, model?: "seedream-4" | "seedream-4-5" | "seedream-5-lite" | "gpt-image-2", count?: number, name?: string }
+// Body: { prompt?: string, model?: "seedream-4" | "seedream-4-5" | "seedream-5-lite" | "seedream-5.0-lite" | "gpt-image-2", count?: number, name?: string }
 app.post("/api/shots/:shotId/sketches", async (req, res) => {
   const shot = store.getShot(req.params.shotId);
   if (!shot) return res.status(404).json({ error: "Shot not found" });
 
   try {
-    const requestedModel = req.body?.model;
-    const model: "gpt-image-2" | "seedream-4" | "seedream-4-5" | "seedream-5-lite" =
-      requestedModel === "gpt-image-2"
-        ? "gpt-image-2"
-        : requestedModel === "seedream-4-5"
-          ? "seedream-4-5"
-          : requestedModel === "seedream-5-lite"
-            ? "seedream-5-lite"
-            : defaultSeedreamAssetImageModel();
+    const model = normalizeAssetImageModel(req.body?.model) || defaultSeedreamAssetImageModel();
     const count = Math.max(1, Math.min(6, Number(req.body?.count) || 1));
     const baseName = (req.body?.name || `${shot.title || `Shot ${shot.index}`} 草图`).toString().trim();
     const promptText = (
@@ -2409,7 +2450,9 @@ app.post("/api/shots/:shotId/sketches", async (req, res) => {
         name: baseName,
         type: "scene" as const
       };
-      return res.json(composeSeedreamAssetPrompt(previewAsset, referenceImageUrls.length > 0, lang));
+      return res.json(composeSeedreamAssetPrompt(previewAsset, referenceImageUrls.length > 0, lang, {
+        referenceAssets
+      }));
     }
 
     const userOverride = typeof req.body?.composedPrompt === "string" && req.body.composedPrompt.trim().length > 0
@@ -2449,6 +2492,7 @@ app.post("/api/shots/:shotId/sketches", async (req, res) => {
             const overrideForThisAttempt = rewrittenPrompt || userOverride;
             const result = await generateAssetImage(placeholder, model, referenceImageUrls, {
               promptOverride: overrideForThisAttempt,
+              referenceAssets,
               lang
             });
             await recordTokenUsage(shot.sessionId, result.rawUsage, {
@@ -2479,6 +2523,8 @@ app.post("/api/shots/:shotId/sketches", async (req, res) => {
           id: placeholder.id,
           imageUrl: canvasImage.imageUrl,
           mediaUrl: canvasImage.mediaUrl,
+          thumbnailUrl: canvasImage.thumbnailUrl,
+          sourceImageUrl: canvasImage.sourceImageUrl,
           mediaKind: "image",
           generatedAt,
           composedPrompt: reviewed.rewrittenPrompt || lastComposedPrompt || undefined,
@@ -2811,15 +2857,8 @@ app.post("/api/assets/:assetId/generate", async (req, res) => {
   if (!consumeGenerationOr429(res, sessionIdForAsset(asset), "asset_generate")) return;
 
   try {
-    const requestedModel = reqBody.model;
-    const model: "gpt-image-2" | "seedream-4" | "seedream-4-5" | "seedream-5-lite" =
-      requestedModel === "gpt-image-2"
-        ? "gpt-image-2"
-        : requestedModel === "seedream-4"
-          ? "seedream-4"
-          : requestedModel === "seedream-5-lite"
-            ? "seedream-5-lite"
-            : defaultSeedreamAssetImageModel();
+    const model = normalizeAssetImageModel(reqBody.model) || defaultSeedreamAssetImageModel();
+    const seedreamSize = normalizeAssetImageSize(reqBody.seedreamSize) || normalizeAssetImageSize(asset.seedreamSize) || "2K";
     // Collect explicit reference images only. A previous generated image on this same asset
     // (`imageUrl` / `mediaUrl`) must NOT be fed back as a Seedream `image` by default, otherwise
     // "重新出图" silently becomes image-to-image and can preserve stale identity from an earlier
@@ -2827,17 +2866,21 @@ app.post("/api/assets/:assetId/generate", async (req, res) => {
     // deliberate derived-character identity locking.
     const referenceImageUrls: string[] = [];
     const referenceAssetIds: string[] = [];
+    const referenceAssets: Asset[] = [];
     const addReference = (refAsset: Asset | undefined) => {
       if (!refAsset || referenceAssetIds.includes(refAsset.id)) return;
       if (refAsset.id === asset.id) return;
-      const imageUrl = refAsset.referenceImageUrl || refAsset.mediaUrl || refAsset.imageUrl;
+      const imageUrl = refAsset.sourceImageUrl || refAsset.referenceImageUrl || refAsset.mediaUrl || refAsset.imageUrl;
       if (!imageUrl) return;
       referenceImageUrls.push(imageUrl);
       referenceAssetIds.push(refAsset.id);
+      referenceAssets.push(refAsset);
     };
-    if (asset.referenceImageUrl) {
-      referenceImageUrls.push(asset.referenceImageUrl);
+    const ownReferenceImageUrl = asset.sourceImageUrl || asset.referenceImageUrl;
+    if (ownReferenceImageUrl) {
+      referenceImageUrls.push(ownReferenceImageUrl);
       referenceAssetIds.push(asset.id);
+      referenceAssets.push(asset);
     }
     if (asset.parentAssetId) {
       const parent = allAssets.find((item) => item.id === asset.parentAssetId);
@@ -2851,7 +2894,9 @@ app.post("/api/assets/:assetId/generate", async (req, res) => {
 
     // Dry-run: return the Seedream prompt the server would assemble, without calling Seedream.
     if (reqBody.dryRun === true) {
-      return res.json(composeSeedreamAssetPrompt(asset, referenceImageUrls.length > 0, lang));
+      return res.json(composeSeedreamAssetPrompt(asset, referenceImageUrls.length > 0, lang, {
+        referenceAssets
+      }));
     }
 
     const reviewEnabled = resolveNodeReviewEnabled(
@@ -2871,23 +2916,25 @@ app.post("/api/assets/:assetId/generate", async (req, res) => {
       kind: "asset",
       prompt: reviewPrompt,
       referenceUrls: [
-        asset.referenceImageUrl,
+        asset.sourceImageUrl || asset.referenceImageUrl,
         ...(asset.parentAssetId
           ? (() => {
               const parent = allAssets.find((item) => item.id === asset.parentAssetId);
-              return [parent?.referenceImageUrl || parent?.mediaUrl || parent?.imageUrl];
+              return [parent?.sourceImageUrl || parent?.referenceImageUrl || parent?.mediaUrl || parent?.imageUrl];
             })()
           : []),
         ...(asset.referenceAssetIds || [])
           .map((id) => allAssets.find((item) => item.id === id))
-          .map((item) => item?.referenceImageUrl || item?.mediaUrl || item?.imageUrl)
+          .map((item) => item?.sourceImageUrl || item?.referenceImageUrl || item?.mediaUrl || item?.imageUrl)
       ].filter(Boolean) as string[],
       lang,
       generate: async (_attempt, rewrittenPrompt) => {
         const overrideForThisAttempt = rewrittenPrompt || userOverride;
         const result = await generateAssetImage(asset, model, referenceImageUrls, {
           promptOverride: overrideForThisAttempt,
-          lang
+          referenceAssets,
+          lang,
+          size: seedreamSize
         });
         await recordTokenUsage(sessionIdForAsset(asset), result.rawUsage, {
           nodeId: asset.id,
@@ -2918,6 +2965,8 @@ app.post("/api/assets/:assetId/generate", async (req, res) => {
         id: asset.id,
         imageUrl: canvasImage.imageUrl,
         mediaUrl: canvasImage.mediaUrl,
+        thumbnailUrl: canvasImage.thumbnailUrl,
+        sourceImageUrl: canvasImage.sourceImageUrl,
         mediaKind: "image",
         generatedAt,
         composedPrompt: reviewed.rewrittenPrompt || lastComposedPrompt || undefined,
@@ -2925,6 +2974,7 @@ app.post("/api/assets/:assetId/generate", async (req, res) => {
         reviewAttempts: reviewed.reviewAttempts,
         reviewModel: reviewed.reviewModel,
         generationModel: assetImageModelFromActual(reviewed.payload?.actualModelId, reviewed.payload?.model || model),
+        seedreamSize: seedreamSize,
         generationModelActual: reviewed.payload?.actualModelId,
         generationCredentialSource: reviewed.payload?.credentialSource,
         referenceImageUrls,
@@ -2945,7 +2995,7 @@ app.post("/api/assets/:assetId/review", async (req, res) => {
   const allAssets = store.snapshot().assets;
   const asset = allAssets.find((item) => item.id === req.params.assetId);
   if (!asset) return res.status(404).json({ error: "Asset not found" });
-  const productUrl = asset.mediaUrl || asset.imageUrl || asset.referenceImageUrl;
+  const productUrl = asset.sourceImageUrl || asset.referenceImageUrl || asset.mediaUrl || asset.imageUrl;
   if (!productUrl) return res.status(400).json({ error: "Asset has no image to review" });
   if (!consumeGenerationOr429(res, sessionIdForAsset(asset), "asset_vlm_review")) return;
   const runningAt = new Date().toISOString();
@@ -2959,11 +3009,11 @@ app.post("/api/assets/:assetId/review", async (req, res) => {
   });
   try {
     const referenceUrls = [
-      asset.referenceImageUrl,
+      asset.sourceImageUrl || asset.referenceImageUrl,
       ...(asset.parentAssetId
         ? (() => {
             const parent = allAssets.find((item) => item.id === asset.parentAssetId);
-            return [parent?.referenceImageUrl || parent?.mediaUrl || parent?.imageUrl];
+            return [parent?.sourceImageUrl || parent?.referenceImageUrl || parent?.mediaUrl || parent?.imageUrl];
           })()
         : [])
     ].filter((url): url is string => Boolean(url && url !== productUrl));
@@ -3732,6 +3782,8 @@ async function generateCastAssetImage(asset: Asset, session: Session, candidate:
       id: preparedAsset.id,
       imageUrl: canvasImage.imageUrl,
       mediaUrl: canvasImage.mediaUrl,
+      thumbnailUrl: canvasImage.thumbnailUrl,
+      sourceImageUrl: canvasImage.sourceImageUrl,
       mediaKind: "image",
       generatedAt: new Date().toISOString()
     })) as Asset
@@ -3857,7 +3909,7 @@ function assetMentionAliases(asset: Asset) {
 }
 
 function storyboardReferenceUrl(asset: Asset) {
-  return asset.mediaUrl || asset.imageUrl || asset.referenceImageUrl;
+  return asset.sourceImageUrl || asset.referenceImageUrl || asset.mediaUrl || asset.imageUrl;
 }
 
 function storyboardReferenceLabel(asset: Asset) {
@@ -4143,7 +4195,7 @@ async function servePosterJpeg(res: Response, videoUrl: string) {
 }
 
 async function materializeImagegenReferenceAsset(asset: Asset) {
-  const sourceUrl = asset.mediaUrl || asset.imageUrl || asset.referenceImageUrl;
+  const sourceUrl = asset.sourceImageUrl || asset.referenceImageUrl || asset.mediaUrl || asset.imageUrl;
   if (!sourceUrl) return undefined;
   if (sourceUrl.startsWith("/media/") || sourceUrl.startsWith("data:image/")) return sourceUrl;
   if (!/^https?:\/\//.test(sourceUrl)) return undefined;
@@ -4351,6 +4403,8 @@ app.post("/api/sessions/:sessionId/storyboard-grid", async (req, res) => {
         ownerSessionId: session.id,
         mediaUrl: canvasImage.mediaUrl,
         imageUrl: canvasImage.imageUrl,
+        thumbnailUrl: canvasImage.thumbnailUrl,
+        sourceImageUrl: canvasImage.sourceImageUrl,
         generatedAt: new Date().toISOString(),
         generationModel: result.model.includes("seedream-5.0-lite") ? "seedream-5-lite" : result.model.includes("seedream-4-0") ? "seedream-4" : "seedream-4-5",
         generationModelActual: result.model,
@@ -4425,6 +4479,8 @@ app.post("/api/sessions/:sessionId/storyboard-grid", async (req, res) => {
               id: panel.id,
               mediaUrl: canvasImage.mediaUrl,
               imageUrl: canvasImage.imageUrl,
+              thumbnailUrl: canvasImage.thumbnailUrl,
+              sourceImageUrl: canvasImage.sourceImageUrl,
               generatedAt: new Date().toISOString()
             });
             if (updated) {
@@ -4569,12 +4625,9 @@ app.post("/api/shots/:shotId/sub-storyboard", async (req, res) => {
 
     // Pull the requested model variant out of the body. We only accept known Seedream variants
     // here; gpt-image-2 lives in a separate code path and is not legal for storyboards.
-    const requestedModel = reqBody.model;
     const modelVariant: SubStoryboardModel | undefined =
-      requestedModel === "seedream-4" ? "seedream-4"
-      : requestedModel === "seedream-4-5" ? "seedream-4-5"
-      : requestedModel === "seedream-5-lite" ? "seedream-5-lite"
-      : (shot.subStoryboardModel as SubStoryboardModel | undefined);
+      normalizeSubStoryboardModel(reqBody.model)
+      || normalizeSubStoryboardModel(shot.subStoryboardModel);
 
     // ----- Mode dispatch -----
     // "composite" (default) — single Seedream group call returns ONE composite image with N
@@ -5931,9 +5984,25 @@ async function cacheVideoOrKeepRemote(
 
 async function cacheImageForCanvas(imageUrl: string, assetId: string) {
   const cached = await cacheGeneratedImage(imageUrl, assetId);
+  const sourceImageUrl = cached.remoteImageUrl || cached.imageUrl;
+  if (cached.imageUrl?.startsWith("/media/")) {
+    try {
+      return await createGeneratedImageCanvasFields({
+        localImageUrl: cached.imageUrl,
+        localImagePath: localMediaPathFromUrl(cached.imageUrl),
+        remoteImageUrl: cached.remoteImageUrl,
+        assetId
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      console.warn(`[cacheImageForCanvas] preview generation failed for ${assetId}: ${message}`);
+    }
+  }
   return {
     imageUrl: cached.imageUrl,
-    mediaUrl: cached.remoteImageUrl || cached.imageUrl
+    mediaUrl: cached.imageUrl,
+    thumbnailUrl: cached.imageUrl,
+    sourceImageUrl
   };
 }
 
@@ -5998,12 +6067,12 @@ function collectVideoReviewReferences(shot: Shot, render: ShotRender): string[] 
   // First/last-frame assets (if any) are the strongest constraints — push them first in order.
   if (render.firstFrameAssetId) {
     const firstFrameAsset = store.snapshot().assets.find((asset) => asset.id === render.firstFrameAssetId);
-    const url = firstFrameAsset?.referenceImageUrl || firstFrameAsset?.mediaUrl || firstFrameAsset?.imageUrl;
+    const url = firstFrameAsset?.sourceImageUrl || firstFrameAsset?.referenceImageUrl || firstFrameAsset?.mediaUrl || firstFrameAsset?.imageUrl;
     if (url) out.push(url);
   }
   if (render.lastFrameAssetId) {
     const lastFrameAsset = store.snapshot().assets.find((asset) => asset.id === render.lastFrameAssetId);
-    const url = lastFrameAsset?.referenceImageUrl || lastFrameAsset?.mediaUrl || lastFrameAsset?.imageUrl;
+    const url = lastFrameAsset?.sourceImageUrl || lastFrameAsset?.referenceImageUrl || lastFrameAsset?.mediaUrl || lastFrameAsset?.imageUrl;
     if (url) out.push(url);
   }
   // Then the assets the render snapshot bound (character / scene refs the user @-mentioned).
@@ -6012,7 +6081,7 @@ function collectVideoReviewReferences(shot: Shot, render: ShotRender): string[] 
     if (id === render.firstFrameAssetId) continue;
     if (id === render.lastFrameAssetId) continue;
     const asset = store.snapshot().assets.find((item) => item.id === id);
-    const url = asset?.referenceImageUrl || asset?.mediaUrl || asset?.imageUrl;
+    const url = asset?.sourceImageUrl || asset?.referenceImageUrl || asset?.mediaUrl || asset?.imageUrl;
     if (url) out.push(url);
   }
   return out;
@@ -6685,6 +6754,385 @@ app.get("/api/sessions/:sessionId/narration/download", async (req, res) => {
     `${sanitizeDownloadName(`${session.title || session.id}-${audioTrackSuffix}`)}.mp4`
   );
 });
+
+// ---------- HyperFrames post-production package routes ----------
+
+function parsePostProductionAudioMode(value: unknown): PostProductionAudioMode {
+  return value === "voiceover" || value === "music" ? value : "source";
+}
+
+function parsePostProductionSubtitleMode(value: unknown): PostProductionSubtitleMode {
+  return value === "manual" ? "manual" : "none";
+}
+
+app.post("/api/sessions/:sessionId/post-production", async (req, res) => {
+  const sessionId = req.params.sessionId;
+  const audioMode = parsePostProductionAudioMode(req.body?.audioMode);
+  const subtitleMode = parsePostProductionSubtitleMode(req.body?.subtitleMode);
+  const voiceAssetId: string | undefined = typeof req.body?.voiceAssetId === "string" && req.body.voiceAssetId.trim()
+    ? req.body.voiceAssetId.trim()
+    : undefined;
+  const voiceAsset = voiceAssetId ? store.snapshot().assets.find((asset) => asset.id === voiceAssetId && asset.type === "voice") : undefined;
+  if (voiceAsset?.ownerSessionId && voiceAsset.ownerSessionId !== sessionId) {
+    return res.status(404).json({ error: "Voice asset not found" });
+  }
+  const voiceoverScript = typeof req.body?.voiceoverScript === "string" ? req.body.voiceoverScript : "";
+  const voice = resolveVoiceIdFromVoicePrompt({
+    voiceId: typeof req.body?.voice === "string" ? req.body.voice : voiceAsset?.voiceId,
+    voicePresetId: voiceAsset?.voicePresetId,
+    voicePrompt: voiceAsset?.voicePrompt || voiceAsset?.description || voiceAsset?.prompt,
+    script: voiceoverScript
+  }) || DEFAULT_NARRATION_VOICE;
+  const musicKind = parseMusicKind(req.body?.musicKind);
+  const musicPrompt = typeof req.body?.musicPrompt === "string" ? req.body.musicPrompt : "";
+  const musicLyrics = typeof req.body?.musicLyrics === "string" ? req.body.musicLyrics : "";
+  const musicDurationSec = parseMusicDurationSec(req.body?.musicDurationSec);
+  if (audioMode === "voiceover" && !voiceoverScript.trim()) return res.status(400).json({ error: "Voiceover script is required" });
+  if (audioMode === "music" && !musicPrompt.trim()) return res.status(400).json({ error: "Music prompt is required" });
+  if (!consumeGenerationOr429(res, sessionId, "post-production")) return;
+
+  const result = await triggerPostProductionJob(sessionId, {
+    title: typeof req.body?.title === "string" ? req.body.title : "",
+    subtitle: typeof req.body?.subtitle === "string" ? req.body.subtitle : "",
+    coverAssetId: typeof req.body?.coverAssetId === "string" && req.body.coverAssetId.trim() ? req.body.coverAssetId.trim() : undefined,
+    subtitleMode,
+    subtitleText: typeof req.body?.subtitleText === "string" ? req.body.subtitleText : "",
+    audioMode,
+    voice,
+    voiceAssetId,
+    voiceoverScript,
+    musicKind,
+    musicPrompt,
+    musicLyrics,
+    musicDurationSec,
+    sourceVolume: parseNarrationVolume(req.body?.sourceVolume, audioMode === "source" ? 1 : 0.25, 1),
+    audioVolume: parseNarrationVolume(req.body?.audioVolume, audioMode === "music" ? 0.35 : 1.2),
+    jobId: typeof req.body?.jobId === "string" && req.body.jobId.trim() ? req.body.jobId.trim() : undefined
+  });
+  if ("status" in result) return res.status(result.status).json({ error: result.error });
+  res.json(result.session);
+});
+
+app.post("/api/sessions/:sessionId/post-production/poll", (req, res) => {
+  const session = store.getSession(req.params.sessionId);
+  if (!session) return res.status(404).json({ error: "Session not found" });
+  res.json(session);
+});
+
+app.post("/api/sessions/:sessionId/post-production/transcribe-subtitles", async (req, res) => {
+  const sessionId = req.params.sessionId;
+  const session = store.getSession(sessionId);
+  if (!session) return res.status(404).json({ error: "Session not found" });
+  const jobId = typeof req.body?.jobId === "string" && req.body.jobId.trim() ? req.body.jobId.trim() : undefined;
+  const resolved = resolveFinalArtifact(session, jobId);
+  if (resolved.error) {
+    return res.status(resolved.error.status === 404 ? 400 : resolved.error.status).json({ error: "Final video not ready — please run stitch first." });
+  }
+  const finalArtifact = resolved.artifact;
+  if (!finalArtifact.finalVideoSignature) {
+    return res.status(400).json({ error: "Final video signature missing — please re-run stitch first." });
+  }
+
+  const audioMode = parsePostProductionAudioMode(req.body?.audioMode || session.postProductionAudioMode);
+  const voiceoverScript = typeof req.body?.voiceoverScript === "string"
+    ? req.body.voiceoverScript
+    : session.postProductionVoiceoverScript || "";
+  let subtitleText = "";
+  let source: "voiceover-script" | "hyperframes-transcribe" | "volc-asr" = "volc-asr";
+  try {
+    const sourceVideoPath = await materializePostProductionMedia(
+      finalArtifact.finalVideoUrl,
+      `${sessionId}-transcribe`,
+      finalArtifact.finalVideoSignature,
+      ".mp4"
+    );
+    const videoDurationSec = await probeMediaDurationSec(sourceVideoPath);
+    if (audioMode === "voiceover" && voiceoverScript.trim()) {
+      subtitleText = buildAutoSubtitleSrtFromScript(voiceoverScript, { videoDurationSec });
+      source = "voiceover-script";
+    } else {
+      const asrProvider = resolvePostProductionAsrProvider();
+      if (asrProvider === "hyperframes") {
+        subtitleText = await transcribeMediaToSrtWithHyperframes(sourceVideoPath, {
+          language: typeof req.body?.language === "string" && req.body.language.trim()
+            ? req.body.language.trim()
+            : session.language,
+          model: typeof req.body?.model === "string" && req.body.model.trim()
+            ? req.body.model.trim()
+            : undefined
+        });
+        source = "hyperframes-transcribe";
+      } else {
+        subtitleText = await transcribeMediaToSrtWithVolcAsr(sourceVideoPath);
+        source = "volc-asr";
+      }
+    }
+    const updated = await store.updateSession(sessionId, {
+      postProductionSubtitleMode: "manual",
+      postProductionSubtitleText: subtitleText,
+      postProductionAudioMode: audioMode,
+      postProductionVoiceoverScript: voiceoverScript || session.postProductionVoiceoverScript,
+      postProductionUpdatedAt: new Date().toISOString()
+    });
+    return res.json({ subtitleText, source, session: updated });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    return res.status(500).json({ error: message });
+  }
+});
+
+app.get("/api/sessions/:sessionId/post-production/download", async (req, res) => {
+  const session = store.getSession(req.params.sessionId);
+  if (!session) return res.status(404).json({ error: "Session not found" });
+  if (!session.postProductionVideoUrl) return res.status(404).json({ error: "Post-production video not ready" });
+  return sendVideoDownload(
+    res,
+    session.postProductionVideoUrl,
+    `${sanitizeDownloadName(`${session.title || session.id}-后期包装版`)}.mp4`
+  );
+});
+
+async function triggerPostProductionJob(
+  sessionId: string,
+  input: {
+    title: string;
+    subtitle: string;
+    coverAssetId?: string;
+    subtitleMode: PostProductionSubtitleMode;
+    subtitleText: string;
+    audioMode: PostProductionAudioMode;
+    voice: string;
+    voiceAssetId?: string;
+    voiceoverScript: string;
+    musicKind: MusicGenerationKind;
+    musicPrompt: string;
+    musicLyrics?: string;
+    musicDurationSec?: number;
+    sourceVolume: number;
+    audioVolume: number;
+    jobId?: string;
+  }
+): Promise<{ session: ReturnType<CinemaStore["getSession"]> } | { status: number; error: string }> {
+  const session = store.getSession(sessionId);
+  if (!session) return { status: 404, error: "Session not found" };
+  const resolved = resolveFinalArtifact(session, input.jobId);
+  if (resolved.error) {
+    return { status: resolved.error.status === 404 ? 400 : resolved.error.status, error: "Final video not ready — please run stitch first." };
+  }
+  const finalArtifact = resolved.artifact;
+  if (!finalArtifact.finalVideoSignature) {
+    return { status: 400, error: "Final video signature missing — please re-run stitch first." };
+  }
+  const coverAsset = resolvePostProductionCoverAsset(sessionId, input.coverAssetId);
+  if (input.coverAssetId && !coverAsset) return { status: 404, error: "Cover image not found" };
+  const coverImageUrl = coverAsset ? resolveAssetImageUrlForPostProduction(coverAsset) : undefined;
+  if (coverAsset && !coverImageUrl) return { status: 400, error: "Cover image has no media URL" };
+  const sourceJobId = input.jobId || finalArtifact.job?.id || "legacy";
+  const effectiveVoice = input.audioMode === "voiceover" ? resolveEffectiveVoice(input.voiceoverScript, input.voice) : input.voice;
+  const signature = computeHyperframesPostProductionSignature({
+    finalVideoSignature: finalArtifact.finalVideoSignature,
+    title: input.title,
+    subtitle: input.subtitle,
+    coverAssetId: input.coverAssetId,
+    coverImageUrl,
+    subtitleMode: input.subtitleMode,
+    subtitleText: input.subtitleText,
+    audioMode: input.audioMode,
+    voice: effectiveVoice,
+    voiceAssetId: input.voiceAssetId,
+    voiceoverScript: input.voiceoverScript,
+    musicKind: input.musicKind,
+    musicPrompt: input.musicPrompt,
+    musicLyrics: input.musicLyrics,
+    musicDurationSec: input.musicDurationSec,
+    sourceVolume: input.sourceVolume,
+    audioVolume: input.audioVolume
+  });
+
+  if (
+    session.postProductionVideoUrl &&
+    session.postProductionSignature === signature &&
+    session.postProductionStatus !== "running"
+  ) {
+    if (session.postProductionStatus !== "ready") {
+      const updated = await store.updateSession(sessionId, {
+        postProductionStatus: "ready",
+        postProductionUpdatedAt: new Date().toISOString(),
+        postProductionError: undefined,
+        postProductionProgress: "",
+        postProductionRunningSignature: undefined
+      });
+      return { session: updated };
+    }
+    return { session };
+  }
+
+  const inflightSignature = postProductionInflight.get(sessionId);
+  if (inflightSignature === signature) return { session };
+  if (inflightSignature && inflightSignature !== signature) {
+    return { status: 409, error: "A post-production job for an earlier version is still running. Please wait." };
+  }
+
+  postProductionInflight.set(sessionId, signature);
+  const startedAt = new Date().toISOString();
+  const queued = await store.updateSession(sessionId, {
+    postProductionTitle: input.title,
+    postProductionSubtitle: input.subtitle,
+    postProductionCoverAssetId: input.coverAssetId,
+    postProductionSubtitleMode: input.subtitleMode,
+    postProductionSubtitleText: input.subtitleText,
+    postProductionAudioMode: input.audioMode,
+    postProductionVoice: effectiveVoice,
+    postProductionVoiceAssetId: input.voiceAssetId,
+    postProductionVoiceoverScript: input.voiceoverScript,
+    postProductionMusicKind: input.musicKind,
+    postProductionMusicPrompt: input.musicPrompt || undefined,
+    postProductionMusicLyrics: input.musicLyrics || undefined,
+    postProductionMusicDurationSec: input.musicDurationSec,
+    postProductionSourceVolume: input.sourceVolume,
+    postProductionAudioVolume: input.audioVolume,
+    postProductionStitchJobId: sourceJobId,
+    postProductionStatus: "running",
+    postProductionStartedAt: startedAt,
+    postProductionUpdatedAt: startedAt,
+    postProductionError: undefined,
+    postProductionProgress: "queued",
+    postProductionSignature: signature,
+    postProductionRunningSignature: signature,
+    postProductionBuiltForFinalVideoSignature: finalArtifact.finalVideoSignature
+  });
+
+  setImmediate(() => {
+    void runPostProductionJobInBackground(sessionId, input, signature, {
+      finalVideoUrl: finalArtifact.finalVideoUrl,
+      finalVideoSignature: finalArtifact.finalVideoSignature!,
+      coverImageUrl,
+      jobId: sourceJobId
+    });
+  });
+  return { session: queued };
+}
+
+async function runPostProductionJobInBackground(
+  sessionId: string,
+  input: {
+    title: string;
+    subtitle: string;
+    coverAssetId?: string;
+    subtitleMode: PostProductionSubtitleMode;
+    subtitleText: string;
+    audioMode: PostProductionAudioMode;
+    voice: string;
+    voiceAssetId?: string;
+    voiceoverScript: string;
+    musicKind: MusicGenerationKind;
+    musicPrompt: string;
+    musicLyrics?: string;
+    musicDurationSec?: number;
+    sourceVolume: number;
+    audioVolume: number;
+    jobId?: string;
+  },
+  signature: string,
+  artifact: { finalVideoUrl: string; finalVideoSignature: string; coverImageUrl?: string; jobId: string }
+) {
+  const startedAt = Date.now();
+  const updateProgress = async (phase: string) => {
+    await store.updateSession(sessionId, {
+      postProductionProgress: phase,
+      postProductionUpdatedAt: new Date().toISOString()
+    });
+  };
+  try {
+    let baseVideoUrl = artifact.finalVideoUrl;
+    if (input.audioMode === "voiceover" || input.audioMode === "music") {
+      await updateProgress(input.audioMode === "music" ? "music/narration mix" : "voiceover tts");
+      const narrationResult = await runNarrationPipeline(
+        {
+          id: `${sessionId}-post`,
+          finalVideoUrl: artifact.finalVideoUrl,
+          finalVideoSignature: artifact.finalVideoSignature
+        },
+        {
+          mode: input.audioMode === "music" ? "music" : "voiceover",
+          script: input.audioMode === "music" ? input.musicPrompt : input.voiceoverScript,
+          voice: input.voice,
+          strategy: "natural",
+          subtitleMode: "none",
+          subtitlePosition: "bottom",
+          narrationVolume: input.audioVolume,
+          sourceVolume: input.sourceVolume,
+          musicKind: input.musicKind,
+          musicPrompt: input.musicPrompt,
+          musicLyrics: input.musicLyrics,
+          musicDurationSec: input.musicDurationSec
+        },
+        { onProgress: (phase) => updateProgress(`audio: ${phase}`) }
+      );
+      baseVideoUrl = narrationResult.narrationVideoUrl;
+    }
+    const sourceVideoPath = await materializePostProductionMedia(baseVideoUrl, sessionId, signature, ".mp4");
+    const coverImagePath = artifact.coverImageUrl
+      ? await materializePostProductionMedia(artifact.coverImageUrl, `${sessionId}-cover`, signature, ".jpg")
+      : undefined;
+    const result = await renderHyperframesPostProduction({
+      sessionId,
+      signature,
+      finalVideoSignature: artifact.finalVideoSignature,
+      sourceVideoPath,
+      coverImagePath,
+      title: input.title,
+      subtitle: input.subtitle,
+      subtitleMode: input.subtitleMode,
+      subtitleText: input.subtitleText,
+      onProgress: updateProgress
+    });
+    await store.updateSession(sessionId, {
+      postProductionVideoUrl: result.videoUrl,
+      postProductionSignature: result.signature,
+      postProductionBuiltForFinalVideoSignature: artifact.finalVideoSignature,
+      postProductionStitchJobId: artifact.jobId,
+      postProductionStatus: "ready",
+      postProductionUpdatedAt: new Date().toISOString(),
+      postProductionError: undefined,
+      postProductionProgress: "",
+      postProductionRunningSignature: undefined
+    });
+    console.log(
+      `[post-production ${sessionId}] DONE in ${((Date.now() - startedAt) / 1000).toFixed(1)}s -> ${result.videoUrl}`
+    );
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    console.error(`[post-production ${sessionId}] FAILED in ${((Date.now() - startedAt) / 1000).toFixed(1)}s: ${message}`);
+    await store.updateSession(sessionId, {
+      postProductionStatus: "error",
+      postProductionError: message,
+      postProductionUpdatedAt: new Date().toISOString(),
+      postProductionProgress: "",
+      postProductionRunningSignature: undefined
+    });
+  } finally {
+    if (postProductionInflight.get(sessionId) === signature) {
+      postProductionInflight.delete(sessionId);
+    }
+  }
+}
+
+function resolvePostProductionCoverAsset(sessionId: string, assetId: string | undefined) {
+  if (!assetId) return undefined;
+  const asset = store.snapshot().assets.find((item) => item.id === assetId);
+  if (!asset) return undefined;
+  if (asset.ownerSessionId && asset.ownerSessionId !== sessionId) return undefined;
+  if (asset.ownerShotId) {
+    const shot = store.getShot(asset.ownerShotId);
+    if (!shot || shot.sessionId !== sessionId) return undefined;
+  }
+  return asset;
+}
+
+function resolveAssetImageUrlForPostProduction(asset: Asset) {
+  return asset.sourceImageUrl || asset.imageUrl || asset.mediaUrl || asset.referenceImageUrl || asset.thumbnailUrl;
+}
 
 async function triggerAudioSeparationJob(
   sessionId: string,

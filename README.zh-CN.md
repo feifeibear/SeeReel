@@ -296,6 +296,7 @@ VOLC_MUSIC_MODEL_VERSION=v5.0
 | Agent Plan | `ARK_AGENT_PLAN_KEY` |
 | 可选剧本生成 | `OPENAI_API_KEY` / `OAI_KEY` |
 | 可选解说配音 | `VOLC_TTS_APPID` / `VOLC_TTS_TOKEN` |
+| 自动字幕识别 | `VOLC_APP_ID` + `VOLC_ACCESS_KEY` / `VOLC_SECRET_KEY` |
 | 可选音乐生成 | `VOLC_MUSIC_ACCESS_KEY_ID` / `VOLC_MUSIC_SECRET_ACCESS_KEY` |
 | 公网媒体回退 | 非 localhost 的 `PUBLIC_MEDIA_BASE_URL` |
 

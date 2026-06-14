@@ -7,6 +7,7 @@ import { useI18n, type Dictionary } from "../i18n";
 import { assetThumbUrl, tailframeThumbUrl } from "./mediaUrls";
 import { selectedShotPendingRender } from "../../shared/shotGenerationState";
 import { voicePresetForId } from "../../shared/voicePresets";
+import { normalizeSubStoryboardModel } from "../../shared/imageModels";
 import type { SubStoryboardModel } from "../../shared/types";
 import type {
   AudioTrackNodeData,
@@ -57,14 +58,12 @@ function NodeModelPicker<T extends string>({ value, options, onChange, title }: 
 
 const STORYBOARD_MODEL_OPTIONS: Array<{ value: SubStoryboardModel; label: string }> = [
   { value: "seedream-4-5", label: "Seedream 4.5" },
-  { value: "seedream-5-lite", label: "Seedream 5 Lite (Agent Plan)" },
+  { value: "seedream-5-lite", label: "Seedream 5.0 Lite" },
   { value: "seedream-4", label: "Seedream 4" }
 ];
 function effectiveSubStoryboardModel(asset: { generationModel?: string; generationModelActual?: string } | undefined, shotModel?: SubStoryboardModel, fallback?: string): SubStoryboardModel | undefined {
-  const actual = asset?.generationModelActual;
-  if (actual?.includes("seedream-5.0-lite") || actual?.includes("seedream-5-lite")) return "seedream-5-lite";
-  if (actual?.includes("seedream-4-5")) return "seedream-4-5";
-  if (actual?.includes("seedream-4-0") || actual?.includes("seedream-4")) return "seedream-4";
+  const actual = normalizeSubStoryboardModel(asset?.generationModelActual);
+  if (actual) return actual;
   return shotModel || (fallback === "seedream-5-lite" ? "seedream-5-lite" : undefined);
 }
 

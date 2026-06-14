@@ -34,14 +34,14 @@ export function isRemoteUrl(url: string | undefined) {
 }
 
 export function findLocalMediaUrl(asset: Asset) {
-  const candidates = [asset.referenceImageUrl, asset.mediaUrl, asset.imageUrl].filter(Boolean) as string[];
+  const candidates = [asset.referenceImageUrl, asset.sourceImageUrl, asset.mediaUrl, asset.imageUrl, asset.thumbnailUrl].filter(Boolean) as string[];
   return candidates.find((url) => url.startsWith(mediaUrlPrefix));
 }
 
 export async function publishAssetImageToTos(asset: Asset, shot: Shot): Promise<TosPublishResult> {
   const localUrl = findLocalMediaUrl(asset);
   if (!localUrl) {
-    const remoteUrl = asset.mediaUrl || asset.imageUrl || "";
+    const remoteUrl = asset.sourceImageUrl || asset.mediaUrl || asset.imageUrl || "";
     if (isRemoteUrl(remoteUrl)) {
       return {
         key: asset.tosObjectKey || "",

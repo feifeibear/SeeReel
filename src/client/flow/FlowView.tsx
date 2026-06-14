@@ -25,7 +25,9 @@ import { Inspector } from "./Inspector";
 import { DownloadToast } from "./DownloadToast";
 import { CreateNodeMenu, type CreateMenuOption } from "./CreateNodeMenu";
 import { resolveCanvasCreatePosition } from "./canvasPosition";
+import { applyPendingCreatedPositions } from "./createdNodePlacement";
 import { buildPendingConnectEdge, mergePendingEdges } from "./pendingConnection";
+import { resolveFreshSelectedData } from "./selectedData";
 import type { UndoableAction } from "./useUndoStack";
 import { useI18n, type UiLanguage } from "../i18n";
 
@@ -211,24 +213,12 @@ export function FlowView({ snapshot, session, visionReviewEnabled, defaultImageM
 
   useEffect(() => {
     setNodes((prev) => {
-      const prevById = new Map(prev.map((n) => [n.id, n]));
-      const merged: Node<FlowNodeData>[] = [];
-      for (const next of derivedNodes) {
-        const old = prevById.get(next.id);
-        if (old) {
-          // Refresh data + type but keep the user-dragged position.
-          merged.push({ ...next, position: old.position });
-        } else {
-          const pendingPosition = pendingCreatedPositionsRef.current.get(next.id);
-          if (pendingPosition) {
-            pendingCreatedPositionsRef.current.delete(next.id);
-            merged.push({ ...next, position: pendingPosition });
-          } else {
-            merged.push(next);
-          }
-        }
-      }
-      const nextNodes = merged.filter((node) => !pendingNodeDeletionsRef.current.has(node.id));
+      const nextNodes = applyPendingCreatedPositions(
+        prev,
+        derivedNodes,
+        pendingCreatedPositionsRef.current,
+        pendingNodeDeletionsRef.current
+      );
       nodesRef.current = nextNodes;
       return nextNodes;
     });
@@ -1201,8 +1191,8 @@ export function FlowView({ snapshot, session, visionReviewEnabled, defaultImageM
       } satisfies FlowNodeData;
     }
     const node = nodes.find((n) => n.id === selectedNodeId);
-    return node?.data;
-  }, [nodes, selectedNodeId, session, showFinalVideoPanel]);
+    return resolveFreshSelectedData(node?.data, snapshot, session);
+  }, [nodes, selectedNodeId, session, showFinalVideoPanel, snapshot]);
 
   const onBeforeDelete = useCallback<OnBeforeDelete<Node<FlowNodeData>, Edge>>(async ({ nodes: deletingNodes, edges: deletingEdges }) => {
     // All node kinds are deletable now. Generating shots get a soft warning so the user knows the

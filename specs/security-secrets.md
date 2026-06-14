@@ -72,9 +72,14 @@ Use this catalog as the source of truth for `KEY`, `ID`, `TOKEN`, and `SECRET`-c
 | Volcengine TTS app ID | `VOLC_TTS_APPID` | None | Sensitive ID | Required for narration; not a password alone, but do not publish real production values. |
 | Volcengine TTS token | `VOLC_TTS_TOKEN` | None | Yes | Required for narration and not replaceable by `ARK_AGENT_PLAN_KEY`. |
 | Volcengine TTS resource ID | `VOLC_TTS_RESOURCE_ID` | None | No | Non-secret resource/model-family identifier such as `seed-tts-1.0`; still keep production configs out of screenshots when possible. |
+| Volcengine ASR app ID | `VOLC_APP_ID` | `VOLC_APPID`, `VOLC_ASR_APPID`, `VOLC_ASR_APP_KEY` | Sensitive ID | App ID for Doubao Seed ASR AUC 2.0 standard automatic subtitle recognition. |
+| Volcengine ASR access token | `VOLC_ACCESS_KEY` | `VOLC_ASR_TOKEN`, `VOLC_ASR_ACCESS_TOKEN` | Yes | Access Token sent as `X-Api-Access-Key` for the standard submit/query API. Not replaceable by Ark, Seedance, or Agent Plan keys. |
+| Volcengine ASR secret key | `VOLC_SECRET_KEY` | `VOLC_ASR_SECRET_KEY` | Yes | Secret Key from the same service auth bundle. It stays server-side and is not sent as the standard ASR access token. |
+| Volcengine ASR API key | `VOLC_ASR_API_KEY` | `VOLCENGINE_ASR_API_KEY`, `BYTEPLUS_ASR_API_KEY` | Yes | Preferred new-console APP Key sent as `X-Api-Key` for standard ASR 2.0 submit/query. Also used by the flash endpoint when `VOLC_ASR_MODE=flash`. |
+| Volcengine ASR resource ID | `VOLC_ASR_RESOURCE_ID` | None | No | ASR resource/model identifier. Default standard ASR 2.0 value is `volc.seedasr.auc`; flash mode uses `volc.bigasr.auc_turbo`. |
 | Rate-limit salt | `SEEREEL_RATE_LIMIT_SALT` | None | Yes | Salt for anonymous IP hashing; rotating changes rate-limit identity fingerprints. |
 
-Model ID variables such as `SEEDREAM_AGENT_PLAN_MODEL`, `SEEDANCE_AGENT_PLAN_MODEL`, `SEEDANCE_AGENT_PLAN_FAST_MODEL`, `VISION_REVIEW_AGENT_PLAN_MODEL`, `VIDEO_ANALYZE_AGENT_PLAN_MODEL`, `SEEDREAM_MODEL`, `SEEDREAM_45_MODEL`, `SEEDANCE_MODEL`, `SEEDANCE_FAST_MODEL`, and `VISION_REVIEW_MODEL` are not secrets. They may appear in specs, docs, diagnostics, and usage metrics, but must not be confused with API keys or tokens.
+Provider/model selector variables such as `POST_PRODUCTION_ASR_PROVIDER`, `POST_PRODUCTION_RENDERER`, `POST_PRODUCTION_SUBTITLE_FONT`, `POST_PRODUCTION_SUBTITLE_FONTSDIR`, `SEEDREAM_AGENT_PLAN_MODEL`, `SEEDANCE_AGENT_PLAN_MODEL`, `SEEDANCE_AGENT_PLAN_FAST_MODEL`, `VISION_REVIEW_AGENT_PLAN_MODEL`, `VIDEO_ANALYZE_AGENT_PLAN_MODEL`, `SEEDREAM_MODEL`, `SEEDREAM_45_MODEL`, `SEEDANCE_MODEL`, `SEEDANCE_FAST_MODEL`, and `VISION_REVIEW_MODEL` are not secrets. They may appear in specs, docs, diagnostics, and usage metrics, but must not be confused with API keys or tokens.
 
 ## Acceptance Criteria
 

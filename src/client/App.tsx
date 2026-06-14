@@ -53,7 +53,7 @@ type TokenUsageFamilyTotal = {
 const tokenUsageFamilies: Array<{ key: TrackedTokenUsageModelFamily; label: string }> = [
   { key: "seedream-4", label: "Seedream 4" },
   { key: "seedream-4-5", label: "Seedream 4.5" },
-  { key: "seedream-5-lite", label: "Seedream 5 Lite" },
+  { key: "seedream-5-lite", label: "Seedream 5.0 Lite" },
   { key: "seedance-2-0", label: "Seedance 2.0" },
   { key: "seedance-2-0-fast", label: "Seedance 2.0 Fast" }
 ];

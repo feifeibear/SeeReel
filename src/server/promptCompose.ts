@@ -65,68 +65,135 @@ export interface SeedanceTextContext {
 }
 
 export function composeSeedanceVideoText(ctx: SeedanceTextContext, lang: Lang = DEFAULT_LANG): PromptComposition {
-  void lang;
   const raw = (ctx.shot.rawPrompt || ctx.shot.prompt || "").trim();
+  const bindingEntries = buildMentionedSeedanceReferenceEntries(ctx, raw);
+  const rewritten = rewriteSeedanceMentionTokens(raw, bindingEntries);
   const parts: Record<string, string> = {};
 
-  if (raw) parts.raw = raw;
-  return { composedPrompt: raw, parts, lang };
+  if (rewritten) parts.raw = rewritten;
+  const referenceBinding = composeSeedanceReferenceBinding(bindingEntries, lang);
+  if (referenceBinding) parts.referenceBinding = referenceBinding;
+  return { composedPrompt: [rewritten, referenceBinding].filter(Boolean).join("\n\n"), parts, lang };
+}
+
+function formatPromptAssetMention(name: string) {
+  return name.replace(/\s*\/\s*/g, "/").replace(/\s+/g, "");
+}
+
+function promptMentionsAsset(prompt: string, asset: Asset) {
+  if (!prompt || !asset.name) return false;
+  const handle = `@${formatPromptAssetMention(asset.name)}`;
+  return prompt.replace(/\s*\/\s*/g, "/").replace(/\s+/g, "").includes(handle);
+}
+
+type SeedanceReferenceRole = "first_frame" | "reference_image" | "reference_video" | "reference_audio" | "asset";
+
+interface SeedanceReferenceEntry {
+  asset: Asset;
+  role: SeedanceReferenceRole;
+  index: number;
+  playgroundLabel: string;
+}
+
+function buildMentionedSeedanceReferenceEntries(ctx: SeedanceTextContext, raw: string): SeedanceReferenceEntry[] {
+  if (!raw || /@提及的参考资产清单|Referenced assets from @ mentions|Seedance 参考绑定/.test(raw)) return [];
+  const mentionedAssets = ctx.referencedAssets.filter((asset) => promptMentionsAsset(raw, asset));
+  if (!mentionedAssets.length) return [];
+
+  let imageIndex = ctx.firstFrameAsset && mentionedAssets.some((asset) => asset.id === ctx.firstFrameAsset?.id) ? 2 : 1;
+  let videoIndex = ctx.hasContinuityVideo ? 2 : 1;
+  let audioIndex = ctx.hasContinuityAudio ? 2 : 1;
+  let assetIndex = 1;
+
+  return mentionedAssets.map((asset) => {
+    const isFirstFrame = ctx.firstFrameAsset && asset.id === ctx.firstFrameAsset.id;
+    if (isFirstFrame) {
+      return { asset, role: "first_frame", index: 1, playgroundLabel: "Image 1" };
+    }
+    if (asset.mediaKind === "image") {
+      const index = imageIndex++;
+      return { asset, role: "reference_image", index, playgroundLabel: `Pictures ${index}` };
+    }
+    if (asset.mediaKind === "video") {
+      const index = videoIndex++;
+      return { asset, role: "reference_video", index, playgroundLabel: `Video ${index}` };
+    }
+    if (asset.mediaKind === "audio") {
+      const index = audioIndex++;
+      return { asset, role: "reference_audio", index, playgroundLabel: `Audio ${index}` };
+    }
+    return { asset, role: "asset", index: assetIndex++, playgroundLabel: `Asset ${assetIndex - 1}` };
+  });
+}
+
+function rewriteSeedanceMentionTokens(raw: string, entries: SeedanceReferenceEntry[]) {
+  if (!raw || !entries.length) return raw;
+  let rewritten = raw;
+  const sorted = [...entries].sort((a, b) => formatPromptAssetMention(b.asset.name).length - formatPromptAssetMention(a.asset.name).length);
+  for (const entry of sorted) {
+    const pattern = new RegExp(`@${escapeRegExp(formatPromptAssetMention(entry.asset.name))}`, "g");
+    rewritten = rewritten.replace(pattern, `【${entry.playgroundLabel}】`);
+  }
+  return rewritten;
+}
+
+function escapeRegExp(value: string) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function composeSeedanceReferenceBinding(entries: SeedanceReferenceEntry[], lang: Lang): string {
+  if (!entries.length) return "";
+  return composeAssetReferenceTableFromEntries(entries, lang);
 }
 
 function clampDuration(value?: number) {
   return Math.min(Math.max(Number(value) || 1, 1), 15);
 }
 
-function composeAssetReferenceTable(
-  assets: Asset[],
-  options: { firstFrameAsset?: Asset; continuityVideoFirst?: boolean },
-  lang: Lang
-): string {
-  if (!assets.length) return "";
+function composeAssetReferenceTableFromEntries(entries: SeedanceReferenceEntry[], lang: Lang): string {
+  if (!entries.length) return "";
   const lines: string[] = [];
   lines.push(
     lang === "zh"
-      ? "@提及的参考资产清单。仅在它们各自的角色范围内使用，不要凭空引申出额外剧情："
-      : "Referenced assets from @ mentions. Use these references only for the named asset roles; do not invent extra story beats from them."
+      ? "@提及的参考资产清单。用户正文中的 @媒体已按 BytePlus Playground 风格替换为 【Pictures N】/【Video N】/【Audio N】 标签；仅在它们各自的角色范围内使用，不要凭空引申出额外剧情："
+      : "Referenced assets from @ mentions. @ media tokens in the user text have been rewritten in the BytePlus Playground style as 【Pictures N】/【Video N】/【Audio N】 labels; use these references only for the named asset roles and do not invent extra story beats from them."
   );
-  let imageIndex = options.firstFrameAsset ? 2 : 1;
-  let videoIndex = options.continuityVideoFirst ? 2 : 1;
-  let otherIndex = 1;
 
-  for (const asset of assets) {
+  for (const entry of entries) {
+    const asset = entry.asset;
     const safeName = asset.name.replace(/\s*\/\s*/g, "/");
     const description = (asset.description || asset.prompt || "").trim();
     const usage = composeAssetUsage(asset, lang);
-    const isFirstFrame = options.firstFrameAsset && asset.id === options.firstFrameAsset.id;
-    if (isFirstFrame) {
+    if (entry.role === "first_frame") {
       lines.push(
         lang === "zh"
-          ? `图 1（first_frame）：@${safeName} = ${asset.type} 资产「${asset.name}」。这是生成视频的真实首帧，请从此精确构图开始向前推进。${description}`.trim()
-          : `Image 1 (first_frame): @${safeName} = ${asset.type} asset "${asset.name}". This is the literal first frame of the generated video; animate forward from this exact composition. ${description}`.trim()
+          ? `图 1 / ${entry.playgroundLabel}（first_frame）：@${safeName} = first_frame 参考「${asset.name}」。用户正文中的 @${safeName} 已替换为 【${entry.playgroundLabel}】；这是生成视频的真实首帧，请从此精确构图开始向前推进。${description}`.trim()
+          : `Image 1 / ${entry.playgroundLabel} (first_frame): @${safeName} = first_frame reference "${asset.name}". @${safeName} in the user text has been rewritten as 【${entry.playgroundLabel}】; this is the literal first frame of the generated video, animate forward from this exact composition. ${description}`.trim()
       );
-      continue;
-    }
-    if (asset.mediaKind === "image") {
+    } else if (entry.role === "reference_image") {
       lines.push(
         lang === "zh"
-          ? `图 ${imageIndex}：@${safeName} = ${asset.type} 资产「${asset.name}」。${usage} ${description}`.trim()
-          : `Image ${imageIndex}: @${safeName} = ${asset.type} asset "${asset.name}". ${usage} ${description}`.trim()
+          ? `参考图 ${entry.index} / ${entry.playgroundLabel}（reference_image ${entry.index}）：@${safeName} = image 参考「${asset.name}」。用户正文中的 @${safeName} 已替换为 【${entry.playgroundLabel}】；必须理解为第 ${entry.index} 个随请求提交的参考图，不是普通文字概念。${usage} ${description}`.trim()
+          : `Reference image ${entry.index} / ${entry.playgroundLabel} (reference_image ${entry.index}): @${safeName} = image reference "${asset.name}". @${safeName} in the user text has been rewritten as 【${entry.playgroundLabel}】; interpret it as attached reference_image ${entry.index}, not as a plain text concept. ${usage} ${description}`.trim()
       );
-      imageIndex += 1;
-    } else if (asset.mediaKind === "video") {
+    } else if (entry.role === "reference_video") {
       lines.push(
         lang === "zh"
-          ? `视频 ${videoIndex}：@${safeName} = ${asset.type} 资产「${asset.name}」。仅按此资产被命名的运动 / 布局 / 视觉行为来用，不要混淆为视频 1 的上一镜头连贯。${description}`.trim()
-          : `Video ${videoIndex}: @${safeName} = ${asset.type} asset "${asset.name}". Use this asset video only for its named motion, layout, or visual behavior; do not confuse it with Video 1 previous-shot continuity. ${description}`.trim()
+          ? `参考视频 ${entry.index} / ${entry.playgroundLabel}（reference_video ${entry.index}）：@${safeName} = video 参考「${asset.name}」。用户正文中的 @${safeName} 已替换为 【${entry.playgroundLabel}】；必须理解为第 ${entry.index} 个随请求提交的参考视频，不是普通文字概念。仅按此参考视频被命名的运动 / 布局 / 视觉行为来用，不要混淆为视频 1 的上一镜头连贯。${description}`.trim()
+          : `Reference video ${entry.index} / ${entry.playgroundLabel} (reference_video ${entry.index}): @${safeName} = video reference "${asset.name}". @${safeName} in the user text has been rewritten as 【${entry.playgroundLabel}】; interpret it as attached reference_video ${entry.index}, not as a plain text concept. Use this reference video only for its named motion, layout, or visual behavior; do not confuse it with Video 1 previous-shot continuity. ${description}`.trim()
       );
-      videoIndex += 1;
+    } else if (entry.role === "reference_audio") {
+      lines.push(
+        lang === "zh"
+          ? `参考音频 ${entry.index} / ${entry.playgroundLabel}（reference_audio ${entry.index}）：@${safeName} = audio 参考「${asset.name}」。用户正文中的 @${safeName} 已替换为 【${entry.playgroundLabel}】；必须理解为第 ${entry.index} 个随请求提交的参考音频，不是普通文字概念。仅按此参考音频被命名的节奏、音色、氛围或声源来用。${description}`.trim()
+          : `Reference audio ${entry.index} / ${entry.playgroundLabel} (reference_audio ${entry.index}): @${safeName} = audio reference "${asset.name}". @${safeName} in the user text has been rewritten as 【${entry.playgroundLabel}】; interpret it as attached reference_audio ${entry.index}, not as a plain text concept. Use this reference audio only for its named rhythm, timbre, ambience, or sound source. ${description}`.trim()
+      );
     } else {
       lines.push(
         lang === "zh"
-          ? `资产 ${otherIndex}：@${safeName} = ${asset.type} 资产「${asset.name}」。${usage} ${description}`.trim()
-          : `Asset ${otherIndex}: @${safeName} = ${asset.type} asset "${asset.name}". ${usage} ${description}`.trim()
+          ? `资产 ${entry.index}：@${safeName} = ${asset.type} 资产「${asset.name}」。${usage} ${description}`.trim()
+          : `Asset ${entry.index}: @${safeName} = ${asset.type} asset "${asset.name}". ${usage} ${description}`.trim()
       );
-      otherIndex += 1;
     }
   }
 
@@ -297,16 +364,51 @@ function composeSubShotSequenceInstruction(panelCount: number, lang: Lang): stri
  *   - **prop**: 1:1 product hero, 90mm macro, soft top + rim, neutral backdrop.
  *   - **style**: 16:9 mood board still, color grade and composition that ARE the style.
  */
+export interface SeedreamAssetPromptOptions {
+  referenceAssets?: Array<Pick<Asset, "id" | "prompt" | "description" | "name" | "type" | "mediaKind">>;
+}
+
+function formatSeedreamAssetMention(name: string) {
+  return name.replace(/\s*\/\s*/g, "/").replace(/\s+/g, "");
+}
+
+function rewriteSeedreamReferenceMentions(
+  raw: string,
+  assets: SeedreamAssetPromptOptions["referenceAssets"],
+  lang: Lang
+) {
+  if (!raw) return raw;
+  const refs = (assets || []).filter((asset) => asset?.name);
+  if (!refs.length) return raw;
+  let rewritten = raw;
+  const sorted = refs
+    .map((asset, index) => ({ asset, index }))
+    .sort((a, b) => formatSeedreamAssetMention(b.asset.name).length - formatSeedreamAssetMention(a.asset.name).length);
+  for (const { asset, index } of sorted) {
+    const label = lang === "zh" ? `参考图 ${index + 1}` : `Image ${index + 1}`;
+    const pattern = new RegExp(`@${escapeRegExp(formatSeedreamAssetMention(asset.name))}`, "g");
+    rewritten = rewritten.replace(pattern, label);
+  }
+  return rewritten;
+}
+
+function stripSeedreamReferenceBinding(raw: string) {
+  return raw.split(/\n\s*\n(?:参考图绑定（重要）：|Reference image binding \(important\):)/)[0]?.trim() || raw.trim();
+}
+
 export function composeSeedreamAssetPrompt(
   asset: Pick<Asset, "prompt" | "description" | "name" | "type">,
   hasReference: boolean,
-  lang: Lang = DEFAULT_LANG
+  lang: Lang = DEFAULT_LANG,
+  options: SeedreamAssetPromptOptions = {}
 ): PromptComposition {
-  void hasReference;
   const parts: Record<string, string> = {};
-  const raw = (asset.prompt || asset.description || asset.name || "").trim();
-  parts.raw = raw;
-  return { composedPrompt: raw, parts, lang };
+  const raw = stripSeedreamReferenceBinding((asset.prompt || asset.description || asset.name || "").trim());
+  const rewrittenRaw = hasReference
+    ? rewriteSeedreamReferenceMentions(raw, options.referenceAssets, lang)
+    : raw;
+  parts.raw = rewrittenRaw;
+  return { composedPrompt: rewrittenRaw, parts, lang };
 
   if (lang === "zh") {
     if (asset.type === "image") {

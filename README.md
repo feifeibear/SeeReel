@@ -297,6 +297,7 @@ Fallback and optional providers:
 | Agent Plan | `ARK_AGENT_PLAN_KEY` |
 | Optional script generation | `OPENAI_API_KEY` / `OAI_KEY` |
 | Optional narration | `VOLC_TTS_APPID` / `VOLC_TTS_TOKEN` |
+| Automatic subtitles | `VOLC_APP_ID` + `VOLC_ACCESS_KEY` / `VOLC_SECRET_KEY` |
 | Optional music generation | `VOLC_MUSIC_ACCESS_KEY_ID` / `VOLC_MUSIC_SECRET_ACCESS_KEY` |
 | Public media fallback | non-localhost `PUBLIC_MEDIA_BASE_URL` |
 

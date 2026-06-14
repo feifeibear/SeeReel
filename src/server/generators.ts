@@ -7,7 +7,7 @@ import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import type { ReadableStream as WebReadableStream } from "node:stream/web";
 import ffmpeg from "@ffmpeg-installer/ffmpeg";
-import type { Asset, AssetImageModel, SessionWithShots, Shot, StoryBeat, StoryPlan } from "../shared/types";
+import type { Asset, AssetImageModel, AssetImageSize, SessionWithShots, Shot, StoryBeat, StoryPlan } from "../shared/types";
 import { composeSeedanceVideoText, composeSeedreamAssetPrompt, type Lang } from "./promptCompose";
 import { fetchWithRetry } from "./fetchWithRetry";
 import { arkMissingKeyMessage, BYTEPLUS_ARK_BASE, resolveArkCredential, VOLCENGINE_CN_ARK_BASE, type ArkCredential, type StandardCredentialRouteConfig } from "./arkCredentials";
@@ -537,8 +537,12 @@ function formatAssetMention(name: string) {
 export interface SeedreamGenerateOpts {
   /** Override the assembled Seedream prompt verbatim (post user-edit from dryRun preview). */
   promptOverride?: string;
-  /** Output language for the auto-composed prompt. Default `"zh"`. Ignored when promptOverride is set. */
+  /** Assets matching `referenceImageUrls` order, used only to bind @ names to attached images. */
+  referenceAssets?: Array<Pick<Asset, "id" | "prompt" | "description" | "name" | "type" | "mediaKind">>;
+  /** Output language for reference-binding metadata. Default `"zh"`. */
   lang?: Lang;
+  /** Seedream output size. Defaults to 2K when neither caller nor env overrides it. */
+  size?: AssetImageSize;
 }
 
 export interface AssetImageResult {
@@ -683,12 +687,13 @@ async function downloadImageAsDataUrl(url: string) {
 }
 
 type SeedreamVariant = "seedream-4" | "seedream-4-5" | "seedream-5-lite";
+const SEEDREAM_MAX_REFERENCE_IMAGES = 14;
 
 const SEEDREAM_DEFAULT_MODEL: Record<Exclude<SeedreamVariant, "seedream-5-lite">, string> = {
   "seedream-4": "doubao-seedream-4-0-250828",
   "seedream-4-5": "doubao-seedream-4-5-251128"
 };
-const AGENT_PLAN_SEEDREAM_MODEL = "doubao-seedream-5.0-lite";
+const SEEDREAM_5_LITE_MODEL = "doubao-seedream-5.0-lite";
 
 // The 4.5 model accepts the same OpenAI-compatible image-generation request shape as 4.0
 // (model + prompt + size + optional image references). We keep a per-variant model id and a shared
@@ -711,17 +716,46 @@ function seedreamModelForRoute(modelId: string, route?: string) {
   return modelId;
 }
 
-function resolveSeedreamModelIds(variant: SeedreamVariant, usesAgentPlan = false) {
+export function resolveSeedreamModelIds(variant: SeedreamVariant, usesAgentPlan = false) {
   if (usesAgentPlan) {
-    return [process.env.SEEDREAM_AGENT_PLAN_MODEL || AGENT_PLAN_SEEDREAM_MODEL];
+    return [process.env.SEEDREAM_AGENT_PLAN_MODEL || process.env.SEEDREAM_50_LITE_MODEL || process.env.SEEDREAM_5_LITE_MODEL || SEEDREAM_5_LITE_MODEL];
   }
   if (variant === "seedream-5-lite") {
-    return [process.env.SEEDREAM_AGENT_PLAN_MODEL || AGENT_PLAN_SEEDREAM_MODEL];
+    return [process.env.SEEDREAM_50_LITE_MODEL || process.env.SEEDREAM_5_LITE_MODEL || process.env.SEEDREAM_AGENT_PLAN_MODEL || SEEDREAM_5_LITE_MODEL];
   }
   const model = variant === "seedream-4-5"
     ? process.env.SEEDREAM_45_MODEL || process.env.SEEDREAM_4_5_MODEL || SEEDREAM_DEFAULT_MODEL["seedream-4-5"]
     : process.env.SEEDREAM_MODEL || SEEDREAM_DEFAULT_MODEL["seedream-4"];
   return [model];
+}
+
+function normalizeSeedreamSize(value: unknown): AssetImageSize | undefined {
+  return value === "4K" || value === "2K" ? value : undefined;
+}
+
+export interface SeedreamImageRequestBodyInput {
+  model: string;
+  prompt: string;
+  image?: string[];
+  size: AssetImageSize;
+  supportsOutputFormat: boolean;
+  webSearchPayload?: Record<string, unknown>;
+}
+
+export function buildSeedreamImageRequestBody(input: SeedreamImageRequestBodyInput) {
+  const refs = (input.image || []).filter(Boolean).slice(0, SEEDREAM_MAX_REFERENCE_IMAGES);
+  return {
+    model: input.model,
+    prompt: input.prompt,
+    ...(refs.length ? { image: refs } : {}),
+    response_format: "url",
+    size: input.size,
+    sequential_image_generation: "disabled",
+    ...(input.supportsOutputFormat ? { output_format: "png" } : {}),
+    stream: false,
+    watermark: false,
+    ...(input.webSearchPayload || {})
+  };
 }
 
 async function generateAssetImageViaSeedream(
@@ -732,9 +766,15 @@ async function generateAssetImageViaSeedream(
 ) {
   const credential = seedreamCredential();
   const lang: Lang = opts.lang === "en" ? "en" : "zh";
-  const composedPrompt = opts.promptOverride && opts.promptOverride.trim().length > 0
-    ? opts.promptOverride
-    : composeSeedreamAssetPrompt(asset, referenceImageUrls.length > 0, lang).composedPrompt;
+  const preparedRefs = await prepareSeedreamReferenceInputs(referenceImageUrls, asset.id, opts.referenceAssets);
+  const usableRefs = preparedRefs.map((ref) => ref.url);
+  const referenceAssets = preparedRefs.map((ref) => ref.asset).filter((ref): ref is NonNullable<typeof ref> => Boolean(ref));
+  const promptAsset = opts.promptOverride && opts.promptOverride.trim().length > 0
+    ? { ...asset, prompt: opts.promptOverride }
+    : asset;
+  const composedPrompt = composeSeedreamAssetPrompt(promptAsset, usableRefs.length > 0, lang, {
+    referenceAssets
+  }).composedPrompt;
   if (!credential.apiKey) {
     refuseFakeSuccessInProduction("Seedream image generation", SEEDREAM_KEY_ENVS);
     return {
@@ -745,11 +785,9 @@ async function generateAssetImageViaSeedream(
     };
   }
 
-  const usableRefs = await prepareSeedreamReferenceImages(referenceImageUrls, asset.id);
-
-  // Default to Seedream 4K for higher-fidelity role/scene anchors. Env override still wins so ops
-  // can temporarily lower cost/latency without touching code.
-  const size = process.env.SEEDREAM_SIZE || "4K";
+  // Default to 2K for faster image-node iteration. Env override remains available, while a
+  // per-node Inspector choice wins over the env default.
+  const size = normalizeSeedreamSize(opts.size) || normalizeSeedreamSize(process.env.SEEDREAM_SIZE) || "2K";
   // Seedream image generation: a POST that creates a result, not a side-effecting "create task"
   // — Seedream's API is request/response (the response body IS the image URL), so retry-on-
   // timeout is safe (no orphaned task to clean up). Wrap in fetchWithRetry so transient
@@ -765,16 +803,14 @@ async function generateAssetImageViaSeedream(
       idempotent: true,
       tag: `seedream:asset:${asset.id}`,
       headers: jsonHeaders(credential.apiKey),
-      body: JSON.stringify({
+      body: JSON.stringify(buildSeedreamImageRequestBody({
         model: modelId,
         prompt: composedPrompt,
-        ...(usableRefs.length ? { image: usableRefs.length === 1 ? usableRefs[0] : usableRefs } : {}),
-        response_format: "url",
+        image: usableRefs,
         size,
-        stream: false,
-        watermark: false,
-        ...seedreamWebSearchPayload()
-      })
+        supportsOutputFormat: variant === "seedream-5-lite",
+        webSearchPayload: seedreamWebSearchPayload()
+      }))
     });
 
     const text = await response.text();
@@ -804,17 +840,23 @@ async function generateAssetImageViaSeedream(
   throw lastMissingModelError instanceof Error ? lastMissingModelError : new Error(`Seedream model unavailable: ${modelIds.join(" / ")}`);
 }
 
-async function prepareSeedreamReferenceImages(urls: string[], assetId: string) {
-  const results: string[] = [];
+async function prepareSeedreamReferenceInputs(
+  urls: string[],
+  assetId: string,
+  assets: SeedreamGenerateOpts["referenceAssets"] = []
+) {
+  const results: Array<{ url: string; asset?: NonNullable<SeedreamGenerateOpts["referenceAssets"]>[number] }> = [];
   for (const [index, url] of urls.entries()) {
+    if (results.length >= SEEDREAM_MAX_REFERENCE_IMAGES) break;
     if (!url) continue;
+    const asset = assets[index];
     if (/^https?:\/\//.test(url)) {
-      results.push(url);
+      results.push({ url, asset });
       continue;
     }
     const dataUrl = url.startsWith("data:image/") ? url : url.startsWith("/media/") ? await readLocalMediaAsDataUrl(url) : undefined;
     if (!dataUrl) continue;
-    results.push(await upscaleReferenceImageDataUrl(dataUrl, assetId, index));
+    results.push({ url: await upscaleReferenceImageDataUrl(dataUrl, assetId, index), asset });
   }
   return results;
 }
@@ -1047,6 +1089,7 @@ async function generateShotVideoViaCustomEndpoint(shot: Shot, assets: Asset[], o
               media_kind: asset.mediaKind,
               image_url: getAssetMediaUrl(asset, "image"),
               video_url: getAssetMediaUrl(asset, "video"),
+              audio_url: getAssetMediaUrl(asset, "audio"),
               description: asset.description
             })))
       ]
@@ -1108,7 +1151,7 @@ async function generateShotVideoViaBytePlusArk(shot: Shot, assets: Asset[], cred
   throw new Error(`Seedance task ${taskId} timed out before video_url was ready`);
 }
 
-async function buildBytePlusSeedancePayload(shot: Shot, assets: Asset[], opts: BuildSeedancePayloadOpts = {}) {
+export async function buildBytePlusSeedancePayload(shot: Shot, assets: Asset[], opts: BuildSeedancePayloadOpts = {}) {
   const model = resolveSeedanceModel(shot, opts.credential);
   const lang: Lang = opts.lang === "en" ? "en" : "zh";
   // The shot can drive Seedance in three mutually exclusive anchor modes (anchored from strongest
@@ -1214,6 +1257,11 @@ async function buildBytePlusSeedancePayload(shot: Shot, assets: Asset[], opts: B
     : assets
         .map((asset) => ({ asset, url: getAssetMediaUrl(asset, "video") }))
         .filter((item): item is { asset: Asset; url: string } => Boolean(item.url && /^https?:\/\//.test(item.url) && !item.url.includes("placehold.co")));
+  const rawReferenceAudios = subShotActive || useFirstFrameMode
+    ? []
+    : assets
+        .map((asset) => ({ asset, url: getAssetMediaUrl(asset, "audio") }))
+        .filter((item): item is { asset: Asset; url: string } => Boolean(item.url && /^https?:\/\//.test(item.url) && !item.url.includes("placehold.co")));
   // Dedupe reference videos by URL (the user may have uploaded the same file twice and produced
   // two assets sharing one TOS URL) AND drop any that collide with continuityVideoUrl (the wired
   // refvideo doesn't need to be sent as both `continuity` and `@-mention` ref). Then cap at the
@@ -1231,34 +1279,46 @@ async function buildBytePlusSeedancePayload(shot: Shot, assets: Asset[], opts: B
   // Reserve 1 slot for continuityVideoUrl when it's set, then take up to (LIMIT - reserved).
   const continuitySlots = continuityUrlNorm ? 1 : 0;
   const referenceVideos = dedupedReferenceVideos.slice(0, Math.max(0, SEEDANCE_VIDEO_LIMIT - continuitySlots));
+  const SEEDANCE_AUDIO_LIMIT = 3;
+  const continuityAudioUrlNorm = continuityAudioUrl;
+  const seenAudioUrls = new Set<string>();
+  if (continuityAudioUrlNorm) seenAudioUrls.add(continuityAudioUrlNorm);
+  const dedupedReferenceAudios: typeof rawReferenceAudios = [];
+  for (const item of rawReferenceAudios) {
+    if (seenAudioUrls.has(item.url)) continue;
+    seenAudioUrls.add(item.url);
+    dedupedReferenceAudios.push(item);
+  }
+  const continuityAudioSlots = continuityAudioUrlNorm ? 1 : 0;
+  const referenceAudios = dedupedReferenceAudios.slice(0, Math.max(0, SEEDANCE_AUDIO_LIMIT - continuityAudioSlots));
 
   const promptAssetsForText = useFirstFrameMode && firstFrameAsset
     ? [firstFrameAsset]
     : subShotActive && subShotAsset
       ? [subShotAsset, ...subShotExtraReferences.map((r) => r.asset)]
-      : [...referenceImages, ...referenceVideos].map((item) => item.asset);
+      : [...referenceImages, ...referenceVideos, ...referenceAudios].map((item) => item.asset);
 
-  // Compose the text content. Two paths:
-  //   - opts.prebuiltText: caller has a user-edited final prompt; submit it verbatim.
-  //   - else: run promptCompose.composeSeedanceVideoText with the resolved context + lang.
+  // Compose the text content. If the caller has a user-edited final prompt (`prebuiltText`),
+  // keep that text at the head while still appending non-creative @reference binding metadata.
   // The composer is the single source of truth for the assembled text — same code path drives
   // dryRun preview returned by /api/shots/:id/generate?dryRun=true.
-  const textContentBase = opts.prebuiltText && opts.prebuiltText.trim().length > 0
-    ? opts.prebuiltText.trim()
-    : composeSeedanceVideoText(
-        {
-          shot,
-          referencedAssets: promptAssetsForText,
-          firstFrameAsset: useFirstFrameMode ? firstFrameAsset : undefined,
-          lastFrameAsset: useLastFrameMode ? lastFrameAsset : undefined,
-          subShotAsset: subShotActive ? subShotAsset : undefined,
-          subShotPanelCount: subShotActive ? subShotPanelCount : undefined,
-          hasContinuityVideo: Boolean(continuityVideoUrl),
-          hasContinuityAudio: Boolean(continuityAudioUrl),
-          resolution: process.env.SEEDANCE_RATIO || "16:9"
-        },
-        lang
-      ).composedPrompt;
+  const shotForText = opts.prebuiltText && opts.prebuiltText.trim().length > 0
+    ? { ...shot, rawPrompt: opts.prebuiltText.trim(), prompt: opts.prebuiltText.trim() }
+    : shot;
+  const textContentBase = composeSeedanceVideoText(
+    {
+      shot: shotForText,
+      referencedAssets: promptAssetsForText,
+      firstFrameAsset: useFirstFrameMode ? firstFrameAsset : undefined,
+      lastFrameAsset: useLastFrameMode ? lastFrameAsset : undefined,
+      subShotAsset: subShotActive ? subShotAsset : undefined,
+      subShotPanelCount: subShotActive ? subShotPanelCount : undefined,
+      hasContinuityVideo: Boolean(continuityVideoUrl),
+      hasContinuityAudio: Boolean(continuityAudioUrl),
+      resolution: process.env.SEEDANCE_RATIO || "16:9"
+    },
+    lang
+  ).composedPrompt;
   const textContent = textContentBase;
 
   return {
@@ -1314,6 +1374,11 @@ async function buildBytePlusSeedancePayload(shot: Shot, assets: Asset[], opts: B
         type: "video_url",
         video_url: { url },
         role: "reference_video"
+      })),
+      ...referenceAudios.map(({ url }) => ({
+        type: "audio_url",
+        audio_url: { url },
+        role: "reference_audio"
       }))
     ],
     generate_audio: opts.generateAudio !== undefined ? opts.generateAudio : (process.env.SEEDANCE_GENERATE_AUDIO !== "false"),
@@ -1440,10 +1505,11 @@ function resolveMediaPath(url: string) {
   return candidate.startsWith(`${MEDIA_DIR}${path.sep}`) ? candidate : undefined;
 }
 
-function getAssetMediaUrl(asset: Asset, kind: "image" | "video") {
+function getAssetMediaUrl(asset: Asset, kind: "image" | "video" | "audio") {
   const mediaKind = asset.mediaKind || (asset.imageUrl ? "image" : "none");
-  if (kind === "image" && mediaKind === "image") return toPublicMediaUrl(asset.mediaUrl || asset.imageUrl);
+  if (kind === "image" && mediaKind === "image") return toPublicMediaUrl(asset.sourceImageUrl || asset.referenceImageUrl || asset.mediaUrl || asset.imageUrl);
   if (kind === "video" && mediaKind === "video") return toPublicMediaUrl(asset.mediaUrl || asset.imageUrl);
+  if (kind === "audio" && mediaKind === "audio") return toPublicMediaUrl(asset.musicAudioUrl || asset.musicLocalAudioUrl || asset.voicePreviewAudioUrl || asset.mediaUrl);
   return undefined;
 }
 
@@ -2066,7 +2132,7 @@ async function normalizeStitchInputVideo(
   return outputPath;
 }
 
-function probeVideoDimensions(filePath: string) {
+export function probeVideoDimensions(filePath: string) {
   return new Promise<{ width: number; height: number }>((resolve, reject) => {
     const child = spawn(ffmpeg.path, ["-hide_banner", "-i", filePath], { stdio: ["ignore", "ignore", "pipe"] });
     let stderr = "";

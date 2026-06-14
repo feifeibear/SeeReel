@@ -2,10 +2,13 @@ import { useEffect, useRef, useState } from "react";
 import type {
   Asset,
   AssetImageModel,
+  AssetImageSize,
   AudioTrackMode,
   MusicGenerationKind,
   NarrationSubtitleMode,
   NarrationSubtitlePosition,
+  PostProductionAudioMode,
+  PostProductionSubtitleMode,
   SeedanceVariant,
   Shot,
   SessionWithShots,
@@ -23,7 +26,9 @@ import { useI18n } from "../i18n";
 import { resolveNodeReviewEnabled } from "../../shared/reviewSettings";
 import { selectedShotPendingRender } from "../../shared/shotGenerationState";
 import { VOICE_PRESETS, voicePresetForId } from "../../shared/voicePresets";
+import { normalizeAssetImageModel, resolveAssetImageModelSelection } from "../../shared/imageModels";
 import { isShotVideoUpdatedAfterFinal } from "./stitchFreshness";
+import { assetThumbUrl as assetPreviewUrl } from "./mediaUrls";
 
 const INSPECTOR_SEEDANCE_OPTIONS: Array<{ value: SeedanceVariant; label: string }> = [
   { value: "standard", label: "Seedance 2.0" },
@@ -31,9 +36,13 @@ const INSPECTOR_SEEDANCE_OPTIONS: Array<{ value: SeedanceVariant; label: string 
 ];
 const INSPECTOR_ASSET_MODEL_OPTIONS: Array<{ value: AssetImageModel; label: string }> = [
   { value: "seedream-4-5", label: "Seedream 4.5" },
-  { value: "seedream-5-lite", label: "Seedream 5 Lite (Agent Plan)" },
+  { value: "seedream-5-lite", label: "Seedream 5.0 Lite" },
   { value: "seedream-4", label: "Seedream 4" },
   { value: "gpt-image-2", label: "GPT-Image-2" }
+];
+const INSPECTOR_ASSET_SIZE_OPTIONS: Array<{ value: AssetImageSize; label: string }> = [
+  { value: "2K", label: "2K" },
+  { value: "4K", label: "4K" }
 ];
 
 /**
@@ -100,10 +109,6 @@ function ZoomablePreview({
   );
 }
 
-function assetPreviewUrl(asset: { mediaUrl?: string; imageUrl?: string; referenceImageUrl?: string }) {
-  return asset.mediaUrl || asset.imageUrl || asset.referenceImageUrl;
-}
-
 function normalizeReviewPrompt(value?: string | null) {
   return (value || "").replace(/\s+/g, " ").trim();
 }
@@ -124,18 +129,19 @@ function formatActualImageModel(asset?: { generationModelActual?: string; genera
   const actual = asset?.generationModelActual;
   if (!actual) return undefined;
   const source = asset.generationCredentialSource === "agent-plan" ? " / Agent Plan" : "";
-  if (actual.includes("seedream-5.0-lite") || actual.includes("seedream-5-lite")) return `Seedream 5 Lite${source} (${actual})`;
-  if (actual.includes("seedream-4-5")) return `Seedream 4.5 (${actual})`;
-  if (actual.includes("seedream-4-0") || actual.includes("seedream-4")) return `Seedream 4 (${actual})`;
+  const model = normalizeAssetImageModel(actual);
+  if (model === "seedream-5-lite") return `Seedream 5.0 Lite${source} (${actual})`;
+  if (model === "seedream-4-5") return `Seedream 4.5 (${actual})`;
+  if (model === "seedream-4") return `Seedream 4 (${actual})`;
   return actual;
 }
 
 function effectiveAssetGenerateModel(asset: Asset, fallback?: AssetImageModel): AssetImageModel {
-  const actual = asset.generationModelActual;
-  if (actual?.includes("seedream-5.0-lite") || actual?.includes("seedream-5-lite")) return "seedream-5-lite";
-  if (actual?.includes("seedream-4-5")) return "seedream-4-5";
-  if (actual?.includes("seedream-4-0") || actual?.includes("seedream-4")) return "seedream-4";
-  return asset.generationModel || fallback || "seedream-4-5";
+  return resolveAssetImageModelSelection(asset, fallback);
+}
+
+function effectiveAssetImageSize(asset: Asset): AssetImageSize {
+  return asset.seedreamSize === "4K" ? "4K" : "2K";
 }
 
 type ReviewSummarySource = {
@@ -386,7 +392,7 @@ export function Inspector({ selected, session, allAssets, visionReviewEnabled, d
     return <ShotInspector shot={selected.shot} session={session} allAssets={allAssets} onMutated={onMutated} onDeleteCanvasShot={onDeleteCanvasShot} onClose={onClose} visionReviewEnabled={visionReviewEnabled} />;
   }
   if (selected.kind === "stitch") {
-    return <StitchInspector session={selected.session} job={selected.job} legacy={selected.legacy} onMutated={onMutated} onSetStitchOrder={onSetStitchOrder} onClose={onClose} />;
+    return <StitchInspector session={selected.session} job={selected.job} legacy={selected.legacy} allAssets={allAssets} onMutated={onMutated} onSetStitchOrder={onSetStitchOrder} onClose={onClose} />;
   }
   if (selected.kind === "audioTrack") {
     return <AudioTrackInspector session={selected.session} job={selected.job} allAssets={allAssets} onMutated={onMutated} onClose={onClose} />;
@@ -492,6 +498,8 @@ function AssetInspector({ asset, session, allAssets, onMutated, onDeleteCanvasAs
   const [prompt, setPrompt] = useState(asset.prompt || "");
   const [description, setDescription] = useState(asset.description || "");
   const [composedDraft, setComposedDraft] = useState("");
+  const [imageModel, setImageModel] = useState<AssetImageModel>(() => effectiveAssetGenerateModel(asset, defaultImageModel));
+  const [imageSize, setImageSize] = useState<AssetImageSize>(() => effectiveAssetImageSize(asset));
   const [busy, setBusy] = useState<"" | "save" | "preview" | "generate" | "review" | "delete" | "repair">("");
   const [error, setError] = useState<string>("");
   // "saved / saving / dirty" status badge for the topbar of the Inspector. Drives the auto-save
@@ -510,10 +518,12 @@ function AssetInspector({ asset, session, allAssets, onMutated, onDeleteCanvasAs
     setPrompt(asset.prompt || "");
     setDescription(asset.description || "");
     setComposedDraft("");
+    setImageModel(effectiveAssetGenerateModel(asset, defaultImageModel));
+    setImageSize(effectiveAssetImageSize(asset));
     setError("");
     setSaveStatus("saved");
     pendingFlushRef.current = null;
-  }, [asset.id]);
+  }, [asset.id, asset.generationModel, asset.generationModelActual, asset.seedreamSize, defaultImageModel]);
 
   /**
    * Auto-save: every textarea / input change is debounced (~600 ms) and PATCH-saved automatically.
@@ -627,9 +637,10 @@ function AssetInspector({ asset, session, allAssets, onMutated, onDeleteCanvasAs
     setBusy("");
     void pending.run(asset.id, async () => {
       try {
-        await api.generateAsset(asset.id, effectiveAssetGenerateModel(asset, defaultImageModel), {
+        await api.generateAsset(asset.id, imageModel, {
           visionReview: resolveNodeReviewEnabled(visionReviewEnabled, asset.vlmReviewEnabled),
-          composedPrompt: undefined
+          composedPrompt: undefined,
+          seedreamSize: imageSize
         });
         await onMutated();
       } catch (err) {
@@ -689,20 +700,49 @@ function AssetInspector({ asset, session, allAssets, onMutated, onDeleteCanvasAs
       />
       <label>{tr("图片模型", "Image model")}
         <select
-          value={effectiveAssetGenerateModel(asset, defaultImageModel)}
+          value={imageModel}
           disabled={Boolean(busy)}
           title={tr("下一次出图使用的模型版本", "Model version used for the next image generation")}
           onChange={async (e) => {
+            const nextModel = e.target.value as AssetImageModel;
+            const previousModel = imageModel;
+            setImageModel(nextModel);
             setBusy("save"); setError("");
             try {
-              await api.saveAsset({ id: asset.id, generationModel: e.target.value as AssetImageModel });
+              await api.saveAsset({ id: asset.id, generationModel: nextModel });
               await onMutated();
             } catch (err) {
+              setImageModel(previousModel);
               setError(err instanceof Error ? err.message : tr("设置图片模型失败", "Failed to set image model"));
             } finally { setBusy(""); }
           }}
         >
           {INSPECTOR_ASSET_MODEL_OPTIONS.map((option) => (
+            <option key={option.value} value={option.value}>{option.label}</option>
+          ))}
+        </select>
+      </label>
+
+      <label>{tr("图片分辨率", "Image resolution")}
+        <select
+          value={imageSize}
+          disabled={Boolean(busy)}
+          title={tr("下一次 Seedream 出图使用的分辨率；默认 2K，4K 更慢", "Resolution used for the next Seedream image generation; 2K is the default, 4K is slower")}
+          onChange={async (e) => {
+            const nextSize = e.target.value as AssetImageSize;
+            const previousSize = imageSize;
+            setImageSize(nextSize);
+            setBusy("save"); setError("");
+            try {
+              await api.saveAsset({ id: asset.id, seedreamSize: nextSize });
+              await onMutated();
+            } catch (err) {
+              setImageSize(previousSize);
+              setError(err instanceof Error ? err.message : tr("设置图片分辨率失败", "Failed to set image resolution"));
+            } finally { setBusy(""); }
+          }}
+        >
+          {INSPECTOR_ASSET_SIZE_OPTIONS.map((option) => (
             <option key={option.value} value={option.value}>{option.label}</option>
           ))}
         </select>
@@ -2017,17 +2057,34 @@ function ShotInspector({ shot, session, allAssets, visionReviewEnabled, onMutate
 // Stitch inspector
 // ============================================================================
 
-function StitchInspector({ session, job, legacy, onMutated, onSetStitchOrder, onClose }: {
+function StitchInspector({ session, job, legacy, allAssets, onMutated, onSetStitchOrder, onClose }: {
   session: SessionWithShots;
   job: StitchJob;
   legacy?: boolean;
+  allAssets: Asset[];
   onMutated: () => Promise<void> | void;
   onSetStitchOrder: (jobId: string, shotIds: string[], legacy?: boolean) => Promise<void> | void;
   onClose: () => void;
 }) {
-  const [busy, setBusy] = useState<"" | "stitch" | "review" | "order">("");
+  const [busy, setBusy] = useState<"" | "stitch" | "review" | "order" | "post" | "subtitle">("");
   const [error, setError] = useState<string>("");
   const [dragIndex, setDragIndex] = useState<number | null>(null);
+  const [postProgress, setPostProgress] = useState(session.postProductionProgress || "");
+  const [postTitle, setPostTitle] = useState(session.postProductionTitle || session.title || "");
+  const [postSubtitle, setPostSubtitle] = useState(session.postProductionSubtitle || "");
+  const [postCoverAssetId, setPostCoverAssetId] = useState(session.postProductionCoverAssetId || "");
+  const [postSubtitleMode, setPostSubtitleMode] = useState<PostProductionSubtitleMode>(session.postProductionSubtitleMode || "none");
+  const [postSubtitleText, setPostSubtitleText] = useState(session.postProductionSubtitleText || "");
+  const [postAudioMode, setPostAudioMode] = useState<PostProductionAudioMode>(session.postProductionAudioMode || "source");
+  const [postVoiceoverScript, setPostVoiceoverScript] = useState(session.postProductionVoiceoverScript || "");
+  const [postVoiceAssetId, setPostVoiceAssetId] = useState(session.postProductionVoiceAssetId || "");
+  const [postVoice, setPostVoice] = useState(session.postProductionVoice || "");
+  const [postMusicPrompt, setPostMusicPrompt] = useState(session.postProductionMusicPrompt || "");
+  const [postMusicLyrics, setPostMusicLyrics] = useState(session.postProductionMusicLyrics || "");
+  const [postMusicKind, setPostMusicKind] = useState<MusicGenerationKind>(session.postProductionMusicKind || "bgm");
+  const [postMusicDurationSec, setPostMusicDurationSec] = useState(session.postProductionMusicDurationSec || session.targetDurationSec || 60);
+  const [postSourceVolume, setPostSourceVolume] = useState(session.postProductionSourceVolume ?? 0.25);
+  const [postAudioVolume, setPostAudioVolume] = useState(session.postProductionAudioVolume ?? 1.2);
   const { lang, t } = useI18n();
   const tr = (zh: string, en: string) => (lang === "en" ? en : zh);
 
@@ -2053,10 +2110,27 @@ function StitchInspector({ session, job, legacy, onMutated, onSetStitchOrder, on
   const jobId = legacy ? undefined : job.id;
   const title = job.name || t.nodes.fullVideo;
   const finalVideoStale = Boolean(job.finalVideoStale || (legacy && session.finalVideoStale));
+  const postProductionStale = Boolean(
+    session.postProductionBuiltForFinalVideoSignature
+    && job.finalVideoSignature
+    && session.postProductionBuiltForFinalVideoSignature !== job.finalVideoSignature
+  );
+  const postIsRunning = busy === "post" || busy === "subtitle" || session.postProductionStatus === "running";
   const unlistedShotIds = job.unlistedShotIds || (legacy ? session.stitchUnlistedShotIds || [] : []);
   const unlistedShots = unlistedShotIds.map((shotId) => shotById.get(shotId)).filter((shot): shot is Shot => Boolean(shot));
   const effectiveIdSet = new Set(effectiveIds);
   const availableStitchShots = stitchableShots.filter((shot) => !effectiveIdSet.has(shot.id));
+  const imageAssets = allAssets.filter((asset) => {
+    if (!["image", "character", "scene", "prop", "style"].includes(asset.type)) return false;
+    if (asset.ownerShotId) return false;
+    if (asset.ownerSessionId && asset.ownerSessionId !== session.id) return false;
+    return Boolean(assetPreviewUrl(asset));
+  });
+  const voiceAssets = allAssets.filter((asset) => asset.ownerSessionId === session.id && asset.type === "voice");
+
+  useEffect(() => {
+    setPostProgress(session.postProductionProgress || "");
+  }, [session.postProductionProgress, session.postProductionUpdatedAt]);
 
   const saveOrder = async (nextIds: string[]) => {
     setBusy("order"); setError("");
@@ -2125,6 +2199,63 @@ function StitchInspector({ session, job, legacy, onMutated, onSetStitchOrder, on
       await onMutated();
     } catch (err) { setError(err instanceof Error ? err.message : tr("VLM 终审失败", "Final VLM review failed")); }
     finally { setBusy(""); }
+  };
+
+  const runPostProduction = async () => {
+    if (postAudioMode === "voiceover" && !postVoiceoverScript.trim()) {
+      setError(tr("请先填写旁白文本。", "Write the voiceover script first."));
+      return;
+    }
+    if (postAudioMode === "music" && !postMusicPrompt.trim()) {
+      setError(tr("请先填写音乐提示词。", "Write a music prompt first."));
+      return;
+    }
+    setBusy("post"); setError(""); setPostProgress("queued");
+    try {
+      await api.postProduce(session.id, {
+        jobId,
+        title: postTitle.trim(),
+        subtitle: postSubtitle.trim(),
+        coverAssetId: postCoverAssetId || undefined,
+        subtitleMode: postSubtitleMode,
+        subtitleText: postSubtitleText,
+        audioMode: postAudioMode,
+        voice: postVoice.trim() || undefined,
+        voiceAssetId: postVoiceAssetId || undefined,
+        voiceoverScript: postVoiceoverScript,
+        musicKind: postMusicKind,
+        musicPrompt: postMusicPrompt,
+        musicLyrics: postMusicKind === "song" ? postMusicLyrics : undefined,
+        musicDurationSec: postMusicDurationSec,
+        sourceVolume: postAudioMode === "source" ? 1 : postSourceVolume,
+        audioVolume: postAudioVolume
+      }, (snapshot) => setPostProgress(snapshot.postProductionProgress || snapshot.postProductionStatus || ""));
+      await onMutated();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : tr("生成包装版失败", "Post-production package failed"));
+      await onMutated();
+    } finally {
+      setBusy("");
+    }
+  };
+
+  const autoTranscribeSubtitles = async () => {
+    setBusy("subtitle"); setError("");
+    try {
+      const result = await api.transcribePostProductionSubtitles(session.id, {
+        jobId,
+        audioMode: postAudioMode,
+        voiceoverScript: postVoiceoverScript,
+        language: session.language || (lang === "en" ? "en" : "zh")
+      });
+      setPostSubtitleMode("manual");
+      setPostSubtitleText(result.subtitleText);
+      await onMutated();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : tr("自动识别字幕失败", "Automatic subtitle transcription failed"));
+    } finally {
+      setBusy("");
+    }
   };
 
   return (
@@ -2357,6 +2488,278 @@ function StitchInspector({ session, job, legacy, onMutated, onSetStitchOrder, on
             fallbackAt={job.updatedAt}
             fallbackLabel={tr("最近拼接更新时间", "Last stitch updated at")}
           />
+        </details>
+      )}
+      {job.finalVideoUrl && !isStitching && (
+        <details className="inspector-fold" open>
+          <summary>{tr("后期包装 · HyperFrames", "Post-production · HyperFrames")}</summary>
+          <div className="inspector-section">
+            <label>
+              {tr("标题", "Title")}
+              <input
+                value={postTitle}
+                onChange={(e) => setPostTitle(e.target.value)}
+                disabled={postIsRunning}
+                placeholder={tr("发布版片名", "Publishing title")}
+              />
+            </label>
+            <label>
+              {tr("副标题（可选）", "Subtitle (optional)")}
+              <input
+                value={postSubtitle}
+                onChange={(e) => setPostSubtitle(e.target.value)}
+                disabled={postIsRunning}
+                placeholder={tr("一句宣传语或集数信息", "Tagline or episode note")}
+              />
+            </label>
+            <label>
+              {tr("封面图", "Cover image")}
+              <select
+                value={postCoverAssetId}
+                onChange={(e) => setPostCoverAssetId(e.target.value)}
+                disabled={postIsRunning}
+              >
+                <option value="">{tr("不用封面图，仅使用标题卡", "No cover image, title card only")}</option>
+                {imageAssets.map((asset) => (
+                  <option key={asset.id} value={asset.id}>{asset.name || asset.id}</option>
+                ))}
+              </select>
+            </label>
+            <div className="inspector-hint">
+              {tr("包装版不会覆盖当前完整视频，会生成一个新的发布版 MP4。", "The package does not overwrite the stitched video; it creates a new publishable MP4.")}
+            </div>
+          </div>
+
+          <div className="inspector-section">
+            <strong>{tr("字幕", "Subtitles")}</strong>
+            <div className="audio-track-segment">
+              {([
+                { id: "none", label: tr("不加字幕", "No subtitles") },
+                { id: "manual", label: tr("输入字幕", "Manual subtitles") }
+              ] as Array<{ id: PostProductionSubtitleMode; label: string }>).map((option) => (
+                <button
+                  key={option.id}
+                  type="button"
+                  className={postSubtitleMode === option.id ? "primary" : "ghost-action"}
+                  disabled={postIsRunning}
+                  onClick={() => setPostSubtitleMode(option.id)}
+                >
+                  {option.label}
+                </button>
+              ))}
+            </div>
+            <div className="inspector-actions compact-actions">
+              <button
+                type="button"
+                className="ghost-action"
+                onClick={autoTranscribeSubtitles}
+                disabled={postIsRunning || !job.finalVideoUrl}
+                title={tr("从当前完整视频音轨自动生成 SRT；如果已填写火山旁白文本，则直接用旁白文本生成时间轴。", "Generate SRT from the current full-video audio track; if a Volcengine voiceover script is present, build the timeline from that script directly.")}
+              >
+                {busy === "subtitle"
+                  ? tr("识别中...", "Transcribing...")
+                  : postAudioMode === "voiceover" && postVoiceoverScript.trim()
+                  ? tr("从旁白生成字幕", "Build subtitles from voiceover")
+                  : tr("自动识别字幕", "Auto transcribe subtitles")}
+              </button>
+            </div>
+            {postSubtitleMode === "manual" && (
+              <label>
+                {tr("字幕文本 / SRT", "Subtitle text / SRT")}
+                <textarea
+                  value={postSubtitleText}
+                  onChange={(e) => setPostSubtitleText(e.target.value)}
+                  disabled={postIsRunning}
+                  rows={6}
+                  placeholder={tr("可粘贴 SRT；也可以一行一句，系统会平均铺到视频时间线上。", "Paste SRT, or write one caption per line to distribute across the timeline.")}
+                />
+              </label>
+            )}
+          </div>
+
+          <div className="inspector-section">
+            <strong>{tr("音乐 / 旁白", "Music / voiceover")}</strong>
+            <div className="audio-track-segment">
+              {([
+                { id: "source", label: tr("保留原声", "Original audio") },
+                { id: "voiceover", label: tr("火山旁白", "Volcengine voiceover") },
+                { id: "music", label: tr("火山音乐", "Volcengine music") }
+              ] as Array<{ id: PostProductionAudioMode; label: string }>).map((option) => (
+                <button
+                  key={option.id}
+                  type="button"
+                  className={postAudioMode === option.id ? "primary" : "ghost-action"}
+                  disabled={postIsRunning}
+                  onClick={() => setPostAudioMode(option.id)}
+                >
+                  {option.label}
+                </button>
+              ))}
+            </div>
+            {postAudioMode === "voiceover" && (
+              <>
+                <label>
+                  {tr("旁白文本", "Voiceover script")}
+                  <textarea
+                    value={postVoiceoverScript}
+                    onChange={(e) => setPostVoiceoverScript(e.target.value)}
+                    disabled={postIsRunning}
+                    rows={5}
+                    placeholder={tr("写入要由火山 TTS 生成的旁白。", "Write the voiceover to synthesize with Volcengine TTS.")}
+                  />
+                </label>
+                <label>
+                  {tr("声音节点（可选）", "Voice node (optional)")}
+                  <select
+                    value={postVoiceAssetId}
+                    onChange={(e) => {
+                      const nextId = e.target.value;
+                      setPostVoiceAssetId(nextId);
+                      const selectedVoice = voiceAssets.find((asset) => asset.id === nextId);
+                      if (selectedVoice?.voiceId) setPostVoice(selectedVoice.voiceId);
+                    }}
+                    disabled={postIsRunning}
+                  >
+                    <option value="">{tr("不用声音节点", "No voice node")}</option>
+                    {voiceAssets.map((asset) => (
+                      <option key={asset.id} value={asset.id}>{asset.name || asset.id}</option>
+                    ))}
+                  </select>
+                </label>
+                <label>
+                  {tr("声音 ID（可选）", "Voice ID (optional)")}
+                  <input
+                    value={postVoice}
+                    onChange={(e) => setPostVoice(e.target.value)}
+                    disabled={postIsRunning}
+                    placeholder="zh_male_M392_conversation_wvae_bigtts"
+                  />
+                </label>
+              </>
+            )}
+            {postAudioMode === "music" && (
+              <>
+                <label>
+                  {tr("音乐提示词", "Music prompt")}
+                  <textarea
+                    value={postMusicPrompt}
+                    onChange={(e) => setPostMusicPrompt(e.target.value)}
+                    disabled={postIsRunning}
+                    rows={4}
+                    placeholder={tr("悬疑短剧发布版 BGM，低频弦乐，冷色电子脉冲。", "Suspense short-drama publishing BGM, low strings, cold electronic pulse.")}
+                  />
+                </label>
+                <div className="audio-track-segment">
+                  {([
+                    { id: "bgm", label: tr("纯音乐", "BGM") },
+                    { id: "song", label: tr("人声歌曲", "Song") }
+                  ] as Array<{ id: MusicGenerationKind; label: string }>).map((option) => (
+                    <button
+                      key={option.id}
+                      type="button"
+                      className={postMusicKind === option.id ? "primary" : "ghost-action"}
+                      disabled={postIsRunning}
+                      onClick={() => setPostMusicKind(option.id)}
+                    >
+                      {option.label}
+                    </button>
+                  ))}
+                </div>
+                {postMusicKind === "song" && (
+                  <label>
+                    {tr("歌词（可选）", "Lyrics (optional)")}
+                    <textarea
+                      value={postMusicLyrics}
+                      onChange={(e) => setPostMusicLyrics(e.target.value)}
+                      disabled={postIsRunning}
+                      rows={3}
+                      placeholder={tr("留空时由模型根据提示词生成。", "Leave blank to let the model write lyrics from the prompt.")}
+                    />
+                  </label>
+                )}
+                <label>
+                  {tr("音乐时长（秒）", "Music duration (sec)")}
+                  <input
+                    type="number"
+                    min={30}
+                    max={postMusicKind === "song" ? 240 : 120}
+                    value={postMusicDurationSec}
+                    disabled={postIsRunning}
+                    onChange={(e) => setPostMusicDurationSec(Number(e.target.value))}
+                  />
+                </label>
+              </>
+            )}
+            {postAudioMode !== "source" && (
+              <>
+                <label className="range-label">
+                  <span>{tr("原视频声音", "Original audio")} {postSourceVolume.toFixed(2)}x</span>
+                  <input
+                    type="range"
+                    min="0"
+                    max="1"
+                    step="0.05"
+                    value={postSourceVolume}
+                    disabled={postIsRunning}
+                    onChange={(e) => setPostSourceVolume(Number(e.target.value))}
+                  />
+                </label>
+                <label className="range-label">
+                  <span>{postAudioMode === "music" ? tr("音乐音量", "Music volume") : tr("旁白音量", "Voiceover volume")} {postAudioVolume.toFixed(2)}x</span>
+                  <input
+                    type="range"
+                    min="0"
+                    max="2"
+                    step="0.05"
+                    value={postAudioVolume}
+                    disabled={postIsRunning}
+                    onChange={(e) => setPostAudioVolume(Number(e.target.value))}
+                  />
+                </label>
+              </>
+            )}
+          </div>
+
+          <div className="inspector-actions">
+            <button type="button" className="primary" onClick={runPostProduction} disabled={postIsRunning || !job.finalVideoUrl}>
+              {postIsRunning
+                ? tr("生成包装版中...", "Rendering package...")
+                : session.postProductionVideoUrl
+                ? tr("重新生成包装版", "Regenerate package")
+                : tr("生成包装版", "Render package")}
+            </button>
+          </div>
+          {(postProgress || session.postProductionStatus) && (
+            <div className="inspector-hint">
+              {tr("包装状态：", "Package status: ")}
+              <strong>{postProgress || session.postProductionStatus}</strong>
+              {postProductionStale && <span style={{ color: "#fbbf24" }}> {tr("完整视频已更新，请重新生成包装版。", "The full video changed; regenerate the package.")}</span>}
+            </div>
+          )}
+          {session.postProductionVideoUrl && session.postProductionStatus === "ready" && (
+            <a
+              className="inspector-download"
+              href={api.downloadPostProductionVideoUrl(session.id)}
+              download={`${session.title || session.id}-后期包装版.mp4`}
+              onClick={() => emitDownloadToast(`${session.title || session.id}-后期包装版.mp4`)}
+            >
+              {tr("⬇ 下载包装版", "⬇ Download packaged video")}
+            </a>
+          )}
+          {session.postProductionVideoUrl && session.postProductionStatus === "ready" && (
+            <ZoomablePreview
+              url={`${session.postProductionVideoUrl}?v=${encodeURIComponent(session.postProductionUpdatedAt || session.postProductionSignature || session.id)}`}
+              mediaKind="video"
+              title={`${session.title} · ${tr("后期包装版", "Post-production package")}`}
+              downloadUrl={api.downloadPostProductionVideoUrl(session.id)}
+              downloadFilename={`${session.title || session.id}-后期包装版.mp4`}
+              generatedAt={session.postProductionUpdatedAt}
+              generatedLabel={tr("包装版生成时间", "Package generated at")}
+              fallbackAt={session.updatedAt}
+              fallbackLabel={tr("最近更新时间", "Last updated at")}
+            />
+          )}
+          {session.postProductionError && <div className="inspector-error">{session.postProductionError}</div>}
         </details>
       )}
       {job.finalVideoUrl && !isStitching && (

@@ -1,6 +1,7 @@
 import type {
   Asset,
   AssetImageModel,
+  AssetImageSize,
   AdminAgentPlanStatus,
   AdminSecurityStatus,
   AdminUserAgentPlanCredentialList,
@@ -15,6 +16,8 @@ import type {
   NarrationStrategy,
   NarrationSubtitleMode,
   NarrationSubtitlePosition,
+  PostProductionAudioMode,
+  PostProductionSubtitleMode,
   PromptComposition,
   SessionWithShots,
   SessionPackage,
@@ -302,7 +305,7 @@ export const api = {
   generateAsset: (
     assetId: string,
     model?: AssetImageModel,
-    opts?: { visionReview?: boolean; composedPrompt?: string }
+    opts?: { visionReview?: boolean; composedPrompt?: string; seedreamSize?: AssetImageSize }
   ) =>
     request<Asset>(`/api/assets/${assetId}/generate`, {
       method: "POST",
@@ -397,7 +400,7 @@ export const api = {
       size?: string;
       referenceAssetIds?: string[];
       composedPrompt?: string;
-      /** Optional Seedream variant: "seedream-4", "seedream-4-5", or "seedream-5-lite". Defaults to the shot's saved variant. */
+      /** Optional Seedream variant: "seedream-4", "seedream-4-5", "seedream-5-lite", or "seedream-5.0-lite". Defaults to the shot's saved variant. */
       model?: SubStoryboardModel;
       /**
        * `composite` (default) — one Seedream group call returns ONE composite image with N
@@ -581,7 +584,57 @@ export const api = {
     return await pollAudioSeparation(sessionId, onProgress);
   },
   pollAudioSeparationOnce: (sessionId: string) =>
-    request<SessionWithShots>(`/api/sessions/${sessionId}/audio-separation/poll`, { method: "POST" })
+    request<SessionWithShots>(`/api/sessions/${sessionId}/audio-separation/poll`, { method: "POST" }),
+  postProduce: async (
+    sessionId: string,
+    payload: {
+      jobId?: string;
+      title?: string;
+      subtitle?: string;
+      coverAssetId?: string;
+      subtitleMode?: PostProductionSubtitleMode;
+      subtitleText?: string;
+      audioMode?: PostProductionAudioMode;
+      voice?: string;
+      voiceAssetId?: string;
+      voiceoverScript?: string;
+      musicKind?: MusicGenerationKind;
+      musicPrompt?: string;
+      musicLyrics?: string;
+      musicDurationSec?: number;
+      sourceVolume?: number;
+      audioVolume?: number;
+    },
+    onProgress?: (snapshot: SessionWithShots) => void
+  ): Promise<SessionWithShots> => {
+    const initial = await request<SessionWithShots>(`/api/sessions/${sessionId}/post-production`, {
+      method: "POST",
+      body: JSON.stringify(payload)
+    });
+    onProgress?.(initial);
+    if (initial.postProductionStatus === "ready") return initial;
+    if (initial.postProductionStatus === "error") {
+      throw new Error(initial.postProductionError || "Post-production failed");
+    }
+    return await pollPostProduction(sessionId, onProgress);
+  },
+  pollPostProductionOnce: (sessionId: string) =>
+    request<SessionWithShots>(`/api/sessions/${sessionId}/post-production/poll`, { method: "POST" }),
+  transcribePostProductionSubtitles: (
+    sessionId: string,
+    payload: {
+      jobId?: string;
+      audioMode?: PostProductionAudioMode;
+      voiceoverScript?: string;
+      language?: string;
+      model?: string;
+    }
+  ) =>
+    request<{ subtitleText: string; source: "voiceover-script" | "hyperframes-transcribe" | "volc-asr"; session: SessionWithShots }>(
+      `/api/sessions/${sessionId}/post-production/transcribe-subtitles`,
+      { method: "POST", body: JSON.stringify(payload) }
+    ),
+  downloadPostProductionVideoUrl: (sessionId: string) => `/api/sessions/${sessionId}/post-production/download`
 };
 
 async function pollStitch(
@@ -632,6 +685,21 @@ async function pollAudioSeparation(
     if (snapshot.audioSeparationStatus === "ready") return snapshot;
     if (snapshot.audioSeparationStatus === "error") {
       throw new Error(snapshot.audioSeparationError || "Audio separation failed");
+    }
+  }
+}
+
+async function pollPostProduction(
+  sessionId: string,
+  onProgress?: (snapshot: SessionWithShots) => void
+): Promise<SessionWithShots> {
+  for (;;) {
+    await new Promise((resolve) => setTimeout(resolve, 3000));
+    const snapshot = await request<SessionWithShots>(`/api/sessions/${sessionId}/post-production/poll`, { method: "POST" });
+    onProgress?.(snapshot);
+    if (snapshot.postProductionStatus === "ready") return snapshot;
+    if (snapshot.postProductionStatus === "error") {
+      throw new Error(snapshot.postProductionError || "Post-production failed");
     }
   }
 }

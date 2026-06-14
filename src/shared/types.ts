@@ -1,6 +1,7 @@
 export type AssetType = "image" | "character" | "scene" | "prop" | "style" | "voice" | "music" | "other";
 export type AssetMediaKind = "image" | "video" | "audio" | "none";
 export type AssetImageModel = "gpt-image-2" | "seedream-4" | "seedream-4-5" | "seedream-5-lite";
+export type AssetImageSize = "2K" | "4K";
 export type StandardApiKeyRoute = "byteplus" | "volcengine-cn";
 /** Seedream-only subset of AssetImageModel that the sub-storyboard endpoint supports (no gpt-image-2). */
 export type SubStoryboardModel = "seedream-4" | "seedream-4-5" | "seedream-5-lite";
@@ -12,6 +13,9 @@ export type SeedanceVariant = "fast" | "standard";
 export type AudioTrackMode = "voiceover" | "music";
 export type MusicGenerationKind = "bgm" | "song";
 export type AudioSeparationStatus = "idle" | "running" | "ready" | "error";
+export type PostProductionStatus = "idle" | "running" | "ready" | "error";
+export type PostProductionAudioMode = "source" | "voiceover" | "music";
+export type PostProductionSubtitleMode = "none" | "manual";
 /**
  * Sub-phase of a `generating` shot/render so the UI can distinguish "still queued at Seedance"
  * (the task is accepted but no GPU has picked it up yet — common during peak hours, can sit for
@@ -183,6 +187,10 @@ export interface Asset {
   prompt: string;
   mediaUrl?: string;
   imageUrl?: string;
+  /** Lightweight browser-friendly preview for canvas/Inspector thumbnails. */
+  thumbnailUrl?: string;
+  /** Original uploaded/generated image URL to use for generation inputs and downloads. */
+  sourceImageUrl?: string;
   referenceImageUrl?: string;
   /** Voice node metadata: reusable voice identity for narration/dialogue consistency. */
   voicePrompt?: string;
@@ -242,6 +250,8 @@ export interface Asset {
   referenceImageUrls?: string[];
   /** Debug metadata for generated images/storyboards: image model selected by the caller. */
   generationModel?: AssetImageModel;
+  /** Seedream image output size selected by the caller. Defaults to 2K when unset. */
+  seedreamSize?: AssetImageSize;
   /** Debug metadata for generated images/storyboards: concrete provider model id that actually ran. */
   generationModelActual?: string;
   /** Debug metadata for generated images/storyboards: credential route used for the last generation. */
@@ -773,6 +783,37 @@ export interface Session {
    */
   narrationBuiltForFinalVideoSignature?: string;
 
+  /**
+   * HyperFrames post-production package. This runs after stitching and creates a second publishable
+   * MP4 with title card / cover / manual subtitles / optional Volcengine TTS or music mixed in.
+   * The original stitch output remains untouched.
+   */
+  postProductionStatus?: PostProductionStatus;
+  postProductionStartedAt?: string;
+  postProductionUpdatedAt?: string;
+  postProductionError?: string;
+  postProductionProgress?: string;
+  postProductionVideoUrl?: string;
+  postProductionSignature?: string;
+  postProductionRunningSignature?: string;
+  postProductionBuiltForFinalVideoSignature?: string;
+  postProductionStitchJobId?: string;
+  postProductionTitle?: string;
+  postProductionSubtitle?: string;
+  postProductionCoverAssetId?: string;
+  postProductionSubtitleMode?: PostProductionSubtitleMode;
+  postProductionSubtitleText?: string;
+  postProductionAudioMode?: PostProductionAudioMode;
+  postProductionVoice?: string;
+  postProductionVoiceAssetId?: string;
+  postProductionVoiceoverScript?: string;
+  postProductionMusicPrompt?: string;
+  postProductionMusicLyrics?: string;
+  postProductionMusicKind?: MusicGenerationKind;
+  postProductionMusicDurationSec?: number;
+  postProductionSourceVolume?: number;
+  postProductionAudioVolume?: number;
+
   finalVideoReviewStatus?: VideoReviewStatus;
   finalVideoReview?: VideoReviewVerdict;
   finalVideoReviewError?: string;
@@ -917,6 +958,7 @@ export interface CreateSessionPayload {
 export interface GenerateAssetPayload {
   assetId: string;
   model?: AssetImageModel;
+  seedreamSize?: AssetImageSize;
 }
 
 export interface ExpandAssetPromptPayload {
