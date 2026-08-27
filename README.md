@@ -1,3 +1,5 @@
+
+
 <p align="center">
   <img src="docs/seereel-logo.png" alt="SeeReel" width="360" />
 </p>
@@ -411,10 +413,10 @@ npm run smoke:secrets
 npm run build
 ```
 
-Use the full offline check before release:
+Use the release check:
 
 ```bash
-npm run verify:offline
+npm run verify:release
 ```
 
 ## Security Notes
