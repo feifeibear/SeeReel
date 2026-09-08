@@ -86,7 +86,7 @@
       "datasource": { "type": "prometheus", "uid": "reelyai-prometheus" },
       "fieldConfig": { "defaults": { "unit": "short", "decimals": 0, "thresholds": { "steps": [{ "color": "orange", "value": null }] } } },
       "options": { "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false } },
-      "targets": [{ "expr": "sum(increase(reelyai_model_calls_total{model_family=~\"seedance-2-0.*\"}[24h])) or vector(0)", "instant": true, "range": false, "refId": "A" }]
+      "targets": [{ "expr": "sum(increase(reelyai_model_calls_total{model_family=~\"seedance-2-.*\"}[24h])) or vector(0)", "instant": true, "range": false, "refId": "A" }]
     },
     {
       "type": "stat",
@@ -106,7 +106,7 @@
       "datasource": { "type": "prometheus", "uid": "reelyai-prometheus" },
       "fieldConfig": { "defaults": { "unit": "short", "decimals": 0, "thresholds": { "steps": [{ "color": "blue", "value": null }] } } },
       "options": { "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false } },
-      "targets": [{ "expr": "sum(reelyai_model_artifacts_total{model_family=~\"seedance-2-0.*|seedream-.*\"}) or vector(0)", "instant": true, "range": false, "refId": "A" }]
+      "targets": [{ "expr": "sum(reelyai_model_artifacts_total{model_family=~\"seedance-2-.*|seedream-.*\"}) or vector(0)", "instant": true, "range": false, "refId": "A" }]
     },
     {
       "type": "barchart",
@@ -115,7 +115,7 @@
       "gridPos": { "h": 8, "w": 12, "x": 0, "y": 20 },
       "datasource": { "type": "prometheus", "uid": "reelyai-prometheus" },
       "fieldConfig": { "defaults": { "unit": "short", "decimals": 0 } },
-      "targets": [{ "expr": "sum by (model_family) (reelyai_model_artifacts_total{model_family=~\"seedance-2-0.*|seedream-.*\"})", "instant": true, "range": false, "legendFormat": "{{model_family}}", "refId": "A" }]
+      "targets": [{ "expr": "sum by (model_family) (reelyai_model_artifacts_total{model_family=~\"seedance-2-.*|seedream-.*\"})", "instant": true, "range": false, "legendFormat": "{{model_family}}", "refId": "A" }]
     },
     {
       "type": "table",
@@ -136,7 +136,7 @@
       "datasource": { "type": "prometheus", "uid": "reelyai-prometheus" },
       "fieldConfig": { "defaults": { "unit": "short", "decimals": 0 } },
       "targets": [
-        { "expr": "sum by (model_family) (increase(reelyai_model_calls_total{model_family=~\"seedance-2-0.*|seedream-.*\"}[5m]))", "legendFormat": "{{model_family}} / 5m", "refId": "A" }
+        { "expr": "sum by (model_family) (increase(reelyai_model_calls_total{model_family=~\"seedance-2-.*|seedream-.*\"}[5m]))", "legendFormat": "{{model_family}} / 5m", "refId": "A" }
       ]
     }
   ]

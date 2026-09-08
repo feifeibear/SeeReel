@@ -9,7 +9,7 @@ export type SubStoryboardModel = "seedream-4" | "seedream-4-5" | "seedream-5-lit
 export type SessionLanguage = "zh" | "en";
 
 export type ShotStatus = "draft" | "scripted" | "generating" | "ready" | "error" | "cancelled";
-export type SeedanceVariant = "fast" | "standard";
+export type SeedanceVariant = "fast" | "standard" | "2.5";
 export type AudioTrackMode = "voiceover" | "music";
 export type MusicGenerationKind = "bgm" | "song";
 export type AudioSeparationStatus = "idle" | "running" | "ready" | "error";
@@ -90,7 +90,7 @@ export interface TokenUsageBreakdown {
 }
 
 export type TokenUsageNodeType = "session" | "asset" | "shot" | "stitch" | "review" | "other";
-export type TokenUsageModelFamily = "seedream-4" | "seedream-4-5" | "seedream-5-lite" | "seedance-2-0" | "seedance-2-0-fast" | "other";
+export type TokenUsageModelFamily = "seedream-4" | "seedream-4-5" | "seedream-5-lite" | "seedance-2-0" | "seedance-2-0-fast" | "seedance-2-5" | "other";
 
 export interface TokenUsageEvent extends TokenUsageBreakdown {
   id: string;

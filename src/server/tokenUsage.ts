@@ -72,6 +72,7 @@ export function inferTokenUsageModelFamily(event: Pick<TokenUsageInput, "model" 
   ) return "seedream-5-lite";
   if (model.includes("seedream-4-5") || model.includes("seedream_4_5") || model.includes("seedream4.5")) return "seedream-4-5";
   if (model.includes("seedream-4") || model.includes("seedream_4") || model.includes("seedream4") || provider === "seedream") return "seedream-4";
+  if ((model.includes("2-5") || model.includes("2.5")) && (model.includes("seedance") || provider === "seedance")) return "seedance-2-5";
   if (model.includes("fast") && (model.includes("seedance") || provider === "seedance")) return "seedance-2-0-fast";
   if (model.includes("seedance") || provider === "seedance") return "seedance-2-0";
   return "other";

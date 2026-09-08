@@ -2828,6 +2828,7 @@ app.post("/api/sessions/:sessionId/shots", async (req, res) => {
     id: typeof reqBody.id === "string" ? reqBody.id : undefined,
     title: typeof reqBody.title === "string" ? reqBody.title : undefined,
     durationSec: typeof reqBody.durationSec === "number" ? reqBody.durationSec : undefined,
+    seedanceVariant: typeof reqBody.seedanceVariant === "string" ? reqBody.seedanceVariant as Shot["seedanceVariant"] : undefined,
     rawPrompt: typeof reqBody.rawPrompt === "string" ? reqBody.rawPrompt : undefined,
     prompt: typeof reqBody.prompt === "string" ? reqBody.prompt : undefined
   });

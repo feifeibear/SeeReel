@@ -12,6 +12,7 @@ import { composeSeedanceVideoText, composeSeedreamAssetPrompt, type Lang } from 
 import { fetchWithRetry } from "./fetchWithRetry";
 import { arkMissingKeyMessage, BYTEPLUS_ARK_BASE, resolveArkCredential, VOLCENGINE_CN_ARK_BASE, type ArkCredential, type StandardCredentialRouteConfig } from "./arkCredentials";
 import { seedreamWebSearchPayload } from "./seedreamOptions";
+import { clampSeedanceDurationSec, normalizeSeedanceVariant, seedanceReferenceLimits } from "../shared/seedanceModels";
 
 export interface BuildSeedancePayloadOpts {
   /** Override the assembled text content. Used when the user audited & edited the dryRun preview. */
@@ -33,11 +34,14 @@ export const MEDIA_DIR = path.resolve(process.cwd(), "data", "media");
 const BYTEPLUS_SEEDANCE_BASE = BYTEPLUS_ARK_BASE;
 const BYTEPLUS_SEEDANCE_MODEL = "dreamina-seedance-2-0-260128";
 const BYTEPLUS_SEEDANCE_FAST_MODEL = "dreamina-seedance-2-0-fast-260128";
+const BYTEPLUS_SEEDANCE_25_MODEL = "dreamina-seedance-2-5-260628";
 const VOLCENGINE_CN_SEEDANCE_BASE = VOLCENGINE_CN_ARK_BASE;
 const VOLCENGINE_CN_SEEDANCE_MODEL = "doubao-seedance-2-0";
 const VOLCENGINE_CN_SEEDANCE_FAST_MODEL = "doubao-seedance-2-0-fast";
+const VOLCENGINE_CN_SEEDANCE_25_MODEL = "doubao-seedance-2-5-260628";
 const AGENT_PLAN_SEEDANCE_MODEL = "doubao-seedance-2-0-260128";
 const AGENT_PLAN_SEEDANCE_FAST_MODEL = "doubao-seedance-2-0-fast-260128";
+const AGENT_PLAN_SEEDANCE_25_MODEL = "doubao-seedance-2-5-260628";
 const TERMINAL_STATUSES = new Set(["succeeded", "failed", "cancelled", "canceled"]);
 const STITCH_SIGNATURE_VERSION = "stitch-v4-normalized-crf18-high";
 const openAIKey = () => process.env.OAI_KEY || process.env.OPENAI_API_KEY;
@@ -1117,7 +1121,7 @@ async function generateShotVideoViaCustomEndpoint(shot: Shot, assets: Asset[], o
 export const REFERENCE_VIDEO_TOO_LONG_PREFIX = "[REFERENCE_VIDEO_TOO_LONG]";
 function decorateSeedanceError(status: number, text: string): string {
   const base = `Seedance API failed: ${status} ${text.slice(0, 1000)}`;
-  if (status === 400 && /video duration[^]*?must be less than or equal to 15\.\d/i.test(text)) {
+  if (status === 400 && /video duration[^]*?must be less than or equal to (15|30)\.\d/i.test(text)) {
     return `${REFERENCE_VIDEO_TOO_LONG_PREFIX} ${base}`;
   }
   return base;
@@ -1265,8 +1269,9 @@ export async function buildBytePlusSeedancePayload(shot: Shot, assets: Asset[], 
   // Dedupe reference videos by URL (the user may have uploaded the same file twice and produced
   // two assets sharing one TOS URL) AND drop any that collide with continuityVideoUrl (the wired
   // refvideo doesn't need to be sent as both `continuity` and `@-mention` ref). Then cap at the
-  // Seedance hard limit (3 video contents per request) so the upstream doesn't 400 us.
-  const SEEDANCE_VIDEO_LIMIT = 3;
+  // Seedance hard limit so the upstream doesn't 400 us. 2.0 allows 3 videos / 3 audios;
+  // 2.5 raises that to 10 videos / 10 audios / 30 images.
+  const referenceLimits = seedanceReferenceLimits(shot.seedanceVariant);
   const continuityUrlNorm = continuityVideoUrl;
   const seenVideoUrls = new Set<string>();
   if (continuityUrlNorm) seenVideoUrls.add(continuityUrlNorm);
@@ -1278,8 +1283,7 @@ export async function buildBytePlusSeedancePayload(shot: Shot, assets: Asset[], 
   }
   // Reserve 1 slot for continuityVideoUrl when it's set, then take up to (LIMIT - reserved).
   const continuitySlots = continuityUrlNorm ? 1 : 0;
-  const referenceVideos = dedupedReferenceVideos.slice(0, Math.max(0, SEEDANCE_VIDEO_LIMIT - continuitySlots));
-  const SEEDANCE_AUDIO_LIMIT = 3;
+  const referenceVideos = dedupedReferenceVideos.slice(0, Math.max(0, referenceLimits.video - continuitySlots));
   const continuityAudioUrlNorm = continuityAudioUrl;
   const seenAudioUrls = new Set<string>();
   if (continuityAudioUrlNorm) seenAudioUrls.add(continuityAudioUrlNorm);
@@ -1290,13 +1294,14 @@ export async function buildBytePlusSeedancePayload(shot: Shot, assets: Asset[], 
     dedupedReferenceAudios.push(item);
   }
   const continuityAudioSlots = continuityAudioUrlNorm ? 1 : 0;
-  const referenceAudios = dedupedReferenceAudios.slice(0, Math.max(0, SEEDANCE_AUDIO_LIMIT - continuityAudioSlots));
+  const referenceAudios = dedupedReferenceAudios.slice(0, Math.max(0, referenceLimits.audio - continuityAudioSlots));
+  const cappedReferenceImages = referenceImages.slice(0, referenceLimits.image);
 
   const promptAssetsForText = useFirstFrameMode && firstFrameAsset
     ? [firstFrameAsset]
     : subShotActive && subShotAsset
       ? [subShotAsset, ...subShotExtraReferences.map((r) => r.asset)]
-      : [...referenceImages, ...referenceVideos, ...referenceAudios].map((item) => item.asset);
+      : [...cappedReferenceImages, ...referenceVideos, ...referenceAudios].map((item) => item.asset);
 
   // Compose the text content. If the caller has a user-edited final prompt (`prebuiltText`),
   // keep that text at the head while still appending non-creative @reference binding metadata.
@@ -1365,7 +1370,7 @@ export async function buildBytePlusSeedancePayload(shot: Shot, assets: Asset[], 
             }
           ]
         : []),
-      ...referenceImages.map(({ url }) => ({
+      ...cappedReferenceImages.map(({ url }) => ({
         type: "image_url",
         image_url: { url },
         role: "reference_image"
@@ -1520,8 +1525,8 @@ function toPublicMediaUrl(url?: string) {
   return `${publicBase.replace(/\/$/, "")}${url}`;
 }
 
-function getShotDurationSec(shot: Pick<Shot, "durationSec">) {
-  return Math.min(Math.max(Number(shot.durationSec) || 1, 1), 15);
+function getShotDurationSec(shot: Pick<Shot, "durationSec" | "seedanceVariant">) {
+  return clampSeedanceDurationSec(shot.durationSec, shot.seedanceVariant);
 }
 
 // Hard ban on any on-screen text/captions/HUD/watermarks/logos in generated clips. Subtitles are
@@ -1537,7 +1542,7 @@ const NO_TEXT_OVERLAY_INSTRUCTION =
   "on a laptop screen the character is showing) is allowed — but DO NOT add any overlay text on " +
   "top of the footage.";
 
-function buildVideoPrompt(shot: Pick<Shot, "rawPrompt" | "prompt" | "durationSec">, assets: Asset[] = [], options: BuildVideoPromptOptions = {}) {
+function buildVideoPrompt(shot: Pick<Shot, "rawPrompt" | "prompt" | "durationSec" | "seedanceVariant">, assets: Asset[] = [], options: BuildVideoPromptOptions = {}) {
   const duration = getShotDurationSec(shot);
   const resolution = process.env.SEEDANCE_RATIO || "16:9";
   const referenceText = buildAssetReferenceText(assets, options);
@@ -1598,7 +1603,15 @@ function getAssetReferenceUsage(asset: Asset) {
 export function resolveSeedanceModel(shot: Pick<Shot, "seedanceVariant">, credential: ArkCredential = seedanceCredential()) {
   const usesAgentPlan = credential.source === "agent-plan";
   const usesVolcengineCn = credential.standardRoute === "volcengine-cn";
-  if (shot.seedanceVariant === "fast") {
+  const variant = normalizeSeedanceVariant(shot.seedanceVariant) || "standard";
+  if (variant === "2.5") {
+    return usesAgentPlan
+      ? process.env.SEEDANCE_AGENT_PLAN_25_MODEL || AGENT_PLAN_SEEDANCE_25_MODEL
+      : usesVolcengineCn
+        ? process.env.SEEDANCE_CN_25_MODEL || VOLCENGINE_CN_SEEDANCE_25_MODEL
+        : process.env.SEEDANCE_25_MODEL || BYTEPLUS_SEEDANCE_25_MODEL;
+  }
+  if (variant === "fast") {
     return usesAgentPlan
       ? process.env.SEEDANCE_AGENT_PLAN_FAST_MODEL || AGENT_PLAN_SEEDANCE_FAST_MODEL
       : usesVolcengineCn
