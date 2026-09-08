@@ -40,7 +40,7 @@ assert.match(
 
 assert.match(appSource, /api\.appendShot\([\s\S]*?durationSec:\s*15/, "new canvas video nodes should default to 15 seconds in the client");
 assert.match(inspectorSource, /useState<number>\(shot\.durationSec \|\| 15\)/, "Shot Inspector should fall back to a 15-second duration");
-assert.match(inspectorSource, /setDurationSec\(Number\(e\.target\.value\) \|\| 15\)/, "empty duration edits should fall back to 15 seconds");
+assert.match(inspectorSource, /setDurationSec\(clampSeedanceDurationSec\(Number\(e\.target\.value\) \|\| 15, seedanceVariant\)\)/, "empty duration edits should fall back to 15 seconds then clamp to the selected Seedance range");
 assert.match(storeSource, /partial\?\.durationSec \|\| 15/, "appendShot API should default omitted durations to 15 seconds");
 
 console.log("video node duration badge smoke passed");
