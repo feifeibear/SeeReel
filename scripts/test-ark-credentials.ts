@@ -39,6 +39,9 @@ const ENV_KEYS = [
   "SEEDANCE_API_BASE",
   "SEEDANCE_MODEL",
   "SEEDANCE_CN_MODEL",
+  "SEEDANCE_25_MODEL",
+  "SEEDANCE_CN_25_MODEL",
+  "SEEDANCE_AGENT_PLAN_25_MODEL",
   "ARK_API_KEY"
 ];
 
@@ -174,6 +177,7 @@ try {
     assert.equal(cnCredential.apiKey, "browser-cn-standard-key");
     assert.equal(cnCredential.apiBase, "https://ark.cn-beijing.volces.com/api/v3");
     assert.equal(resolveSeedanceModel({ seedanceVariant: "standard" }), "doubao-seedance-2-0");
+    assert.equal(resolveSeedanceModel({ seedanceVariant: "2.5" }), "doubao-seedance-2-5-260628");
 
     await clearRequestApiKey();
   });
@@ -230,6 +234,7 @@ try {
   assert.equal(cnEnvCredential.apiKey, "env-cn-key");
   assert.equal(cnEnvCredential.apiBase, "https://cn.example/api/v3");
   assert.equal(resolveSeedanceModel({ seedanceVariant: "standard" }), "doubao-seedance-2-0");
+  assert.equal(resolveSeedanceModel({ seedanceVariant: "2.5" }), "doubao-seedance-2-5-260628");
 
   delete process.env.CN_ARK_API_KEY;
   const cnSeedreamOnlyEnvCredential = resolveSeedreamCredential();
@@ -256,6 +261,7 @@ try {
   assert.equal(planEnvCredential.apiKey, "env-agent-plan-key");
   assert.equal(planEnvCredential.apiBase, ARK_AGENT_PLAN_BASE);
   assert.equal(resolveSeedanceModel({ seedanceVariant: "standard" }), "doubao-seedance-2-0-260128");
+  assert.equal(resolveSeedanceModel({ seedanceVariant: "2.5" }), "doubao-seedance-2-5-260628");
 
   assert.equal(resolveReviewModel("agent-plan"), "doubao-seed-2.0-pro");
   process.env.VISION_REVIEW_AGENT_PLAN_MODEL = "compatible-plan-vlm";

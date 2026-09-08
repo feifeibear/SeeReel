@@ -2,7 +2,7 @@
 
 Status: active
 Owner: SeeReel
-Last Reviewed: 2026-06-06
+Last Reviewed: 2026-09-08
 
 ## Purpose
 
@@ -79,7 +79,7 @@ Use this catalog as the source of truth for `KEY`, `ID`, `TOKEN`, and `SECRET`-c
 | Volcengine ASR resource ID | `VOLC_ASR_RESOURCE_ID` | None | No | ASR resource/model identifier. Default standard ASR 2.0 value is `volc.seedasr.auc`; flash mode uses `volc.bigasr.auc_turbo`. |
 | Rate-limit salt | `SEEREEL_RATE_LIMIT_SALT` | None | Yes | Salt for anonymous IP hashing; rotating changes rate-limit identity fingerprints. |
 
-Provider/model selector variables such as `POST_PRODUCTION_ASR_PROVIDER`, `POST_PRODUCTION_RENDERER`, `POST_PRODUCTION_SUBTITLE_FONT`, `POST_PRODUCTION_SUBTITLE_FONTSDIR`, `SEEDREAM_AGENT_PLAN_MODEL`, `SEEDANCE_AGENT_PLAN_MODEL`, `SEEDANCE_AGENT_PLAN_FAST_MODEL`, `VISION_REVIEW_AGENT_PLAN_MODEL`, `VIDEO_ANALYZE_AGENT_PLAN_MODEL`, `SEEDREAM_MODEL`, `SEEDREAM_45_MODEL`, `SEEDANCE_MODEL`, `SEEDANCE_FAST_MODEL`, and `VISION_REVIEW_MODEL` are not secrets. They may appear in specs, docs, diagnostics, and usage metrics, but must not be confused with API keys or tokens.
+Provider/model selector variables such as `POST_PRODUCTION_ASR_PROVIDER`, `POST_PRODUCTION_RENDERER`, `POST_PRODUCTION_SUBTITLE_FONT`, `POST_PRODUCTION_SUBTITLE_FONTSDIR`, `SEEDREAM_AGENT_PLAN_MODEL`, `SEEDANCE_AGENT_PLAN_MODEL`, `SEEDANCE_AGENT_PLAN_FAST_MODEL`, `SEEDANCE_AGENT_PLAN_25_MODEL`, `VISION_REVIEW_AGENT_PLAN_MODEL`, `VIDEO_ANALYZE_AGENT_PLAN_MODEL`, `SEEDREAM_MODEL`, `SEEDREAM_45_MODEL`, `SEEDANCE_MODEL`, `SEEDANCE_FAST_MODEL`, `SEEDANCE_25_MODEL`, `SEEDANCE_CN_25_MODEL`, and `VISION_REVIEW_MODEL` are not secrets. They may appear in specs, docs, diagnostics, and usage metrics, but must not be confused with API keys or tokens.
 
 ## Acceptance Criteria
 

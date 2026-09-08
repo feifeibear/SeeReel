@@ -246,6 +246,7 @@ ARK_AGENT_PLAN_BASE=https://ark.cn-beijing.volces.com/api/plan/v3
 SEEDREAM_AGENT_PLAN_MODEL=doubao-seedream-5.0-lite
 SEEDANCE_AGENT_PLAN_MODEL=doubao-seedance-2-0-260128
 SEEDANCE_AGENT_PLAN_FAST_MODEL=doubao-seedance-2-0-fast-260128
+SEEDANCE_AGENT_PLAN_25_MODEL=doubao-seedance-2-5-260628
 VISION_REVIEW_AGENT_PLAN_MODEL=doubao-seed-2.0-pro
 VIDEO_ANALYZE_AGENT_PLAN_MODEL=doubao-seed-2.0-pro
 ```
@@ -265,6 +266,8 @@ CN_SEEDREAM_API_BASE=https://ark.cn-beijing.volces.com/api/v3
 CN_SEEDANCE_API_KEY=<optional-seedance-only-cn-key>
 CN_SEEDANCE_API_BASE=https://ark.cn-beijing.volces.com/api/v3
 SEEDANCE_CN_MODEL=doubao-seedance-2-0
+SEEDANCE_CN_25_MODEL=doubao-seedance-2-5-260628
+SEEDANCE_25_MODEL=dreamina-seedance-2-5-260628
 ```
 
 TOS is separate and still required when local or Codex-generated references must be sent to remote Seedance workers:

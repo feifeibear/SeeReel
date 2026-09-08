@@ -32,7 +32,7 @@ type TokenUsageNodeSummary = {
   events: TokenUsageEvent[];
 };
 
-type TrackedTokenUsageModelFamily = Extract<TokenUsageModelFamily, "seedream-4" | "seedream-4-5" | "seedream-5-lite" | "seedance-2-0" | "seedance-2-0-fast">;
+type TrackedTokenUsageModelFamily = Extract<TokenUsageModelFamily, "seedream-4" | "seedream-4-5" | "seedream-5-lite" | "seedance-2-0" | "seedance-2-0-fast" | "seedance-2-5">;
 type CredentialTab = StandardApiKeyRoute | "agent-plan";
 
 function activeStandardApiRoute(tab: CredentialTab): StandardApiKeyRoute {
@@ -54,6 +54,7 @@ const tokenUsageFamilies: Array<{ key: TrackedTokenUsageModelFamily; label: stri
   { key: "seedream-4", label: "Seedream 4" },
   { key: "seedream-4-5", label: "Seedream 4.5" },
   { key: "seedream-5-lite", label: "Seedream 5.0 Lite" },
+  { key: "seedance-2-5", label: "Seedance 2.5" },
   { key: "seedance-2-0", label: "Seedance 2.0" },
   { key: "seedance-2-0-fast", label: "Seedance 2.0 Fast" }
 ];
@@ -149,6 +150,7 @@ function inferTokenUsageFamily(event: TokenUsageEvent): TokenUsageModelFamily {
   ) return "seedream-5-lite";
   if (model.includes("seedream-4-5") || model.includes("seedream_4_5") || model.includes("seedream4.5")) return "seedream-4-5";
   if (model.includes("seedream-4") || model.includes("seedream_4") || model.includes("seedream4") || provider === "seedream") return "seedream-4";
+  if ((model.includes("2-5") || model.includes("2.5")) && (model.includes("seedance") || provider === "seedance")) return "seedance-2-5";
   if (model.includes("fast") && (model.includes("seedance") || provider === "seedance")) return "seedance-2-0-fast";
   if (model.includes("seedance") || provider === "seedance") return "seedance-2-0";
   return "other";

@@ -18,6 +18,8 @@ const shotInspector = inspector.match(/function ShotInspector[\s\S]*?\n}\n\n\/\/
 assert.ok(shotInspector, "ShotInspector component should exist");
 assert.match(shotInspector[0], /Seedance 模型|Seedance model/, "video model picker should live in ShotInspector");
 assert.match(shotInspector[0], /seedanceVariant/, "ShotInspector should persist the selected Seedance variant on the shot");
+assert.match(shotInspector[0], /Seedance 2\.5/, "ShotInspector should expose Seedance 2.5");
+assert.match(shotInspector[0], /setSeedanceVariant\(nextVariant\)/, "ShotInspector should show Seedance model changes before the state refresh returns");
 
 const assetNode = nodes.match(/function AssetNodeImpl[\s\S]*?\n}\n\n\/\/ ============================================================================\n\/\/ StoryboardNode/);
 assert.ok(assetNode, "AssetNode component should exist");

@@ -243,6 +243,7 @@ ARK_AGENT_PLAN_BASE=https://ark.cn-beijing.volces.com/api/plan/v3
 SEEDREAM_AGENT_PLAN_MODEL=doubao-seedream-5.0-lite
 SEEDANCE_AGENT_PLAN_MODEL=doubao-seedance-2-0-260128
 SEEDANCE_AGENT_PLAN_FAST_MODEL=doubao-seedance-2-0-fast-260128
+SEEDANCE_AGENT_PLAN_25_MODEL=doubao-seedance-2-5-260628
 VISION_REVIEW_AGENT_PLAN_MODEL=doubao-seed-2.0-pro
 VIDEO_ANALYZE_AGENT_PLAN_MODEL=doubao-seed-2.0-pro
 ```
@@ -262,6 +263,8 @@ CN_SEEDREAM_API_BASE=https://ark.cn-beijing.volces.com/api/v3
 CN_SEEDANCE_API_KEY=<可选的 CN Seedance 专用 key>
 CN_SEEDANCE_API_BASE=https://ark.cn-beijing.volces.com/api/v3
 SEEDANCE_CN_MODEL=doubao-seedance-2-0
+SEEDANCE_CN_25_MODEL=doubao-seedance-2-5-260628
+SEEDANCE_25_MODEL=dreamina-seedance-2-5-260628
 ```
 
 TOS 是另一套对象存储配置。只要本地 / Codex 生成的参考图要发给远端 Seedance worker，就需要 TOS 或等价的公开 `http(s)` 媒体地址：

@@ -27,10 +27,12 @@ import { resolveNodeReviewEnabled } from "../../shared/reviewSettings";
 import { selectedShotPendingRender } from "../../shared/shotGenerationState";
 import { VOICE_PRESETS, voicePresetForId } from "../../shared/voicePresets";
 import { normalizeAssetImageModel, resolveAssetImageModelSelection } from "../../shared/imageModels";
+import { clampSeedanceDurationSec, isSeedance25, normalizeSeedanceVariant, seedanceDurationBounds } from "../../shared/seedanceModels";
 import { isShotVideoUpdatedAfterFinal } from "./stitchFreshness";
 import { assetThumbUrl as assetPreviewUrl } from "./mediaUrls";
 
 const INSPECTOR_SEEDANCE_OPTIONS: Array<{ value: SeedanceVariant; label: string }> = [
+  { value: "2.5", label: "Seedance 2.5" },
   { value: "standard", label: "Seedance 2.0" },
   { value: "fast", label: "Seedance 2.0 Fast" }
 ];
@@ -1388,6 +1390,9 @@ function ShotInspector({ shot, session, allAssets, visionReviewEnabled, onMutate
 }) {
   const [rawPrompt, setRawPrompt] = useState(shot.rawPrompt || shot.prompt || "");
   const [durationSec, setDurationSec] = useState<number>(shot.durationSec || 15);
+  const [seedanceVariant, setSeedanceVariant] = useState<SeedanceVariant>(
+    () => normalizeSeedanceVariant(shot.seedanceVariant) || "standard"
+  );
   const [title, setTitle] = useState<string>(shot.title || "");
   const [busy, setBusy] = useState<"" | "save" | "generate" | "rename" | "derive-switch" | "restore" | "delete-render" | "review" | "firstframe" | "tailframe" | "tailclip">("");
   const [error, setError] = useState<string>("");
@@ -1405,6 +1410,7 @@ function ShotInspector({ shot, session, allAssets, visionReviewEnabled, onMutate
     const nextDurationSec = shot.durationSec || 15;
     setRawPrompt(nextRawPrompt);
     setDurationSec(nextDurationSec);
+    setSeedanceVariant(normalizeSeedanceVariant(shot.seedanceVariant) || "standard");
     setTitle(shot.title || "");
     setError("");
     setSaveStatus("saved");
@@ -1704,21 +1710,38 @@ function ShotInspector({ shot, session, allAssets, visionReviewEnabled, onMutate
         </div>
       )}
       <div className="inspector-row">
-        <label>{tr("时长 (秒)", "Duration (sec)")}<input type="number" min={1} max={15} value={durationSec} onChange={(e) => setDurationSec(Number(e.target.value) || 15)} /></label>
+        <label>{tr("时长 (秒)", "Duration (sec)")}<input
+          type="number"
+          min={seedanceDurationBounds(seedanceVariant).min}
+          max={seedanceDurationBounds(seedanceVariant).max}
+          value={durationSec}
+          onChange={(e) => setDurationSec(clampSeedanceDurationSec(Number(e.target.value) || 15, seedanceVariant))}
+        /></label>
         <label>{tr("状态", "Status")}<input value={status} disabled /></label>
       </div>
+      {isSeedance25(seedanceVariant) && (
+        <div className="inspector-hint">{tr("Seedance 2.5 支持 4–30 秒。", "Seedance 2.5 supports 4–30 seconds.")}</div>
+      )}
       <label>{tr("Seedance 模型", "Seedance model")}
         <select
-          value={shot.seedanceVariant || "standard"}
+          value={seedanceVariant}
           title={t.nodes.nextSeedanceModelTitle}
           disabled={Boolean(busy)}
           onChange={async (e) => {
+            const nextVariant = e.target.value as SeedanceVariant;
+            const previousVariant = seedanceVariant;
+            const nextDuration = clampSeedanceDurationSec(durationSec, nextVariant);
+            setSeedanceVariant(nextVariant);
+            setDurationSec(nextDuration);
             setBusy("save"); setError("");
             try {
-              await api.updateShot(shot.id, { seedanceVariant: e.target.value as SeedanceVariant });
+              await api.updateShot(shot.id, { seedanceVariant: nextVariant, durationSec: nextDuration });
+              lastSavedRef.current = { ...lastSavedRef.current, durationSec: nextDuration };
               await onMutated();
             } catch (err) {
-              setError(err instanceof Error ? err.message : "设置 Seedance 模型失败");
+              setSeedanceVariant(previousVariant);
+              setDurationSec(durationSec);
+              setError(err instanceof Error ? err.message : tr("设置 Seedance 模型失败", "Failed to set Seedance model"));
             } finally { setBusy(""); }
           }}
         >

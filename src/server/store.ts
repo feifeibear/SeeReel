@@ -1,6 +1,7 @@
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import path from "node:path";
 import type { Asset, CreateSessionPayload, GalleryItem, GalleryPublishPayload, Session, Shot, ShotRender, StitchJob, StoreSnapshot, TokenUsageEvent } from "../shared/types";
+import { clampSeedanceDurationSec, normalizeSeedanceVariant } from "../shared/seedanceModels";
 import { observeStoreSave } from "./metrics";
 
 export const DATA_DIR = path.resolve(process.cwd(), "data");
@@ -175,12 +176,15 @@ export class CinemaStore {
       title: partial?.title || `Shot ${nextIndex}`,
       script: partial?.script ?? "",
       camera: partial?.camera ?? "",
-      durationSec: Math.max(1, Math.min(15, partial?.durationSec || 15)),
+      durationSec: clampSeedanceDurationSec(
+        partial?.durationSec || 15,
+        normalizeSeedanceVariant(partial?.seedanceVariant) || "standard"
+      ),
       assetIds: partial?.assetIds ?? [],
       rawPrompt: partial?.rawPrompt ?? "",
       prompt: partial?.prompt ?? partial?.rawPrompt ?? "",
       debugNote: "",
-      seedanceVariant: partial?.seedanceVariant || "standard",
+      seedanceVariant: normalizeSeedanceVariant(partial?.seedanceVariant) || "standard",
       usePreviousShotClip: false,
       renders: [],
       status: "draft",
@@ -868,6 +872,16 @@ export class CinemaStore {
     const leavingGenerating = Object.hasOwn(patch, "status") && patch.status !== "generating";
     if ((clearingTask || leavingGenerating) && !Object.hasOwn(patch, "seedancePhase")) {
       (patch as Partial<Shot>).seedancePhase = undefined;
+    }
+    if (Object.hasOwn(patch, "seedanceVariant")) {
+      const normalized = normalizeSeedanceVariant(patch.seedanceVariant);
+      if (normalized) patch.seedanceVariant = normalized;
+      else delete patch.seedanceVariant;
+    }
+    const nextVariant = normalizeSeedanceVariant(patch.seedanceVariant) || normalizeSeedanceVariant(shot.seedanceVariant) || "standard";
+    if (Object.hasOwn(patch, "durationSec") || Object.hasOwn(patch, "seedanceVariant")) {
+      const duration = Object.hasOwn(patch, "durationSec") ? patch.durationSec : shot.durationSec;
+      patch.durationSec = clampSeedanceDurationSec(duration, nextVariant);
     }
     Object.assign(shot, patch, { id: shot.id, sessionId: shot.sessionId, updatedAt: now() });
     await this.save();
